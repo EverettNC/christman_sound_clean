@@ -344,8 +344,14 @@ def test_lucent_cornea_optics_rhythm_and_body_signal_bridge():
     pose = pose_from_matrix(ident)
     assert pose is not None and pose["pitch_deg"] == 0.0
 
-    gaze = gaze_from_blendshapes({"eyeLookOutRight": 0.6, "eyeLookInLeft": 0.6})
+    eyes = {k: 0.0 for k in ("eyeLookInLeft", "eyeLookOutLeft", "eyeLookInRight", "eyeLookOutRight",
+                             "eyeLookUpLeft", "eyeLookUpRight", "eyeLookDownLeft", "eyeLookDownRight",
+                             "eyeBlinkLeft", "eyeBlinkRight")}
+    gaze = gaze_from_blendshapes({**eyes, "eyeLookOutRight": 0.6, "eyeLookInLeft": 0.6})
     assert gaze["cell"] == "middle-right"
+    # 2026-10-30: a missing blendshape is not zero; nothing is read and it is named.
+    partial = gaze_from_blendshapes({"eyeLookOutRight": 0.6, "eyeLookInLeft": 0.6})
+    assert partial["cell"] is None and "eyeBlinkLeft" in partial["reason"]
 
     bl = BlinkLog()
     bl.observe(1000.0, True)
@@ -477,15 +483,26 @@ def test_whole_house_smell_skin_and_memory_chamber():
     assert empty_skin["available"] is False and empty_skin["posture"] is None
     assert "could not measure" in empty_skin["honesty_note"]
 
-    # 1 scalar channel refuses to invent chemical species
+    # OpenSmell, ported from THEWHOLEHOUSE (2026-10-30): its 21 live profiles,
+    # named channels, alert at 0.7. One MQ-135 reading is one voltage: no profile.
+    from christman_voice_sdk.audio.whole_house import SMELL_PROFILES, classify
+    assert len(SMELL_PROFILES) == 21
     one_ch = classify_smell(0.42)
-    assert one_ch["channel_count"] == 1
-    assert one_ch["species"] == []
-    assert "cannot separate chemical species" in one_ch["honesty_note"]
+    assert one_ch["available"] is True and one_ch["scalarOnly"] is True
+    assert one_ch["hits"] == []
+    assert one_ch["honesty"]["clinical"] is False
+    assert classify_smell(None)["available"] is False
 
-    # 4-channel vector matches coffee roast
-    multi = classify_smell({"channels": [0.62, 0.48, 0.18, 0.35]})
-    assert multi["species"][0]["id"] == "coffee_roast"
+    # Named channels, scored as classify.ts scores them.
+    multi = classify_smell({"channels": {"acetone": 0.9, "propanol": 0.8}})
+    top = multi["hits"][0]
+    assert top["profileKey"] == "ketoacidosis"
+    assert abs(top["confidence"] - 1.0 * 0.85 * (2 ** 0.5 / 3 ** 0.5)) < 1e-9
+    assert top["alert"] is False  # 0.694 < 0.7
+    strong = classify({"acetone": 1.0, "propanol": 1.0})
+    assert strong[0]["profileKey"] == "ketoacidosis" and strong[0]["alert"] is True  # 0.816 >= 0.7
+    # A channel under the detect threshold is not read.
+    assert classify({"acetone": 0.29}) == []
 
     skin = frame_from_sense({"pads": [0.8, 0.75, 0.7, 0.72], "imu_delta_g": 0.05})
     assert skin["posture"] == "press"
@@ -784,6 +801,27 @@ def test_voice_creation_center_measures_and_builds_from_a_beings_recordings(tmp_
     assert confs and len(set(confs)) > 1
 
 
+def test_voice_pack_builds_from_a_beings_recordings_and_loads_back(tmp_path):
+    """
+    2026-10-30: the voice pack calls methods that exist. Needs
+    CHRISTMAN_VOICE_RECORDINGS (a being's recordings), torch (the timbre
+    modeler imports it) and Praat (voice quality).
+    """
+    folder = os.environ.get("CHRISTMAN_VOICE_RECORDINGS")
+    if not folder:
+        pytest.skip("not run: needs CHRISTMAN_VOICE_RECORDINGS (a being's recorded phrases); runs on Everett's Mac")
+    pytest.importorskip("torch", reason="not run: torch is not installed here (the timbre modeler imports it)")
+    pytest.importorskip("parselmouth", reason="not run: Praat (parselmouth) is not installed here")
+    from christman_sound.voice_creation_center import package_voicepack_center
+
+    recs = sorted(Path(folder).expanduser().glob(os.environ.get("CHRISTMAN_VOICE_PREFIX", "") + "*.wav"))[:4]
+    res = package_voicepack_center("test pack", recs, tmp_path / "packs" / "test.voicepack")
+    assert res["status"] == "ok"
+    assert Path(res["voicepack_path"]).is_file()
+    assert res["reference_audio_count"] == len(recs)
+    assert res["metadata"]["name"] == "test pack"
+
+
 def test_new_modules_import_no_numpy_scipy_or_outside_audio_packages(tmp_path):
     """Run frames, dispersion, being, voice_creation_center, corti_canal,
     lucent_reader, whole_house, and ear/porch with numpy, scipy, soundfile,
@@ -825,7 +863,7 @@ assert convert_unit(440.0, "hz")["hz"] == 440.0
 assert "misread" in reconstruct_dialect("Miss Reed").as_said
 assert 0.0 < freq_to_place(440.0) < 1.0
 assert evaluate_optics(CORNEA_PRESETS["emmetropic"]).d_cornea_total > 40.0
-assert classify_smell(0.5)["species"] == []
+assert classify_smell(0.5)["hits"] == []
 loaded = sorted(m for m in sys.modules if m.split(".")[0] in BLOCK)
 print("OK", loaded)
 """

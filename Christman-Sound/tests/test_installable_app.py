@@ -153,6 +153,18 @@ def test_api_hear_crisis_and_nonverbal():
     assert r_sym.get_json()["turn"]["person_message"] == "I'm hungry."
 
 
+def test_api_hear_grounding_comes_from_a_measured_level_or_says_none_was():
+    """2026-10-30: no made-up 0.75 stress score, no method that does not exist."""
+    client = create_app().test_client()
+    said = "I can't breathe I'm panicking"
+    body = client.post("/api/hear", json={"text": said}).get_json()
+    assert body["turn"]["decision"]["delivery"]["needs_grounding"] is True
+    assert body["grounding_script"]["available"] is False
+    assert "no stress_level or grounding_level" in body["grounding_script"]["reason"]
+    body = client.post("/api/hear", json={"text": said, "stress_level": 0.9}).get_json()
+    assert body["grounding_script"]["type"] == "breathing"
+
+
 def test_install_desktop_bundle_creates_macos_app_structure(tmp_path):
     created = install_desktop_bundle(tmp_path)
     assert "macos_app" in created

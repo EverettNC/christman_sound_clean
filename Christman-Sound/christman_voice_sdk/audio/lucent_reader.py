@@ -200,6 +200,13 @@ def pose_from_matrix(m: Sequence[float]) -> Optional[Dict[str, float]]:
     }
 
 
+_GAZE_BLENDSHAPES: Tuple[str, ...] = (
+    "eyeLookInLeft", "eyeLookOutLeft", "eyeLookInRight", "eyeLookOutRight",
+    "eyeLookUpLeft", "eyeLookUpRight", "eyeLookDownLeft", "eyeLookDownRight",
+    "eyeBlinkLeft", "eyeBlinkRight",
+)
+
+
 def gaze_from_blendshapes(shapes: Optional[Mapping[str, float]]) -> Dict[str, Any]:
     """Compute 9-cell gaze and blink state from measured eye blendshapes.
     If no blendshapes are provided, returns None fields rather than inventing center gaze."""
@@ -211,14 +218,26 @@ def gaze_from_blendshapes(shapes: Optional[Mapping[str, float]]) -> Dict[str, An
             "blink": None,
             "reason": "could not measure: no eye blendshapes provided",
         }
-    left_in = float(shapes.get("eyeLookInLeft", 0.0))
-    left_out = float(shapes.get("eyeLookOutLeft", 0.0))
-    right_in = float(shapes.get("eyeLookInRight", 0.0))
-    right_out = float(shapes.get("eyeLookOutRight", 0.0))
-    up = 0.5 * (float(shapes.get("eyeLookUpLeft", 0.0)) + float(shapes.get("eyeLookUpRight", 0.0)))
-    down = 0.5 * (float(shapes.get("eyeLookDownLeft", 0.0)) + float(shapes.get("eyeLookDownRight", 0.0)))
-    blink_l = float(shapes.get("eyeBlinkLeft", 0.0))
-    blink_r = float(shapes.get("eyeBlinkRight", 0.0))
+    # 2026-10-30: a blendshape the face model did not send used to count as 0.0,
+    # so a missing reading came out as looking straight ahead. Every one of the
+    # ten is needed; with any missing, nothing is read and the missing are named.
+    missing = [k for k in _GAZE_BLENDSHAPES if not isinstance(shapes.get(k), (int, float))]
+    if missing:
+        return {
+            "x": None,
+            "y": None,
+            "cell": None,
+            "blink": None,
+            "reason": f"could not measure: eye blendshapes missing: {missing}",
+        }
+    left_in = float(shapes["eyeLookInLeft"])
+    left_out = float(shapes["eyeLookOutLeft"])
+    right_in = float(shapes["eyeLookInRight"])
+    right_out = float(shapes["eyeLookOutRight"])
+    up = 0.5 * (float(shapes["eyeLookUpLeft"]) + float(shapes["eyeLookUpRight"]))
+    down = 0.5 * (float(shapes["eyeLookDownLeft"]) + float(shapes["eyeLookDownRight"]))
+    blink_l = float(shapes["eyeBlinkLeft"])
+    blink_r = float(shapes["eyeBlinkRight"])
 
     gx = 0.5 * ((right_out - right_in) + (left_in - left_out))
     gy = up - down

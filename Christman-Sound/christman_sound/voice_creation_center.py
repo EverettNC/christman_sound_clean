@@ -584,38 +584,50 @@ def package_voicepack_center(
     name: str,
     wav_paths: Sequence[Union[str, Path]],
     out_path: Union[str, Path],
-    author: str = "Christman Voice Creation Center",
-    description: str = "Sovereign measured voicepack",
 ) -> Dict[str, Any]:
-    """Build and verify a `.voicepack` archive through `christman_voice_sdk.timbre.voicepack`."""
+    """
+    Build and load back a `.voicepack` archive through
+    `christman_voice_sdk.timbre.voicepack`.
+
+    WHAT CHANGED AND WHY (2026-10-30): this called TimbreModeler
+    .create_voice_profile and VoicepackBuilder.create_voicepack and
+    .load_voicepack, none of which exist, and built VoicepackMetadata with
+    fields it does not have (author, description, created_at, sample_rate,
+    emotion_support), so it could never succeed. It now segments each
+    recording with AudioProcessor, measures the profile with
+    TimbreModeler.build_voice_profile (Praat for voice quality; it raises
+    when a quality cannot be measured), builds with VoicepackBuilder.build and
+    loads it back with .load.
+    """
+    from christman_voice_sdk.audio.audio_processor import AudioProcessor
     from christman_voice_sdk.timbre.timbre_modeler import TimbreModeler
     from christman_voice_sdk.timbre.voicepack import VoicepackBuilder, VoicepackMetadata
 
-    modeler = TimbreModeler()
-    profile = modeler.create_voice_profile([str(Path(p).expanduser()) for p in wav_paths], profile_name=name)
-    meta = VoicepackMetadata(
-        name=name,
-        version="1.0.0",
-        author=author,
-        description=description,
-        created_at=datetime.now().isoformat(),
-        sample_rate=FRAME_SR,
-        emotion_support=["neutral"],
-    )
-    builder = VoicepackBuilder()
+    paths = [Path(p).expanduser() for p in wav_paths]
+    if not paths:
+        raise VoiceBuildRefused("no recordings given: a voice pack is built from the being's own recordings")
+    missing = [str(p) for p in paths if not p.is_file()]
+    if missing:
+        raise VoiceBuildRefused(f"recordings not found: {missing}")
+    processor = AudioProcessor(target_sr=FRAME_SR)
+    segments = [seg for p in paths for seg in processor.process_file(str(p))]
+    if not segments:
+        raise VoiceBuildRefused("no speech segment found in the recordings; nothing to measure a voice from")
+    profile = TimbreModeler(device="cpu", use_x_vectors=False).build_voice_profile(segments)
     target = Path(out_path).expanduser()
-    target.parent.mkdir(parents=True, exist_ok=True)
-    built_path = builder.create_voicepack(
-        voice_profile=profile.to_dict(),
-        reference_audio=[Path(p).expanduser() for p in wav_paths],
-        metadata=meta,
-        output_path=target,
+    builder = VoicepackBuilder(output_dir=target.parent)
+    built = builder.build(
+        name=target.stem,
+        voice_profile=profile,
+        reference_audio=paths,
+        metadata=VoicepackMetadata(name=name, sample_count=len(paths)),
         encrypt=False,
     )
-    loaded = builder.load_voicepack(built_path)
+    loaded = builder.load(built)
     return {
         "status": "ok",
-        "voicepack_path": str(built_path),
+        "voicepack_path": str(built),
         "metadata": loaded["metadata"],
         "reference_audio_count": len(loaded["reference_audio"]),
+        "segments_measured": len(segments),
     }

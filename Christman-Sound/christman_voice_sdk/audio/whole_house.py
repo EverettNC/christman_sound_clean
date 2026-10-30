@@ -24,6 +24,10 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 __all__ = [
     "HOUSE_CHANNEL",
     "SMELL_PROFILES",
+    "SENSOR_CHANNELS",
+    "SMELL_HONESTY_RULE",
+    "parse_channels",
+    "classify",
     "SKIN_POSTURES",
     "ELEMENTS",
     "RESONANCE_GATE",
@@ -58,22 +62,6 @@ HOUSE_CHANNEL = "thewholehouse"
 # Each is held until client data replaces it, with its reason written beside it:
 # -----------------------------------------------------------------------------
 
-#: Scalar MQ-135 high-load alert threshold (0.75 of full-scale ADC range).
-#: CHOSEN STARTING VALUE, NOT A MEASUREMENT — held until client data replaces
-#: it. Reason: upper quartile (75%) of normalized reducing-gas voltage load.
-SCALAR_HAZARD_LOAD = 0.75
-
-#: Multi-channel MOS vector cosine/Euclidean similarity floor (0.55).
-#: CHOSEN STARTING VALUE, NOT A MEASUREMENT — held until client data replaces
-#: it. Reason: requires better than half-scale vector agreement (RMS channel
-#: distance <= 0.45) before naming a candidate profile.
-PROFILE_SIMILARITY_FLOOR = 0.55
-
-#: Hazard profile alert threshold (0.70). CHOSEN STARTING VALUE, NOT A
-#: MEASUREMENT — held until client data replaces it. Reason: carried from
-#: thewholehouse src/lib/smell/types.ts (ALERT_THRESHOLD = 0.7).
-HAZARD_CONFIDENCE_FLOOR = 0.70
-
 #: Skin haptic posture thresholds. CHOSEN STARTING VALUES, NOT MEASUREMENTS —
 #: held until client data replaces them. Reasons:
 #: - RECOIL_MIN_IMU_G (1.2 g) & RECOIL_MIN_PAD (0.55): sharp jolt above 1 g with
@@ -101,101 +89,209 @@ HOLD_MIN_MEAN_PAD = 0.15
 #: completes.
 RESONANCE_GATE = 1.15
 
-SMELL_PROFILES: Tuple[Dict[str, Any], ...] = (
-    {"id": "clean_air", "label": "Clean Baseline Air", "category": "baseline", "vector": (0.05, 0.05, 0.05, 0.05)},
-    {"id": "coffee_roast", "label": "Fresh Coffee (Furan / Pyrazine)", "category": "kitchen", "vector": (0.62, 0.48, 0.18, 0.35)},
-    {"id": "citrus_terpene", "label": "Citrus Peel (d-Limonene)", "category": "botanical", "vector": (0.74, 0.22, 0.15, 0.28)},
-    {"id": "pine_pinene", "label": "Pine Resin (alpha-Pinene)", "category": "botanical", "vector": (0.68, 0.19, 0.22, 0.31)},
-    {"id": "lavender_linalool", "label": "Lavender (Linalool)", "category": "botanical", "vector": (0.58, 0.25, 0.12, 0.24)},
-    {"id": "ethanol_vapor", "label": "Ethanol / Sanitizer", "category": "solvent", "vector": (0.88, 0.30, 0.20, 0.15)},
-    {"id": "isopropanol", "label": "Isopropyl Alcohol", "category": "solvent", "vector": (0.85, 0.35, 0.25, 0.18)},
-    {"id": "acetone_ketone", "label": "Acetone", "category": "solvent", "vector": (0.90, 0.42, 0.28, 0.12)},
-    {"id": "ammonia_nh3", "label": "Ammonia (NH3)", "category": "hazard", "vector": (0.45, 0.88, 0.32, 0.20)},
-    {"id": "hydrogen_sulfide", "label": "Hydrogen Sulfide (H2S)", "category": "hazard", "vector": (0.38, 0.82, 0.76, 0.25)},
-    {"id": "carbon_monoxide", "label": "Carbon Monoxide / Incomplete Combustion", "category": "hazard", "vector": (0.30, 0.40, 0.92, 0.45)},
-    {"id": "wood_smoke", "label": "Wood Smoke (Guaiacol / Syringol)", "category": "combustion", "vector": (0.72, 0.55, 0.84, 0.68)},
-    {"id": "toast_maillard", "label": "Toasted Bread (Maillard)", "category": "kitchen", "vector": (0.52, 0.44, 0.38, 0.42)},
-    {"id": "burnt_plastic", "label": "Overheated Polymer / Insulation", "category": "hazard", "vector": (0.78, 0.66, 0.88, 0.74)},
-    {"id": "natural_gas_mercaptan", "label": "Natural Gas + t-Butyl Mercaptan", "category": "hazard", "vector": (0.82, 0.75, 0.65, 0.22)},
-    {"id": "petrichor_geosmin", "label": "Rain on Soil (Geosmin)", "category": "ambient", "vector": (0.35, 0.18, 0.14, 0.48)},
-    {"id": "ozone_o3", "label": "Ozone (O3)", "category": "ambient", "vector": (0.22, 0.64, 0.48, 0.16)},
-    {"id": "vinegar_acetic", "label": "Acetic Acid / Vinegar", "category": "kitchen", "vector": (0.64, 0.52, 0.20, 0.30)},
-    {"id": "bleach_hypochlorite", "label": "Sodium Hypochlorite (Bleach)", "category": "cleaning", "vector": (0.28, 0.78, 0.44, 0.18)},
-    {"id": "garlic_allicin", "label": "Cooking Garlic (Allicin)", "category": "kitchen", "vector": (0.60, 0.68, 0.30, 0.40)},
-    {"id": "damp_mildew", "label": "Damp Mold / Microbial MVOC", "category": "ambient", "vector": (0.42, 0.38, 0.28, 0.72)},
+# -----------------------------------------------------------------------------
+# OpenSmell, the nose. WHAT CHANGED AND WHY (2026-10-30): this section held 21
+# household smells (coffee, citrus, pine, bleach, garlic...) each with four
+# numbers that appear nowhere in OpenSmell or THEWHOLEHOUSE, matched by
+# distance after padding missing channels with zeros, and a single MQ-135
+# reading could raise a hazard at 0.75. None of that was OpenSmell. It is now a
+# true port of THEWHOLEHOUSE src/lib/smell/{types,profiles,parse,classify}.ts:
+# OpenSmell's 21 live profiles (source: EverettNC/OpenSmell
+# opensmell_engine_truth.json), each read from named sensor channels, scored
+# coverage x mean intensity x specificity, alert at 0.7, and a single scalar
+# reading never becomes a profile.
+# -----------------------------------------------------------------------------
+
+#: types.ts SMELL_HONESTY_RULE, word for word.
+SMELL_HONESTY_RULE = (
+    "OpenSmell is one MQ-135 voltage, or a labeled file. Channel names are proxy labels, not GC-MS. "
+    "Not a diagnosis. Sample air is not the house."
 )
 
+#: types.ts SENSOR_CHANNELS, in its order.
+SENSOR_CHANNELS: Tuple[str, ...] = (
+    "acetone", "isoprene", "ammonia", "benzene", "alkanes", "aldehydes", "hydrocarbons",
+    "dimethyl_sulfide", "sulfur", "aliphatic_acids", "skatole", "ketones", "sebum_vocs",
+    "lipid_oxidation", "ethanol_trace", "toluene", "ethane", "propanol", "butane", "methane_trace",
+)
 
-def parse_smell_payload(raw: Any) -> Dict[str, Any]:
-    if isinstance(raw, (int, float)):
-        return {"channels": [float(raw)], "temp_c": None, "humidity_pct": None}
-    if isinstance(raw, Mapping):
-        if "channels" in raw and isinstance(raw["channels"], Sequence):
-            ch = [float(v) for v in raw["channels"]]
-        elif "mq135" in raw and raw["mq135"] is not None:
-            ch = [float(raw["mq135"])]
-        else:
-            ch = [float(raw[k]) for k in ("voc", "nh3", "co", "moisture") if k in raw and raw[k] is not None]
-        return {
-            "channels": ch,
-            "temp_c": float(raw["temp_c"]) if raw.get("temp_c") is not None else None,
-            "humidity_pct": float(raw["humidity_pct"]) if raw.get("humidity_pct") is not None else None,
-        }
-    return {"channels": [], "temp_c": None, "humidity_pct": None}
+#: types.ts, carried as written there.
+DETECT_THRESHOLD = 0.3
+MIN_CONFIDENCE = 0.2
+ALERT_THRESHOLD = 0.7
+CLASSIFY_TOP_N = 3
+
+#: profiles.ts LIVE_PROFILES: 21 profiles. The catalog of 26 is not used here.
+SMELL_PROFILES: Tuple[Dict[str, Any], ...] = (
+    {"key": "alzheimers", "condition": "Alzheimer's Disease", "category": "neurological", "severity": "high", "channels": ("lipid_oxidation",)},
+    {"key": "bladder_cancer", "condition": "Bladder Cancer", "category": "cancer", "severity": "critical", "channels": ("alkanes", "benzene")},
+    {"key": "breast_cancer", "condition": "Breast Cancer", "category": "cancer", "severity": "critical", "channels": ("aliphatic_acids", "hydrocarbons")},
+    {"key": "c_diff", "condition": "C. difficile", "category": "infectious", "severity": "high", "channels": ("aliphatic_acids", "propanol", "skatole")},
+    {"key": "colorectal_cancer", "condition": "Colorectal Cancer", "category": "cancer", "severity": "critical", "channels": ("ammonia", "sulfur", "skatole")},
+    {"key": "covid19", "condition": "COVID-19", "category": "infectious", "severity": "high", "channels": ("isoprene", "aldehydes")},
+    {"key": "depressive_spiral", "condition": "Depressive Spiral", "category": "psychiatric", "severity": "high", "channels": ("dimethyl_sulfide", "acetone")},
+    {"key": "diabetes_type1", "condition": "Diabetes (Type 1)", "category": "metabolic", "severity": "high", "channels": ("acetone",)},
+    {"key": "diabetes_type2", "condition": "Diabetes (Type 2)", "category": "metabolic", "severity": "high", "channels": ("acetone",)},
+    {"key": "fight_or_flight", "condition": "Fight-or-Flight Escalation", "category": "psychiatric", "severity": "critical", "channels": ("isoprene", "ammonia")},
+    {"key": "ketoacidosis", "condition": "Ketoacidosis", "category": "metabolic", "severity": "critical", "channels": ("acetone", "propanol")},
+    {"key": "liver_disease", "condition": "Liver Disease", "category": "metabolic", "severity": "high", "channels": ("dimethyl_sulfide",)},
+    {"key": "lung_cancer", "condition": "Lung Cancer", "category": "cancer", "severity": "critical", "channels": ("alkanes", "benzene", "aldehydes")},
+    {"key": "ovarian_cancer", "condition": "Ovarian Cancer", "category": "cancer", "severity": "critical", "channels": ("aldehydes", "hydrocarbons")},
+    {"key": "parkinsons", "condition": "Parkinson's Disease", "category": "neurological", "severity": "high", "channels": ("sebum_vocs", "aldehydes")},
+    {"key": "pre_seizure", "condition": "Pre-Seizure / Fit Warning", "category": "psychiatric", "severity": "critical", "channels": ("ammonia", "alkanes")},
+    {"key": "prostate_cancer", "condition": "Prostate Cancer", "category": "cancer", "severity": "critical", "channels": ("aldehydes", "ketones")},
+    {"key": "rage_cortisol", "condition": "Rage / Cortisol Spike", "category": "psychiatric", "severity": "high", "channels": ("acetone", "isoprene")},
+    {"key": "renal_failure", "condition": "Renal Failure", "category": "metabolic", "severity": "critical", "channels": ("ammonia", "dimethyl_sulfide", "toluene")},
+    {"key": "sepsis", "condition": "Sepsis", "category": "infectious", "severity": "critical", "channels": ("aliphatic_acids", "ammonia", "dimethyl_sulfide")},
+    {"key": "tuberculosis", "condition": "Tuberculosis", "category": "infectious", "severity": "critical", "channels": ("alkanes",)},
+)
+LIVE_PROFILE_COUNT = 21
+assert len(SMELL_PROFILES) == LIVE_PROFILE_COUNT
+
+_MAX_SIG = math.sqrt(max(1, *(len(p["channels"]) for p in SMELL_PROFILES)))
 
 
-def classify_smell(raw: Any) -> Dict[str, Any]:
-    parsed = parse_smell_payload(raw)
-    ch = parsed["channels"]
-    if not ch:
-        return {
-            "available": False,
-            "channel_count": 0,
-            "air_load": None,
-            "species": [],
-            "hazard": False,
-            "honesty_note": "could not measure: no sensor channels received",
-        }
-    if len(ch) == 1:
-        load = max(0.0, min(1.0, float(ch[0])))
-        return {
-            "available": True,
-            "channel_count": 1,
-            "air_load": round(load, 4),
-            "species": [],
-            "hazard": load >= SCALAR_HAZARD_LOAD,
-            "honesty_note": "1 scalar channel (MQ-135) measures nonspecific gas load only; cannot separate chemical species.",
-        }
+def _num(value: Any) -> Optional[float]:
+    """parse.ts num(): a finite number, or a string that is one; else None."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)) and math.isfinite(float(value)):
+        return float(value)
+    if isinstance(value, str) and value.strip():
+        try:
+            n = float(value)
+        except ValueError:
+            return None
+        return n if math.isfinite(n) else None
+    return None
 
-    vec = tuple(float(ch[i]) if i < len(ch) else 0.0 for i in range(4))
-    scored: List[Tuple[float, Dict[str, Any]]] = []
-    for prof in SMELL_PROFILES:
-        pv = prof["vector"]
-        dist = math.sqrt(sum((a - b) ** 2 for a, b in zip(vec, pv)) / 4.0)
-        sim = max(0.0, 1.0 - dist)
-        scored.append((sim, prof))
-    scored.sort(key=lambda item: item[0], reverse=True)
-    top = [
-        {
-            "id": p["id"],
-            "label": p["label"],
-            "category": p["category"],
-            "confidence": round(sim, 3),
-        }
-        for sim, p in scored[:3]
-        if sim >= PROFILE_SIMILARITY_FLOOR
-    ]
-    load = max(0.0, min(1.0, sum(vec) / len(vec)))
-    hazard = any(item["category"] == "hazard" and item["confidence"] >= HAZARD_CONFIDENCE_FLOOR for item in top)
+
+def _clamp01(n: float) -> float:
+    return max(0.0, min(1.0, n))
+
+
+def _analog_to_intensity(n: float) -> float:
+    """parse.ts analogToIntensity(): a 10-bit or 12-bit ADC count, or 0-1."""
+    if 1 < n <= 1023:
+        return _clamp01(n / 1023)
+    if 1 < n <= 4095:
+        return _clamp01(n / 4095)
+    return _clamp01(n)
+
+
+def parse_channels(raw: Any) -> Optional[Dict[str, float]]:
+    """parse.ts parseChannels(): only the named channels, each as intensity; None when there are none."""
+    if not isinstance(raw, Mapping):
+        return None
+    out: Dict[str, float] = {}
+    for key in SENSOR_CHANNELS:
+        v = _num(raw.get(key))
+        if v is None:
+            continue
+        out[key] = _analog_to_intensity(v)
+    return out or None
+
+
+def parse_smell_payload(raw: Any, fallback_kind: str = "serial") -> Optional[Dict[str, Any]]:
+    """parse.ts parseSmellPayload(): a reading, or None when there is nothing to read."""
+    if not isinstance(raw, Mapping):
+        n = _num(raw) if not isinstance(raw, str) else None
+        if n is None:
+            return None
+        return {"kind": fallback_kind, "claim": "record" if fallback_kind == "sample" else "living",
+                "intensity": _analog_to_intensity(n), "baseline": None, "channels": None, "at": time.time()}
+    kind = raw.get("kind") if raw.get("kind") in ("serial", "file", "sample") else fallback_kind
+    claim = raw.get("claim") if raw.get("claim") in ("simulation", "record", "living") else (
+        "record" if kind in ("sample", "file") else "living")
+    channels = parse_channels(raw.get("channels") if raw.get("channels") is not None else raw)
+    intensity_raw = _num(raw.get("intensity"))
+    if intensity_raw is None:
+        intensity_raw = _num(raw.get("aout"))
+    if intensity_raw is None:
+        intensity_raw = _num(raw.get("value"))
+    from_channels = (sum(channels.values()) / max(1, len(channels))) if channels else None
+    if intensity_raw is None and not channels:
+        return None
+    base = intensity_raw if intensity_raw is not None else from_channels
+    return {
+        "kind": kind,
+        "claim": claim,
+        "intensity": _analog_to_intensity(base if base is not None else 0.0),
+        "baseline": _num(raw.get("baseline")),
+        "channels": channels,
+        "at": time.time(),
+        "note": raw.get("note") if isinstance(raw.get("note"), str) else None,
+    }
+
+
+def classify(
+    channels: Optional[Mapping[str, float]],
+    detect_threshold: float = DETECT_THRESHOLD,
+    min_confidence: float = MIN_CONFIDENCE,
+    top_n: int = CLASSIFY_TOP_N,
+) -> List[Dict[str, Any]]:
+    """classify.ts classify(): coverage x mean intensity x specificity. A single scalar does not become twenty species."""
+    if not channels:
+        return []
+    detected: Dict[str, float] = {}
+    for key in SENSOR_CHANNELS:
+        raw = channels.get(key)
+        if not isinstance(raw, (int, float)) or not math.isfinite(float(raw)):
+            continue
+        v = _clamp01(float(raw))
+        if v >= detect_threshold:
+            detected[key] = v
+    if not detected:
+        return []
+    hits: List[Dict[str, Any]] = []
+    for profile in SMELL_PROFILES:
+        matched = [ch for ch in profile["channels"] if ch in detected]
+        if not matched:
+            continue
+        coverage = len(matched) / len(profile["channels"])
+        mean_intensity = sum(detected[ch] for ch in matched) / len(matched)
+        specificity = math.sqrt(len(matched)) / _MAX_SIG
+        confidence = min(1.0, coverage * mean_intensity * specificity)
+        if confidence < min_confidence:
+            continue
+        hits.append({
+            "profileKey": profile["key"],
+            "condition": profile["condition"],
+            "category": profile["category"],
+            "severity": profile["severity"],
+            "matchedChannels": matched,
+            "coverage": coverage,
+            "meanIntensity": mean_intensity,
+            "specificity": specificity,
+            "confidence": confidence,
+            "alert": confidence >= ALERT_THRESHOLD,
+        })
+    hits.sort(key=lambda h: h["confidence"], reverse=True)
+    return hits[:top_n]
+
+
+def classify_smell(raw: Any, fallback_kind: str = "serial") -> Dict[str, Any]:
+    """
+    A take (types.ts SmellTake): the reading, its hits, whether it was a
+    scalar only, and the honesty block. With nothing to read it says so.
+    """
+    reading = parse_smell_payload(raw, fallback_kind)
+    if reading is None:
+        return {"available": False, "reading": None, "hits": [], "scalarOnly": None,
+                "reason": "could not measure: no smell reading received"}
+    scalar_only = not reading["channels"]
     return {
         "available": True,
-        "channel_count": len(ch),
-        "air_load": round(load, 4),
-        "species": top,
-        "hazard": hazard,
-        "temp_c": parsed["temp_c"],
-        "humidity_pct": parsed["humidity_pct"],
-        "honesty_note": "multi-channel MOS profile match",
+        "reading": reading,
+        "hits": classify(reading["channels"]),
+        "scalarOnly": scalar_only,
+        "honesty": {
+            "nose": reading["kind"],
+            "claim": reading["claim"],
+            "channels": "scalar" if scalar_only else "proxy-labels",
+            "clinical": False,
+            "rule": SMELL_HONESTY_RULE,
+        },
     }
 
 
@@ -297,10 +393,7 @@ def whole_environment(house_state: Mapping[str, Any]) -> Dict[str, str]:
     route = porch.get("route") or []
     who = ", ".join(route) if route else str(ear.get("speaker") or "")
     what = str(porch.get("asSaid") or ear.get("text") or skin.get("posture") or "")
-    species = smell.get("species") or []
     where_parts = []
-    if species:
-        where_parts.append(str(species[0].get("label", "")))
     if cornea.get("cell"):
         where_parts.append(f"gaze {cornea['cell']}")
     where = " · ".join(p for p in where_parts if p)

@@ -646,12 +646,24 @@ class ChristmanSoundApp:
             except Exception as exc:
                 presence = {"error": str(exc)}
 
+        # WHAT CHANGED AND WHY (2026-10-30): this called Grounder().select_script,
+        # which does not exist, with a stress score of 0.75 nobody measured, and
+        # swallowed the error, so grounding never worked and read as "none
+        # needed". It now uses Grounder.get_grounding_for_state with the stress
+        # and grounding levels the caller measured (emotion_quantifier's
+        # stress_level rise, a 0-1 grounding level); with neither it says so.
         grounding = None
         if turn.decision and turn.decision.delivery.get("needs_grounding"):
-            try:
-                grounding = Grounder().select_script(stress_score=0.75)
-            except Exception:
-                grounding = None
+            def _level(key):
+                v = data.get(key)
+                return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+            technique = Grounder().get_grounding_for_state(
+                stress_level=_level("stress_level"), grounding_level=_level("grounding_level"))
+            grounding = technique if technique is not None else {
+                "available": False,
+                "reason": "grounding is needed, but no stress_level or grounding_level was measured and sent",
+            }
 
         return _json_resp({
             "status": "ok",
