@@ -228,3 +228,18 @@ def test_a_voice_name_cannot_reach_outside_the_voice_cache():
         r = client.post("/api/voice-creation-center",
                         json={"action": "measure_profile", "name": name, "wav_paths": ["x.wav"]})
         assert r.status_code == 400 and r.get_json()["kind"] == "UnsafeName", name
+
+
+def test_one_version_everywhere():
+    """2026-10-30: the version was 1.0.0 in four places and 1.1.0 in three."""
+    import re as _re
+
+    import christman_sound
+    import christman_voice_sdk
+
+    root = Path(__file__).resolve().parent.parent
+    declared = _re.search(r'^version = "([^"]+)"', (root / "pyproject.toml").read_text(), _re.M).group(1)
+    assert christman_sound.__version__ == declared
+    assert christman_voice_sdk.__version__ == declared
+    assert (root / "VERSION.txt").read_text().strip() == declared
+    assert create_app().test_client().get("/api/status").get_json()["version"] == declared

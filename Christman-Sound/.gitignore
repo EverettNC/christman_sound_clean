@@ -199,3 +199,6 @@ models/__snapshots__/
 vox-env/
 key.txt
 
+# Launchers are written by install.sh on the machine they run on (2026-10-30).
+/Christman Sound.app/
+/christman-sound.desktop

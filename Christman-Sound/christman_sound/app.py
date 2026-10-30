@@ -64,6 +64,7 @@ from .dispersion import SCENES, discern_canals, fuse_pcm, render_canal_source
 from .dsp import DSPUnavailable, PlaybackUnavailable, SynthRefused, SynthUnavailable, get_dsp
 from .ear.board import DIALECT_MAP, add_family, add_residual, snapshot as board_snapshot
 from .ear.mouth import CONF_FLOOR, dress as dress_filament, load_carbon, save_carbon
+from . import __version__
 from .ear.porch import FAMILY_NAMES, MOUTH_COOPERATION, reconstruct_dialect, recover_mangles
 from .ear.recognizer import discover_vosk_model
 from .formants import measure_formants
@@ -378,7 +379,7 @@ class ChristmanSoundApp:
 
         return _json_resp({
             "status": "online",
-            "version": "1.1.0",
+            "version": __version__,
             "cloud_dependencies": False,
             "dsp": {
                 "available": dsp.available,
@@ -1414,9 +1415,9 @@ def install_desktop_bundle(target_dir: Optional[Path] = None) -> Dict[str, str]:
   <key>CFBundleIdentifier</key>
   <string>org.christmanaiproject.christmansound</string>
   <key>CFBundleVersion</key>
-  <string>1.1.0</string>
+  <string>__VERSION__</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.1.0</string>
+  <string>__VERSION__</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleExecutable</key>
@@ -1427,7 +1428,7 @@ def install_desktop_bundle(target_dir: Optional[Path] = None) -> Dict[str, str]:
   <true/>
 </dict>
 </plist>
-"""
+""".replace("__VERSION__", __version__)
         (contents / "Info.plist").write_text(plist, encoding="utf-8")
         if icon_png.is_file():
             (res_dir / "AppIcon.png").write_bytes(icon_png.read_bytes())
@@ -1496,8 +1497,12 @@ def main_install(argv: Optional[List[str]] = None) -> int:
     args = ap.parse_args(argv)
 
     app = create_app()
-    build_res = app._handle_build_engines().get_json()
-    print(json.dumps(build_res, indent=2))
+    build = app._handle_build_engines()
+    print(json.dumps(build.get_json(), indent=2))
+    if build.status_code != 200:
+        # 2026-10-30: this returned 0 whatever the build did.
+        print("the C engines did not build; nothing installed", file=sys.stderr)
+        return 1
     target = Path(args.target_dir).expanduser() if args.target_dir else None
     installed = install_desktop_bundle(target)
     print("Installed desktop bundle:", json.dumps(installed, indent=2))

@@ -31,7 +31,11 @@ if TYPE_CHECKING:  # named for type checkers only; the sovereign path never impo
 
 #: The reason every cut speaking path gives until Everett's own synthesizer
 #: is wired in (it is being built on the claude/sovereign-synth branch).
-SOVEREIGN_NOT_WIRED = "sovereign synthesizer not wired yet"
+# 2026-10-30: this said "sovereign synthesizer not wired yet", which stopped
+# being true when christman_voice_sdk.synthesis.voice_synthesis was wired to
+# christman_sound.synth. The name is kept so callers still import it.
+SOVEREIGN_NOT_WIRED = ("this path is retired: speak through christman_voice_sdk.synthesis.voice_synthesis, "
+                       "which renders through christman_sound.synth")
 
 
 class DegradedSynthesisError(RuntimeError):

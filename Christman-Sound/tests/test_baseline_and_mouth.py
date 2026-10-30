@@ -15,6 +15,10 @@ import sys
 import numpy as np
 import pytest
 
+# 2026-10-30: audio_encoder imports torch at its top; without torch this whole
+# module used to stop the suite at collection. It is NOT RUN instead.
+pytest.importorskip("torch", reason="not run: torch is not installed here (audio_encoder imports it)")
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from christman_voice_sdk.audio import mouth as M  # noqa: E402

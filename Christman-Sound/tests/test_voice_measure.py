@@ -31,6 +31,10 @@ sys.path.insert(0, str(ROOT))
 from christman_sound.dsp import ChristmanDSP  # noqa: E402
 from christman_voice_sdk.tone import voice_measure as vm  # noqa: E402
 
+# 2026-10-30: these measure through Praat; without it they are NOT RUN, not failed.
+needs_praat = pytest.mark.skipif(vm._parselmouth is None,
+                                 reason="not run: Praat (parselmouth) is not installed here")
+
 
 @pytest.fixture(scope="module")
 def dsp(tmp_path_factory) -> ChristmanDSP:
@@ -126,6 +130,7 @@ def test_a_missing_library_raises_and_measures_nothing(tmp_path):
 # --------------------------------------------------- jitter, shimmer, HNR
 
 
+@needs_praat
 @pytest.mark.parametrize("sr", [24000, 44100])
 @pytest.mark.parametrize("spread", [0.01, 0.02, 0.04])
 def test_praat_reads_a_known_jitter(sr, spread):
@@ -137,6 +142,7 @@ def test_praat_reads_a_known_jitter(sr, spread):
     assert q.glottal_periods > 150
 
 
+@needs_praat
 @pytest.mark.parametrize("spread", [0.05, 0.10, 0.20])
 def test_praat_reads_a_known_shimmer(spread):
     sr = 24000
@@ -148,6 +154,7 @@ def test_praat_reads_a_known_shimmer(spread):
     assert q.jitter_local_pct < 0.05, "steady periods carry no jitter"
 
 
+@needs_praat
 @pytest.mark.parametrize("snr_db", [20.0, 10.0, 5.0])
 def test_praat_reads_a_known_harmonics_to_noise_ratio(snr_db):
     sr = 24000
@@ -158,6 +165,7 @@ def test_praat_reads_a_known_harmonics_to_noise_ratio(snr_db):
     assert abs(q.hnr_db - snr_db) < 1.5, q
 
 
+@needs_praat
 def test_silence_has_no_voice_quality_and_says_why():
     q = vm.voice_quality(np.zeros(24000, dtype=np.float32), 24000)
     assert q.jitter_local_pct is None and q.shimmer_local_pct is None and q.hnr_db is None
