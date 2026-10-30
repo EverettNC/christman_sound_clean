@@ -1,0 +1,175 @@
+"""
+Christman Music Engine - Musical Creativity as Composition Data
+
+A sovereign symbolic music engine for the Christman AI family.
+- Generates compositions as structured data (notes, durations, velocities)
+- Maps an emotion to a scale, a tempo and a key
+- Improvises melodies by a random walk on the chosen scale (generative by
+  design: the randomness is the composing, not a measurement)
+
+It makes no sound. Nothing here renders audio or sings.
+
+WHAT CHANGED AND WHY (2026-10-28, Lane 6)
+-----------------------------------------
+- "Vocal performance synthesis orchestrator" is gone from this docstring, and
+  `sing_melody()` is removed. It sang nothing: it returned a dict with the
+  melody and random syllables ("la", "ah", "oh" ...) labelled
+  "vocal_performance", and the README called the module "Music generation and
+  synthesis". Singing is not built.
+- The mido import is gone. Nothing used MidiFile, MidiTrack or Message, and
+  when mido was absent it logged a warning on the ROOT logger at import.
+- The musical memory no longer lands in ./christman_memory/music under
+  whatever directory the process started in, made at construction. The
+  default is $CHRISTMAN_AI_HOME/voice_sdk/music (default
+  ~/.christman_ai/voice_sdk/music), made when the memory is first saved.
+
+Patent Pending
+© 2026 Everett Nathaniel Christman & Misty Gail Christman
+The Christman AI Project — Luma Cognify AI
+Truth. Dignity. Protection. Transparency. No Erasure.
+"""
+
+import os
+import json
+import logging
+from datetime import datetime
+from typing import Dict, List, Optional, Any
+import random
+
+from ..audio.config import sdk_data_root
+
+logger = logging.getLogger(__name__)
+
+
+class ChristmanMusicEngine:
+    """
+    Christman music engine: composition as data. Makes no sound.
+    """
+
+    def __init__(self, memory_path: Optional[str] = None):
+        # Path only; made when the memory is first saved.
+        self.memory_path = str(memory_path) if memory_path else str(sdk_data_root() / "voice_sdk" / "music")
+
+        self.musical_memory = self._load_musical_memory()
+        self.current_mood = "creative"
+        self.preferred_styles = ["electronic", "ambient", "jazz", "experimental"]
+
+        # Music theory knowledge
+        self.notes = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+        self.scales = {
+            "major": [0, 2, 4, 5, 7, 9, 11],
+            "minor": [0, 2, 3, 5, 7, 8, 10],
+            "pentatonic": [0, 2, 4, 7, 9],
+            "blues": [0, 3, 5, 6, 7, 10],
+            "dorian": [0, 2, 3, 5, 7, 9, 10],
+            "chromatic": list(range(12)),
+        }
+
+        # Emotional-musical mappings
+        self.emotion_to_music = {
+            "happy": {"scale": "major", "tempo": 120, "key": "C"},
+            "sad": {"scale": "minor", "tempo": 70, "key": "Am"},
+            "excited": {"scale": "pentatonic", "tempo": 140, "key": "G"},
+            "calm": {"scale": "dorian", "tempo": 90, "key": "Dm"},
+            "angry": {"scale": "blues", "tempo": 110, "key": "E"},
+            "creative": {"scale": "chromatic", "tempo": 100, "key": "F#"},
+        }
+
+        logger.info("Christman music engine ready (composition data only; no audio)")
+
+    def _load_musical_memory(self) -> Dict:
+        memory_file = os.path.join(self.memory_path, "musical_memory.json")
+        if os.path.exists(memory_file):
+            # Rule 6 (2026-10-29 review): a memory file that could not be
+            # read was logged and replaced by a blank memory, which the next
+            # save then wrote over the client's file. Now it is raised, with
+            # the file and the reason, and the file is left as it is.
+            try:
+                with open(memory_file, "r") as f:
+                    return json.load(f)
+            except (OSError, ValueError) as e:
+                raise RuntimeError(
+                    f"musical memory at {memory_file} could not be read "
+                    f"({type(e).__name__}: {e}); it was not replaced") from e
+        return {
+            "compositions": [],
+            "favorite_patterns": [],
+            "learned_styles": [],
+            "created_timestamp": datetime.now().isoformat(),
+        }
+
+    def _save_musical_memory(self):
+        os.makedirs(self.memory_path, exist_ok=True)
+        memory_file = os.path.join(self.memory_path, "musical_memory.json")
+        with open(memory_file, "w") as f:
+            json.dump(self.musical_memory, f, indent=2)
+
+    def generate_melody(self, emotion: str = "creative", length: int = 16, complexity: float = 0.7) -> List[Dict]:
+        params = self.emotion_to_music.get(emotion, self.emotion_to_music["creative"])
+        scale = self.scales[params["scale"]]
+        
+        melody = []
+        current_note = random.choice(scale)
+
+        for i in range(length):
+            movement = 0
+            if complexity > 0.8: movement = random.choice([-3, -2, -1, 0, 1, 2, 3])
+            elif complexity > 0.5: movement = random.choice([-2, -1, 0, 1, 2])
+            else: movement = random.choice([-1, 0, 1])
+
+            current_note = (current_note + movement) % len(scale)
+            note_value = scale[current_note]
+
+            duration = 0.25 if emotion == "excited" else (2.0 if emotion == "calm" else 0.5)
+            
+            melody.append({
+                "note": note_value,
+                "note_name": self.notes[note_value],
+                "duration": duration,
+                "velocity": int(64 + (complexity * 63)),
+                "position": i,
+            })
+
+        self.musical_memory["compositions"].append({
+            "type": "melody", "emotion": emotion, "melody": melody, "created": datetime.now().isoformat()
+        })
+        self._save_musical_memory()
+        return melody
+
+    def generate_rhythm(self, style: str = "electronic", bars: int = 4) -> List[Dict]:
+        rhythm_patterns = {
+            "electronic": {"kick": [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], "snare": [0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0]},
+            "jazz": {"kick": [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0], "snare": [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0]},
+        }
+        pattern = rhythm_patterns.get(style, rhythm_patterns["electronic"])
+        rhythm = []
+        for bar in range(bars):
+            for beat in range(16):
+                for instrument, beats in pattern.items():
+                    if beats[beat]:
+                        rhythm.append({"instrument": instrument, "time": bar * 4 + beat * 0.25, "velocity": random.randint(70, 127)})
+        return rhythm
+
+    def compose_song(self, title: str, emotion: str = "creative", style: str = "electronic") -> Dict:
+        song = {
+            "title": title,
+            "sections": {s: {"melody": self.generate_melody(emotion), "rhythm": self.generate_rhythm(style)} 
+                         for s in ["verse", "chorus", "bridge"]},
+            "created": datetime.now().isoformat()
+        }
+        self.musical_memory["compositions"].append(song)
+        self._save_musical_memory()
+        return song
+
+    def get_musical_stats(self) -> Dict:
+        return {
+            "total_compositions": len(self.musical_memory["compositions"]),
+            "current_mood": self.current_mood,
+            "favorite_styles": self.preferred_styles
+        }
+
+# ==============================================================================
+# Patent Pending
+# The Christman AI Project — Luma Cognify AI
+# Nothing Vital Lives Below Root.
+# ==============================================================================

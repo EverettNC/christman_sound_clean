@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0b0f17" />
+  <title>Christman Sound — Voice Creation Center, Booth &amp; Whole House Studio</title>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/icons/icon-192.png" />
+  <style>
+    :root {
+      --bg: #0b0f17;
+      --panel: #131b29;
+      --border: #233047;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --gold: #f59e0b;
+      --ok: #34d399;
+      --warn: #fbbf24;
+      --err: #f87171;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    header {
+      padding: 18px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      background: #0d131f;
+    }
+    h1 { margin: 0; font-size: 1.25rem; letter-spacing: 0.03em; }
+    .subtitle { font-size: 0.82rem; color: var(--muted); }
+    .badge {
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      background: #17253b;
+      border: 1px solid var(--border);
+      color: var(--accent);
+    }
+    nav {
+      display: flex;
+      gap: 8px;
+      padding: 12px 24px;
+      border-bottom: 1px solid var(--border);
+      overflow-x: auto;
+      background: #0f1623;
+    }
+    nav button {
+      background: var(--panel);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 8px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.84rem;
+      white-space: nowrap;
+    }
+    nav button.active {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: #16243a;
+    }
+    main { max-width: 1260px; margin: 0 auto; padding: 20px 24px 60px; }
+    .tab { display: none; }
+    .tab.active { display: block; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+      gap: 16px;
+    }
+    .slider-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .card h2 { margin-top: 0; font-size: 1.02rem; color: var(--accent); }
+    label { display: block; font-size: 0.78rem; color: var(--muted); margin: 6px 0 3px; }
+    input, select, textarea {
+      width: 100%;
+      padding: 7px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: #0b101b;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.85rem;
+    }
+    button.action {
+      margin-top: 10px;
+      padding: 8px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--accent);
+      background: #132d46;
+      color: #fff;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.82rem;
+    }
+    button.preset {
+      padding: 5px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: #0e1624;
+      color: var(--accent);
+      cursor: pointer;
+      font-size: 0.76rem;
+    }
+    pre {
+      background: #080c14;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px;
+      overflow-x: auto;
+      font-size: 0.77rem;
+      max-height: 360px;
+    }
+    audio { width: 100%; margin-top: 8px; }
+    .plaque-banner {
+      width: 100%;
+      max-height: 150px;
+      object-fit: cover;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      margin-bottom: 12px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Christman Sound — Voice Creation Center, Booth &amp; Whole House Studio</h1>
+      <div class="subtitle">100% Offline C + NumPy Engine · Own Voice Only · Cardinal Rule 13 Honesty · 8-Repo Sovereign Architecture</div>
+    </div>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <span id="statusBadge" class="badge">Checking local engine...</span>
+      <button class="action" style="margin:0;" onclick="installDesktop()">Install Desktop App</button>
+    </div>
+  </header>
+
+  <nav>
+    <button class="active" onclick="showTab('vcc', this)">1. Voice Creation Center &amp; Booth</button>
+    <button onclick="showTab('frames', this)">2. Frames Room (A/B Resynthesis)</button>
+    <button onclick="showTab('dispersion', this)">3. Dispersion &amp; War (4-Canal)</button>
+    <button onclick="showTab('porch', this)">4. Ear, Filament &amp; Porch</button>
+    <button onclick="showTab('corti', this)">5. Corti, Canal &amp; Hearing</button>
+    <button onclick="showTab('lucent', this)">6. Lucent Cornea &amp; Body Signals</button>
+    <button onclick="showTab('being', this)">7. Being / Silico-Stasis &amp; Units</button>
+    <button onclick="showTab('house', this)">8. Whole House, Smell, Skin &amp; Memory</button>
+  </nav>
+
+  <main>
+    <!-- 1. VOICE CREATION CENTER & BOOTH -->
+    <section id="tab-vcc" class="tab active">
+      <div class="grid">
+        <div class="card">
+          <h2>Voice Creation Center — 12 Frame-Voice Controls &amp; Presets</h2>
+          <img src="/static/plaque.jpg" alt="Booth commemorative plaque — Everett Vision Foundation and The Christman AI Project" class="plaque-banner" />
+          <label>Voice Creation Center Presets (caller-side presets -> named controls, affect="neutral")</label>
+          <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px;">
+            <button class="preset" onclick="applyVccPreset('as_measured')">As Measured (0.50)</button>
+            <button class="preset" onclick="applyVccPreset('warm_grounding')">Warm Grounding</button>
+            <button class="preset" onclick="applyVccPreset('gentle_lift')">Gentle Lift</button>
+            <button class="preset" onclick="applyVccPreset('steady_clear')">Steady &amp; Clear</button>
+            <button class="preset" onclick="applyVccPreset('quiet_presence')">Quiet Presence</button>
+            <button class="preset" onclick="applyVccPreset('protective_firm')">Protective &amp; Firm</button>
+          </div>
+          <label>Text to Speak in Frame Voice</label>
+          <input id="vccText" value="i need help please" />
+          <label>Frame Voice Folder or Measured Profile Path (leave blank to use built AlphaVox FrameVoice)</label>
+          <input id="vccVoice" placeholder="Auto-uses built AlphaVox FrameVoice or ~/.christman_ai/voices/<voice>" />
+
+          <div class="slider-grid">
+            <div><label>Cadence (<span id="lbl_cadence">0.50</span>)</label><input id="ctl_cadence" type="range" min="0" max="1" step="0.01" value="0.50" oninput="updLbl('cadence')" /></div>
+            <div><label>Breath (<span id="lbl_breath">0.50</span>)</label><input id="ctl_breath" type="range" min="0" max="1" step="0.01" value="0.50" oninput="updLbl('breath')" /></div>
+            <div><label>Jitter (<span id="lbl_jitter">0.50</span>)</label><input id="ctl_jitter" type="range" min="0" max="1" step="0.01" value="0.50" oninput="updLbl('jitter')" /></div>
+            <div><label>Shimmer (<span id="lbl_shimmer">0.50</span>)</label><input id="ctl_shimmer" type="range" min="0" max="1" step="0.01" value="0.50" oninput="updLbl('shimmer')" /></div>
+            <div><label>Timbre (<span id="lbl_timbre">0.50</span>)</label><input id="ctl_timbre" type="range" min="0" max="1" step="0.01" value="0.50" oninput="updLbl('timbre')" /></div>
+            <div><label>Articulation (<span id="lbl_articulation">0.50</span>)</label><input id="ctl_articulation" type="range" min="0" max="1" step="0.01" value="0.50" oninput="updLbl('articulation')" /></div>
+            <div><label>Intonation (<span id="lbl_intonation">0.50</span>)</label><input id="ctl_intonation" type="range" min="0" max="1" step="0.01" value="0.50" oninput="updLbl('intonation')" /></div>
+            <div><label>Prosody (<span id="lbl_prosody">0.50</span>)</label><input id="ctl_prosody" type="range" min="0" max="1" step="0.01" value="0.50" oninput="updLbl('prosody')" /></div>
+            <div>
+              <label>Resonance</label>
+              <select id="ctl_resonance"><option value="chest">chest (0.96×)</option><option value="mid" selected>mid (1.00× measured)</option><option value="head">head (1.04×)</option></select>
+            </div>
+            <div>
+              <label>Affect</label>
+              <select id="ctl_affect"><option value="neutral" selected>neutral (required)</option></select>
+            </div>
+            <div><label>Rate (<span id="lbl_rate">1.00</span>×)</label><input id="ctl_rate" type="range" min="0.60" max="1.60" step="0.02" value="1.00" oninput="updLbl('rate')" /></div>
+            <div><label>F0 Override Hz (blank = measured)</label><input id="ctl_f0" type="number" placeholder="Measured F0" /></div>
+          </div>
+
+          <div style="display:flex; flex-wrap:wrap; gap:8px;">
+            <button class="action" onclick="runVccBuildFrameVoice()">1. Build AlphaVox Frame Voice Bank</button>
+            <button class="action" onclick="runVccSpeak()">2. Speak with 12 VCC Controls</button>
+            <button class="action" onclick="runCodecWar()">Verify Bare Table</button>
+          </div>
+          <audio id="vccAudio" controls></audio>
+          <pre id="vccOut">Click "1. Build AlphaVox Frame Voice Bank" then "2. Speak with 12 VCC Controls" to hear stitched frame synthesis.</pre>
+        </div>
+
+        <div class="card">
+          <h2>Voice Profile Measurement, Before/After Proof &amp; Voicepack Builder</h2>
+          <label>Voice Name</label>
+          <input id="profName" value="AlphaVox_Sovereign" />
+          <div style="display:flex; flex-wrap:wrap; gap:8px;">
+            <button class="action" onclick="runVccMeasureProfile()">Measure &amp; Prove VoiceProfile (.json)</button>
+            <button class="action" onclick="runVccPackageVoicepack()">Package .voicepack Archive</button>
+            <button class="action" onclick="refreshStatus()">Refresh Engine Status</button>
+            <button class="action" onclick="buildEngines()">Rebuild C Engines</button>
+          </div>
+          <pre id="statusOut">Loading...</pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. FRAMES ROOM (A/B RESYNTHESIS) -->
+    <section id="tab-frames" class="tab">
+      <div class="card">
+        <h2>Frames Room — 4.99 ms Frame Measurement &amp; Side-by-Side Vocoder Resynthesis</h2>
+        <p class="subtitle">Measures a recording every 4.99 ms (pitch, 96-point CheapTrick mel envelope, 8-band aperiodicity) and renders it back out from those numbers alone via christman_vocoder.c.</p>
+        <label>WAV Path (leave blank to use bundled AlphaVox recording)</label>
+        <input id="framesWavPath" placeholder="Defaults to bundled alphavox_i_need_help_please.wav" />
+        <button class="action" onclick="runFramesRoom()">Measure Recording &amp; Render From Its Frames</button>
+        <div class="grid" style="margin-top:12px;">
+          <div>
+            <label>Original Recording (22,050 Hz)</label>
+            <audio id="framesOrigAudio" controls></audio>
+          </div>
+          <div>
+            <label>Rendered From Its Frames Alone (christman_vocoder.c)</label>
+            <audio id="framesResynAudio" controls></audio>
+          </div>
+        </div>
+        <pre id="framesOut">Ready.</pre>
+      </div>
+    </section>
+
+    <!-- 3. DISPERSION & WAR -->
+    <section id="tab-dispersion" class="tab">
+      <div class="card">
+        <h2>Multi-Canal Dispersion &amp; War (MAX_CANALS = 4 vs Fused Mono Wire)</h2>
+        <label>Acoustic Scene</label>
+        <select id="warScene">
+          <option value="kitchen">Kitchen — Speaker + Whistling Kettle (2.3 kHz) + HVAC</option>
+          <option value="two-booths">Two Booths — Overlapping Voices (118 Hz &amp; 215 Hz)</option>
+          <option value="crisis">Crisis — Distressed Caller Under Appliance Noise</option>
+        </select>
+        <button class="action" onclick="runDispersion()">Run 4-Canal Dispersion vs Fused Wire</button>
+        <audio id="fusedAudio" controls></audio>
+        <pre id="dispersionOut">Select a scene to compare separated canals against a single mixed wire.</pre>
+      </div>
+    </section>
+
+    <!-- 4. EAR, FILAMENT & PORCH -->
+    <section id="tab-porch" class="tab">
+      <div class="grid">
+        <div class="card">
+          <h2>Porch Dialect &amp; TCAP-V-0020 Mouth-Cooperation</h2>
+          <label>Raw STT Transcript (test Christmas, some bitch, Miss Reed, hectic feedback, Alpha Vox)</label>
+          <textarea id="porchText" rows="3">Merry Christmas from Alpha Vox! Miss Reed said the hectic feedback on the skin sensor might could work.</textarea>
+          <button class="action" onclick="runPorch()">Reconstruct Dialect &amp; Dress Mouth Map</button>
+          <pre id="porchOut"></pre>
+        </div>
+        <div class="card">
+          <h2>WAV Speech Recognition &amp; Acoustic Measurement</h2>
+          <label>Local WAV Path</label>
+          <input id="wavPath" placeholder="/path/to/recording.wav" />
+          <div style="display:flex; gap:8px;">
+            <button class="action" onclick="runRecognizeWav()">Recognize WAV (christman_sound.ear)</button>
+            <button class="action" onclick="runMeasureWav()">Measure WAV (Pitch/Formants/DSP)</button>
+          </div>
+          <pre id="wavOut"></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. CORTI, CANAL & HEARING -->
+    <section id="tab-corti" class="tab">
+      <div class="grid">
+        <div class="card">
+          <h2>Greenwood Cochlea, SpeakerSeat &amp; AlphaVox Grunt Physics</h2>
+          <label>Frequency (Hz)</label>
+          <input id="cortiHz" type="number" value="265" />
+          <button class="action" onclick="runCortiCanal()">Evaluate Cochlea &amp; Grunt Physics</button>
+          <pre id="cortiOut"></pre>
+        </div>
+        <div class="card">
+          <h2>Hearing, Structural Affect &amp; Harm Frame</h2>
+          <label>Utterance Text</label>
+          <input id="hearText" value="I'm in pain and I need my medicine" />
+          <button class="action" onclick="runHear()">Run Hearing Gate</button>
+          <pre id="hearOut"></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6. LUCENT CORNEA & BODY SIGNALS -->
+    <section id="tab-lucent" class="tab">
+      <div class="card">
+        <h2>Lucent Gullstrand Two-Surface Cornea Optics &amp; Body Signals</h2>
+        <label>Cornea Optical Preset / Pathology</label>
+        <select id="lucentPreset">
+          <option value="emmetropic">Emmetropic (Normal 43.05 D)</option>
+          <option value="myopia">Axial Myopia</option>
+          <option value="hyperopia">Hyperopia</option>
+          <option value="astigmatism">With-the-Rule Astigmatism</option>
+          <option value="keratoconus">Keratoconus (Ectasia)</option>
+          <option value="post_lasik">Post-LASIK Oblate Cornea</option>
+          <option value="fuchs_edema">Fuchs Endothelial Edema</option>
+        </select>
+        <button class="action" onclick="runLucent()">Trace Cornea Rays &amp; Body Signal Window</button>
+        <pre id="lucentOut"></pre>
+      </div>
+    </section>
+
+    <!-- 7. BEING / SILICO-STASIS -->
+    <section id="tab-being" class="tab">
+      <div class="card">
+        <h2>Silico-Stasis Equilibrium Field, 2 Hz Shaker &amp; Psychoacoustic Units</h2>
+        <label>Psychoacoustic Value (Hz)</label>
+        <input id="beingHz" type="number" value="220" />
+        <label>Stream Text to Inspect</label>
+        <input id="beingStream" value="Christman Sound — Truth. Dignity. Protection." />
+        <button class="action" onclick="runBeing()">Tick Stasis Field + Shaker + Convert Units</button>
+        <pre id="beingOut"></pre>
+      </div>
+    </section>
+
+    <!-- 8. WHOLE HOUSE -->
+    <section id="tab-house" class="tab">
+      <div class="card">
+        <h2>Whole House — OpenSmell (21 Profiles), Skin Posture &amp; TCAP-V-0044 Memory Chamber</h2>
+        <label>Memory Cue: Who</label>
+        <input id="memWho" value="Everett" />
+        <label>Memory Cue: Where / What</label>
+        <input id="memWhere" value="porch coffee" />
+        <button class="action" onclick="runWholeHouse()">Complete Memory &amp; Read House Stream</button>
+        <pre id="houseOut"></pre>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
+      });
+    }
+
+    const SLIDER_NAMES = ['cadence', 'breath', 'jitter', 'shimmer', 'timbre', 'articulation', 'intonation', 'prosody', 'rate'];
+    let VCC_PRESETS = {};
+
+    function updLbl(name) {
+      const el = document.getElementById('ctl_' + name);
+      const lbl = document.getElementById('lbl_' + name);
+      if (el && lbl) lbl.textContent = Number(el.value).toFixed(2);
+    }
+
+    function showTab(name, btn) {
+      document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('nav button').forEach(el => el.classList.remove('active'));
+      document.getElementById('tab-' + name).classList.add('active');
+      if (btn) btn.classList.add('active');
+    }
+
+    async function postJson(url, body) {
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body || {})
+      });
+      return await r.json();
+    }
+
+    async function loadVccMeta() {
+      try {
+        const d = await (await fetch('/api/voice-creation-center')).json();
+        VCC_PRESETS = d.presets || {};
+      } catch (e) {}
+    }
+
+    function applyVccPreset(presetKey) {
+      const p = VCC_PRESETS[presetKey];
+      if (!p || !p.controls) return;
+      const c = p.controls;
+      SLIDER_NAMES.forEach(k => {
+        if (c[k] !== undefined && document.getElementById('ctl_' + k)) {
+          document.getElementById('ctl_' + k).value = c[k];
+          updLbl(k);
+        }
+      });
+      if (c.resonance) document.getElementById('ctl_resonance').value = c.resonance;
+      if (c.affect) document.getElementById('ctl_affect').value = c.affect;
+      document.getElementById('ctl_f0').value = c.f0 || '';
+    }
+
+    function readVccControls() {
+      const out = {};
+      SLIDER_NAMES.forEach(k => {
+        out[k] = Number(document.getElementById('ctl_' + k).value);
+      });
+      out.resonance = document.getElementById('ctl_resonance').value;
+      out.affect = document.getElementById('ctl_affect').value;
+      const f0Raw = document.getElementById('ctl_f0').value;
+      out.f0 = f0Raw ? Number(f0Raw) : null;
+      return out;
+    }
+
+    async function runVccBuildFrameVoice() {
+      const d = await postJson('/api/voice-creation-center', {
+        action: 'build_frame_voice',
+        name: document.getElementById('profName').value || 'AlphaVox_FrameVoice'
+      });
+      document.getElementById('vccOut').textContent = JSON.stringify(d, null, 2);
+      if (d.frame_voice_dir) document.getElementById('vccVoice').value = d.frame_voice_dir;
+    }
+
+    async function runVccSpeak() {
+      const d = await postJson('/api/voice-creation-center', {
+        action: 'speak_vcc',
+        text: document.getElementById('vccText').value,
+        voice: document.getElementById('vccVoice').value || null,
+        controls: readVccControls()
+      });
+      document.getElementById('vccOut').textContent = JSON.stringify(d, null, 2);
+      if (d.audio_url) document.getElementById('vccAudio').src = d.audio_url;
+    }
+
+    async function runVccMeasureProfile() {
+      const d = await postJson('/api/voice-creation-center', {
+        action: 'measure_profile',
+        name: document.getElementById('profName').value || 'AlphaVox_Measured'
+      });
+      document.getElementById('statusOut').textContent = JSON.stringify(d, null, 2);
+    }
+
+    async function runVccPackageVoicepack() {
+      const d = await postJson('/api/voice-creation-center', {
+        action: 'package_voicepack',
+        name: document.getElementById('profName').value || 'AlphaVox_Pack'
+      });
+      document.getElementById('statusOut').textContent = JSON.stringify(d, null, 2);
+    }
+
+    async function runFramesRoom() {
+      const d = await postJson('/api/voice-creation-center', {
+        action: 'resynthesize_frames',
+        wav_path: document.getElementById('framesWavPath').value || null
+      });
+      document.getElementById('framesOut').textContent = JSON.stringify(d, null, 2);
+      if (d.source_audio_url) document.getElementById('framesOrigAudio').src = d.source_audio_url;
+      if (d.rendered_audio_url) document.getElementById('framesResynAudio').src = d.rendered_audio_url;
+    }
+
+    async function refreshStatus() {
+      const data = await (await fetch('/api/status')).json();
+      document.getElementById('statusOut').textContent = JSON.stringify(data, null, 2);
+      const b = document.getElementById('statusBadge');
+      b.textContent = data.dsp && data.dsp.available
+        ? `C Engine Online · ${data.dsp.phones.length} Phones · Vosk: ${data.ear.vosk_model_present ? 'Seated' : 'Unset'}`
+        : 'C Engine Offline';
+    }
+
+    async function buildEngines() {
+      const d = await postJson('/api/build-engines', {});
+      document.getElementById('statusOut').textContent = JSON.stringify(d, null, 2);
+      refreshStatus();
+    }
+
+    async function installDesktop() {
+      const d = await postJson('/api/install-desktop', {});
+      alert(JSON.stringify(d, null, 2));
+    }
+
+    async function runCodecWar() {
+      const d = await postJson('/api/codecwar-table', {
+        text: 'Hello, Christman.',
+        f0: 148,
+        lexicon_text: "christman christman k_B r_I I_I s_I t_I m_I V_I n_E\nhello hello h_B @_I l_I oU_E\n"
+      });
+      document.getElementById('vccOut').textContent = JSON.stringify(d, null, 2);
+      if (d.audio_url) document.getElementById('vccAudio').src = d.audio_url;
+    }
+
+    async function runDispersion() {
+      const d = await postJson('/api/dispersion', {
+        scene_id: document.getElementById('warScene').value
+      });
+      document.getElementById('dispersionOut').textContent = JSON.stringify(d, null, 2);
+      if (d.fused_audio_url) document.getElementById('fusedAudio').src = d.fused_audio_url;
+    }
+
+    async function runPorch() {
+      const d = await postJson('/api/porch', {
+        text: document.getElementById('porchText').value
+      });
+      document.getElementById('porchOut').textContent = JSON.stringify(d, null, 2);
+    }
+
+    async function runRecognizeWav() {
+      const d = await postJson('/api/recognize-wav', {
+        path: document.getElementById('wavPath').value
+      });
+      document.getElementById('wavOut').textContent = JSON.stringify(d, null, 2);
+    }
+
+    async function runMeasureWav() {
+      const d = await postJson('/api/measure-wav', {
+        path: document.getElementById('wavPath').value
+      });
+      document.getElementById('wavOut').textContent = JSON.stringify(d, null, 2);
+    }
+
+    async function runCortiCanal() {
+      const hz = Number(document.getElementById('cortiHz').value) || 265;
+      const d = await postJson('/api/corti-canal', {
+        hz,
+        observe_lock: {f0: hz, peak_rms: 0.14, f1: 520, f2: 1480},
+        record_canal_frame: {t_ms: Date.now(), rms: 0.14, zcr: 0.06, f0: hz, f1: 520, f2: 1480}
+      });
+      document.getElementById('cortiOut').textContent = JSON.stringify(d, null, 2);
+    }
+
+    async function runHear() {
+      const d = await postJson('/api/hear', {
+        text: document.getElementById('hearText').value
+      });
+      document.getElementById('hearOut').textContent = JSON.stringify(d, null, 2);
+    }
+
+    async function runLucent() {
+      const d = await postJson('/api/lucent', {
+        preset: document.getElementById('lucentPreset').value,
+        body_frames: [
+          {t_ms: 0, breath_freq: 0.25, eye_jitter: 0.02, stare_lock: 0.1},
+          {t_ms: 1000, breath_freq: 0.28, eye_jitter: 0.03, stare_lock: 0.2},
+          {t_ms: 2000, breath_freq: 0.31, eye_jitter: 0.04, stare_lock: 0.3}
+        ]
+      });
+      document.getElementById('lucentOut').textContent = JSON.stringify(d, null, 2);
+    }
+
+    async function runBeing() {
+      const d = await postJson('/api/being', {
+        shaker: true,
+        ticks: 3,
+        unit_value: Number(document.getElementById('beingHz').value) || 220,
+        unit_from: 'hz',
+        stream_text: document.getElementById('beingStream').value
+      });
+      document.getElementById('beingOut').textContent = JSON.stringify(d, null, 2);
+    }
+
+    async function runWholeHouse() {
+      const d = await postJson('/api/whole-house', {
+        memory_query: {
+          who: document.getElementById('memWho').value,
+          where: document.getElementById('memWhere').value
+        },
+        run_rem: true
+      });
+      document.getElementById('houseOut').textContent = JSON.stringify(d, null, 2);
+    }
+
+    loadVccMeta();
+    refreshStatus();
+  </script>
+</body>
+</html>

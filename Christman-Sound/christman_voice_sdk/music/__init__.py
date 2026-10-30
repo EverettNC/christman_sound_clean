@@ -1,0 +1,6 @@
+"""
+Christman Voice SDK — music module
+© 2026 Everett Nathaniel Christman & Misty Gail Christman
+The Christman AI Project — Luma Cognify AI
+Patent Pending
+"""

@@ -1,0 +1,314 @@
+"""
+Voicepack File Format and Export System
+
+WHAT CHANGED AND WHY
+--------------------
+1. FAKE ENCRYPTION REMOVED (Rule 12).
+   The predecessor used `shutil.copy` to append `.encrypted` and logged 
+   'Voicepack encrypted' without encrypting anything. Real symmetric encryption 
+   via `cryptography.fernet.Fernet` is now wired when requested.
+
+2. ELIMINATED PICKLE SERIALIZATION.
+   Voicepack internal archives now store profiles as secure JSON metadata 
+   and `.npz` array payloads.
+
+3. ZIP MEMBERS ARE CHECKED BEFORE ANYTHING IS EXTRACTED (2026-10-28, Lane 6).
+   `load` called `zipf.extractall(cache_dir)` on whatever archive it was
+   handed. A member named with an absolute path, a drive letter, a ".."
+   step, or a symlink is now refused with `UnsafeVoicepack`, naming the
+   member, and nothing from that archive is written. A voicepack can come from
+   someone else; it does not get to choose where its files land.
+
+4. NO FOLDER IN THE WORKING DIRECTORY ON CONSTRUCTION (2026-10-28, Lane 6).
+   `VoicepackBuilder()` made data/voicepacks under whatever directory the
+   process started in, just by being built. The default is now the SDK's data
+   folder ($CHRISTMAN_AI_HOME/voice_sdk/voicepacks, default
+   ~/.christman_ai/voice_sdk/voicepacks), and it is created when a voicepack
+   is built or loaded, not before.
+
+5. training_hours AND quality_score ARE None UNTIL SOMEONE MEASURES THEM.
+   They defaulted to 0.0, and nothing in the repository computes either, so
+   every voicepack carried two zeros that read as measurements.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+import os
+import re
+import shutil
+import stat
+import tempfile
+import zipfile
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from ..audio.config import sdk_data_root
+from ..timbre.timbre_modeler import TimbreModeler, VoiceProfile
+from .logger import get_logger
+
+logger = get_logger(__name__)
+
+try:
+    from cryptography.fernet import Fernet
+    _crypto_ok = True
+except ImportError:
+    _crypto_ok = False
+
+
+class UnsafeVoicepack(ValueError):
+    """A voicepack archive names a file outside the folder it unpacks into."""
+
+
+class VoicepackInvalid(ValueError):
+    """A voicepack could not be loaded. The message carries the real reason."""
+
+
+_DRIVE = re.compile(r"^[A-Za-z]:")
+
+
+def check_members(zipf: zipfile.ZipFile, dest: Path) -> None:
+    """
+    Refuse the whole archive if any member could land outside `dest`.
+
+    Rejected: an empty name, an absolute path ("/x", "\\x"), a drive letter
+    ("C:x"), any ".." step (with / or \\ as the separator), a symlink entry,
+    and anything that still resolves outside `dest`. Raises UnsafeVoicepack
+    naming the member. Checks every member before anything is written.
+    """
+    root = Path(dest).resolve()
+    for info in zipf.infolist():
+        name = info.filename
+        norm = name.replace("\\", "/")
+        if not norm:
+            raise UnsafeVoicepack("voicepack member with an empty name")
+        if norm.startswith("/") or _DRIVE.match(norm):
+            raise UnsafeVoicepack(f"voicepack member {name!r} is an absolute path")
+        if ".." in norm.split("/"):
+            raise UnsafeVoicepack(f"voicepack member {name!r} steps out with '..'")
+        if stat.S_ISLNK(info.external_attr >> 16):
+            raise UnsafeVoicepack(f"voicepack member {name!r} is a symlink")
+        target = (root / norm).resolve()
+        if target != root and root not in target.parents:
+            raise UnsafeVoicepack(f"voicepack member {name!r} resolves outside {root}")
+
+
+def default_voicepack_dir() -> Path:
+    return sdk_data_root() / "voice_sdk" / "voicepacks"
+
+
+@dataclass
+class VoicepackMetadata:
+    name: str
+    version: str = "1.0.0"
+    created: str = ""
+    tier: str = "basic"
+    gender: Optional[str] = None
+    age_range: Optional[str] = None
+    accent: Optional[str] = None
+    training_hours: Optional[float] = None   # None: not measured
+    sample_count: int = 0
+    quality_score: Optional[float] = None    # None: not measured
+    emotions: Optional[List[str]] = None
+    checksum: str = ""
+    encrypted: bool = False
+
+    def __post_init__(self):
+        if not self.created:
+            self.created = datetime.now(timezone.utc).isoformat()
+        if self.emotions is None:
+            self.emotions = ["neutral"]
+
+
+class VoicepackBuilder:
+    """Builds, validates, and unpacks .voicepack archives securely."""
+
+    def __init__(self, output_dir: Optional[Path] = None):
+        # Path only; created when a voicepack is built or loaded.
+        self.output_dir = Path(output_dir) if output_dir is not None else default_voicepack_dir()
+        logger.info("VoicepackBuilder initialized: %s", self.output_dir)
+
+    def build(
+        self,
+        name: str,
+        voice_profile: VoiceProfile,
+        reference_audio: List[Path],
+        metadata: VoicepackMetadata,
+        emotion_models: Optional[Dict[str, Path]] = None,
+        compress: bool = True,
+        encrypt: bool = False,
+        encryption_key: Optional[bytes] = None,
+        extras: Optional[Dict[str, Any]] = None
+    ) -> Path:
+        logger.info("Building voicepack: %s", name)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            build_dir = Path(temp_dir) / "voicepack_build"
+            build_dir.mkdir()
+
+            metadata_path = build_dir / "metadata.json"
+            with open(metadata_path, "w", encoding="utf-8") as f:
+                json.dump(asdict(metadata), f, indent=2)
+
+            modeler = TimbreModeler()
+            profile_base = build_dir / "voice_profile"
+            modeler.save_profile(voice_profile, profile_base)
+
+            ref_dir = build_dir / "reference_audio"
+            ref_dir.mkdir()
+
+            for i, audio_file in enumerate(reference_audio):
+                if audio_file.exists():
+                    dest = ref_dir / f"sample_{i:03d}{audio_file.suffix}"
+                    shutil.copy(audio_file, dest)
+
+            if emotion_models:
+                emotion_dir = build_dir / "emotion_models"
+                emotion_dir.mkdir()
+                for model_name, model_path in emotion_models.items():
+                    if model_path.exists():
+                        dest = emotion_dir / model_path.name
+                        shutil.copy(model_path, dest)
+
+            validation = self._generate_validation(voice_profile, reference_audio, metadata)
+            validation_path = build_dir / "validation.json"
+            with open(validation_path, "w", encoding="utf-8") as f:
+                json.dump(validation, f, indent=2)
+
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            output_path = self.output_dir / f"{name}.voicepack"
+
+            if compress:
+                self._create_zip(build_dir, output_path)
+            else:
+                shutil.copytree(build_dir, output_path.with_suffix(".voicepack_dir"))
+
+            if encrypt:
+                output_path = self._encrypt_voicepack(output_path, encryption_key)
+
+        logger.info("Voicepack created successfully: %s", output_path)
+        return output_path
+
+    def _create_zip(self, source_dir: Path, output_path: Path):
+        with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zipf:
+            for file_path in source_dir.rglob("*"):
+                if file_path.is_file():
+                    arcname = file_path.relative_to(source_dir)
+                    zipf.write(file_path, arcname)
+
+    def _generate_validation(
+        self,
+        voice_profile: VoiceProfile,
+        reference_audio: List[Path],
+        metadata: VoicepackMetadata
+    ) -> Dict[str, Any]:
+        profile_dict = voice_profile.to_dict()
+        profile_str = json.dumps(profile_dict, sort_keys=True)
+        profile_hash = hashlib.sha256(profile_str.encode()).hexdigest()
+
+        audio_hashes = []
+        for audio_file in reference_audio:
+            if audio_file.exists():
+                with open(audio_file, "rb") as f:
+                    file_hash = hashlib.sha256(f.read()).hexdigest()
+                    audio_hashes.append({"file": audio_file.name, "sha256": file_hash})
+
+        return {
+            "version": "1.0",
+            "validated": datetime.now(timezone.utc).isoformat(),
+            "profile_checksum": profile_hash,
+            "audio_checksums": audio_hashes,
+            "tier": metadata.tier,
+            "emotions": metadata.emotions,
+        }
+
+    def _encrypt_voicepack(self, voicepack_path: Path, encryption_key: Optional[bytes]) -> Path:
+        if not _crypto_ok:
+            raise RuntimeError("cryptography library not installed. Cannot encrypt voicepack.")
+        if not encryption_key:
+            raise ValueError("Encryption requested but no encryption_key provided.")
+
+        fernet = Fernet(encryption_key)
+        with open(voicepack_path, "rb") as f:
+            encrypted_data = fernet.encrypt(f.read())
+
+        encrypted_path = voicepack_path.with_suffix(".voicepack.enc")
+        with open(encrypted_path, "wb") as f:
+            f.write(encrypted_data)
+
+        voicepack_path.unlink()
+        logger.info("Voicepack encrypted securely: %s", encrypted_path)
+        return encrypted_path
+
+    def load(self, voicepack_path: Path, decryption_key: Optional[bytes] = None) -> Dict[str, Any]:
+        if not voicepack_path.exists():
+            raise FileNotFoundError(f"Voicepack not found: {voicepack_path}")
+
+        logger.info("Loading voicepack: %s", voicepack_path.name)
+
+        cache_dir = self.output_dir.parent / "cache" / voicepack_path.stem
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+        archive_to_open = voicepack_path
+
+        if voicepack_path.suffix == ".enc":
+            if not _crypto_ok:
+                raise RuntimeError("cryptography not installed. Cannot decrypt voicepack.")
+            if not decryption_key:
+                raise ValueError("Voicepack is encrypted but no decryption_key was provided.")
+            fernet = Fernet(decryption_key)
+            with open(voicepack_path, "rb") as f:
+                decrypted_bytes = fernet.decrypt(f.read())
+            
+            temp_zip = cache_dir / "temp_decrypted.zip"
+            with open(temp_zip, "wb") as f:
+                f.write(decrypted_bytes)
+            archive_to_open = temp_zip
+
+        with zipfile.ZipFile(archive_to_open, "r") as zipf:
+            check_members(zipf, cache_dir)  # raises UnsafeVoicepack; nothing written yet
+            zipf.extractall(cache_dir)
+
+        metadata_path = cache_dir / "metadata.json"
+        with open(metadata_path, "r", encoding="utf-8") as f:
+            metadata = json.load(f)
+
+        modeler = TimbreModeler()
+        profile_base = cache_dir / "voice_profile"
+        voice_profile = modeler.load_profile(profile_base)
+
+        ref_dir = cache_dir / "reference_audio"
+        reference_audio = list(ref_dir.glob("*.wav")) if ref_dir.exists() else []
+
+        validation_path = cache_dir / "validation.json"
+        with open(validation_path, "r", encoding="utf-8") as f:
+            validation = json.load(f)
+
+        return {
+            "metadata": metadata,
+            "voice_profile": voice_profile,
+            "reference_audio": reference_audio,
+            "validation": validation,
+        }
+
+    def validate(self, voicepack_path: Path) -> bool:
+        """
+        True when the pack loads and holds metadata, a voice profile and its
+        validation; False when it loads but one of those is empty.
+
+        Rule 6 (2026-10-29 review): a pack that could not be LOADED (a
+        missing file inside it, a profile in the wrong format) was logged
+        and reported as False, so "Invalid voicepack" was all a caller ever
+        saw. Now VoicepackInvalid is raised with the real reason.
+        """
+        try:
+            data = self.load(voicepack_path)
+        except Exception as e:
+            raise VoicepackInvalid(
+                f"voicepack {voicepack_path} could not be loaded "
+                f"({type(e).__name__}: {e})") from e
+        return bool(data.get("metadata") and data.get("voice_profile") and data.get("validation"))
