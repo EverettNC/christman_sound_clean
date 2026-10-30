@@ -716,6 +716,7 @@ class ChristmanSoundApp:
 
         presence = None
         measured_stress: Optional[float] = None
+        stress_error: Optional[str] = None
         if isinstance(text, str) and text.strip():
             try:
                 presence = PresenceGuide().assess(text).to_dict()
@@ -723,15 +724,31 @@ class ChristmanSoundApp:
                 presence = {"error": str(exc)}
             try:
                 measured_stress = float(EmotionAnalysisService().analyze_emotional_tone(text).stress_level)
-            except Exception:
+            except Exception as exc:
+                # Not swallowed: the reason goes back in the response.
                 measured_stress = None
+                stress_error = f"{type(exc).__name__}: {exc}"
 
+        # WHAT CHANGED AND WHY (2026-10-30): this called Grounder().select_script,
+        # which does not exist, with a stress score of 0.75 nobody measured, and
+        # swallowed the error, so grounding never worked and read as "none
+        # needed". It now uses Grounder.get_grounding_for_state with the stress
+        # and grounding levels the caller measured (emotion_quantifier's
+        # stress_level rise, a 0-1 grounding level); with neither it says so.
         grounding = None
-        if turn.decision and turn.decision.delivery.get("needs_grounding") and measured_stress is not None:
-            try:
-                grounding = Grounder().select_script(stress_score=measured_stress)
-            except Exception:
-                grounding = None
+        if turn.decision and turn.decision.delivery.get("needs_grounding"):
+            def _level(key):
+                v = data.get(key)
+                return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+            stress_level = measured_stress if measured_stress is not None else _level("stress_level")
+            technique = Grounder().get_grounding_for_state(
+                stress_level=stress_level, grounding_level=_level("grounding_level"))
+            grounding = technique if technique is not None else {
+                "available": False,
+                "reason": "grounding is needed, but no stress level was measured and no stress_level or grounding_level was sent"
+                          + (f" (stress measurement failed: {stress_error})" if stress_error else ""),
+            }
 
         return _json_resp({
             "status": "ok",
@@ -740,6 +757,7 @@ class ChristmanSoundApp:
             "pager_events": paged,
             "presence_guide": presence,
             "measured_stress_rise": measured_stress,
+            "stress_error": stress_error,
             "grounding_script": grounding,
             "porch": porch_result,
             "grunt_route": grunt_route,
