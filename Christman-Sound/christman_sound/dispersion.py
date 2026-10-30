@@ -7,15 +7,17 @@
 christman_sound.dispersion — Multi-Canal Dispersion, Corti War, and Refused-Mix
 Guard (ported from CODECWAR5TH src/lib/audio/{corti,scenes,war,mic-tape,noise}.ts
 and src/lib/discern.ts).
+
+Pure Python standard library + christman_dsp.so only. No numpy, no scipy.
 """
 
 from __future__ import annotations
 
+import math
+import random
 import statistics
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
-
-import numpy as np
 
 from .dsp import get_dsp
 from .synth import CODECWAR_SAMPLE_RATE, render_codecwar_table
@@ -195,39 +197,50 @@ SCENES: Dict[str, SceneSpec] = {
 }
 
 
-def kettle_pcm(duration_s: float = SCENE_DURATION, sr: int = CODECWAR_SAMPLE_RATE, gain: float = 0.45) -> np.ndarray:
+def kettle_pcm(duration_s: float = SCENE_DURATION, sr: int = CODECWAR_SAMPLE_RATE, gain: float = 0.45) -> List[float]:
     n = int(round(duration_s * sr))
-    t = np.arange(n, dtype=np.float64) / sr
-    fm = 12.0 * np.sin(2.0 * np.pi * 5.5 * t)
-    whistle = 0.65 * np.sin(2.0 * np.pi * (2320.0 + fm) * t) + 0.20 * np.sin(2.0 * np.pi * (4640.0 + 2.0 * fm) * t)
-    rng = np.random.default_rng(2320)
-    steam = rng.standard_normal(n) * 0.15
-    env = np.minimum(1.0, t / 0.12) * np.minimum(1.0, (duration_s - t) / 0.12)
-    return (whistle + steam) * env * float(gain)
+    rng = random.Random(2320)
+    two_pi = 2.0 * math.pi
+    inv_sr = 1.0 / sr
+    g = float(gain)
+    out = [0.0] * n
+    for i in range(n):
+        t = i * inv_sr
+        fm = 12.0 * math.sin(two_pi * 5.5 * t)
+        whistle = (
+            0.65 * math.sin(two_pi * (2320.0 + fm) * t)
+            + 0.20 * math.sin(two_pi * (4640.0 + 2.0 * fm) * t)
+        )
+        steam = rng.gauss(0.0, 0.15)
+        env = min(1.0, t / 0.12) * min(1.0, (duration_s - t) / 0.12)
+        out[i] = (whistle + steam) * env * g
+    return out
 
 
-def hvac_pcm(duration_s: float = SCENE_DURATION, sr: int = CODECWAR_SAMPLE_RATE, gain: float = 0.25) -> np.ndarray:
+def hvac_pcm(duration_s: float = SCENE_DURATION, sr: int = CODECWAR_SAMPLE_RATE, gain: float = 0.25) -> List[float]:
     n = int(round(duration_s * sr))
-    t = np.arange(n, dtype=np.float64) / sr
-    hum = (
-        0.55 * np.sin(2.0 * np.pi * 60.0 * t)
-        + 0.30 * np.sin(2.0 * np.pi * 120.0 * t + 0.4)
-        + 0.15 * np.sin(2.0 * np.pi * 180.0 * t + 1.1)
-    )
-    rng = np.random.default_rng(120)
-    raw = rng.standard_normal(n)
-    air = np.zeros(n, dtype=np.float64)
+    rng = random.Random(120)
+    two_pi = 2.0 * math.pi
+    inv_sr = 1.0 / sr
+    g = float(gain)
     alpha = 0.08
     acc = 0.0
+    out = [0.0] * n
     for i in range(n):
-        acc = (1.0 - alpha) * acc + alpha * float(raw[i])
-        air[i] = acc
-    return (0.65 * hum + 0.35 * air) * float(gain)
+        t = i * inv_sr
+        hum = (
+            0.55 * math.sin(two_pi * 60.0 * t)
+            + 0.30 * math.sin(two_pi * 120.0 * t + 0.4)
+            + 0.15 * math.sin(two_pi * 180.0 * t + 1.1)
+        )
+        acc = (1.0 - alpha) * acc + alpha * rng.gauss(0.0, 1.0)
+        out[i] = (0.65 * hum + 0.35 * acc) * g
+    return out
 
 
-def render_canal_source(src: CanalSource, duration_s: float = SCENE_DURATION, sr: int = CODECWAR_SAMPLE_RATE) -> np.ndarray:
+def render_canal_source(src: CanalSource, duration_s: float = SCENE_DURATION, sr: int = CODECWAR_SAMPLE_RATE) -> List[float]:
     n = int(round(duration_s * sr))
-    out = np.zeros(n, dtype=np.float64)
+    out = [0.0] * n
     offset = max(0, min(n, int(round(src.onset_s * sr))))
     if src.kind == "kettle":
         seg = kettle_pcm(duration_s - src.onset_s, sr=sr, gain=src.gain)
@@ -241,16 +254,17 @@ def render_canal_source(src: CanalSource, duration_s: float = SCENE_DURATION, sr
             rate=src.rate,
             sample_rate=sr,
         )
-        seg = np.asarray(rendered.samples, dtype=np.float64) * float(src.gain)
+        g = float(src.gain)
+        seg = [float(s) * g for s in rendered.samples]
     take = min(n - offset, len(seg))
-    if take > 0:
-        out[offset : offset + take] = seg[:take]
+    for i in range(take):
+        out[offset + i] = seg[i]
     return out
 
 
 def tape_from_frames(samples: Sequence[float], sr: int = CODECWAR_SAMPLE_RATE, frame_ms: float = 16.0) -> List[Dict[str, Any]]:
     dsp = get_dsp()
-    x = np.asarray(samples, dtype=np.float64)
+    x = [float(v) for v in samples]
     hop = max(1, int(round((frame_ms / 1000.0) * sr)))
     win = min(len(x), max(hop * 2, 1024))
     tape: List[Dict[str, Any]] = []
@@ -264,9 +278,9 @@ def tape_from_frames(samples: Sequence[float], sr: int = CODECWAR_SAMPLE_RATE, f
             zcr_v = float(dsp.zcr(chunk))
             f0_raw = float(dsp.yin(chunk, sr))
         else:
-            rms_v = float(np.sqrt(np.mean(chunk * chunk)))
-            signs = np.signbit(chunk)
-            zcr_v = float(np.sum(signs[1:] != signs[:-1])) / max(1, len(chunk) - 1)
+            rms_v = math.sqrt(sum(v * v for v in chunk) / max(1, len(chunk)))
+            crossings = sum(1 for k in range(1, len(chunk)) if (chunk[k] < 0.0) != (chunk[k - 1] < 0.0))
+            zcr_v = crossings / max(1, len(chunk) - 1)
             f0_raw = 0.0
         f0_v: Optional[float] = round(f0_raw, 2) if (rms_v >= CORTI_OFFSET_RMS and 50.0 <= f0_raw <= 500.0) else None
         tape.append({
@@ -313,7 +327,7 @@ def card_from_frames(samples: Sequence[float], sr: int = CODECWAR_SAMPLE_RATE, l
     f1_val: Optional[float] = None
     f2_val: Optional[float] = None
     if dsp.available and voiced:
-        x = np.asarray(samples, dtype=np.float64)
+        x = [float(v) for v in samples]
         mid = len(x) // 2
         seg = x[max(0, mid - 1024) : min(len(x), mid + 1024)]
         if len(seg) >= 256:
@@ -342,16 +356,18 @@ def card_from_frames(samples: Sequence[float], sr: int = CODECWAR_SAMPLE_RATE, l
     }
 
 
-def fuse_pcm(canals: Sequence[np.ndarray]) -> np.ndarray:
+def fuse_pcm(canals: Sequence[Sequence[float]]) -> List[float]:
     if not canals:
-        return np.zeros(0, dtype=np.float64)
+        return []
     length = max(len(c) for c in canals)
-    acc = np.zeros(length, dtype=np.float64)
+    acc = [0.0] * length
     for c in canals:
-        acc[: len(c)] += c
-    peak = float(np.max(np.abs(acc))) if length else 0.0
+        for i, v in enumerate(c):
+            acc[i] += float(v)
+    peak = max((abs(v) for v in acc), default=0.0)
     if peak > 0.99:
-        acc = acc * (0.99 / peak)
+        scale = 0.99 / peak
+        acc = [v * scale for v in acc]
     return acc
 
 

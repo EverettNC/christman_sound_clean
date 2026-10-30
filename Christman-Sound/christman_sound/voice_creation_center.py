@@ -10,6 +10,8 @@ christman_sound/synth.py, and christman_voice_sdk/synthesis/voice_synthesis.py
 with scripts/measure_voice.py, scripts/build_voice_bank.py, CODECWAR5TH's
 Frames Room, BOOTH's Studio, and VoicepackBuilder).
 
+Pure Python standard library + christman_dsp.so only. No numpy, no scipy.
+
 What lives here:
   1. VOICE_CREATION_CONTROLS & VOICE_CREATION_PRESETS:
      All 12 controls the frame mouth reads (`cadence`, `breath`, `jitter`,
@@ -38,31 +40,25 @@ What lives here:
 
 from __future__ import annotations
 
-import hashlib
+import array
 import json
 import math
-import os
 import statistics
+import sys
 import time
 import wave
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
-import numpy as np
-
 from .dsp import get_dsp
 from .formants import measure_formants, read_wav_mono
 from .frames import (
-    AP_BANDS,
     AP_EDGES,
-    ENV_POINTS,
     FRAME_SR,
     HOP,
     analyze_frames,
     env_grid_hz,
-    read_wav_mono_22k,
     track_ltas,
     write_voice_bank,
 )
@@ -350,8 +346,8 @@ def resolve_vcc_controls(preset: Optional[str] = None, overrides: Optional[Mappi
     return check_controls(base)
 
 
-def _ensure_mono_22k(wav_path: Union[str, Path]) -> np.ndarray:
-    """Read a WAV file and resample to 22,050 Hz mono float64 in [-1, 1] if needed."""
+def _ensure_mono_22k(wav_path: Union[str, Path]) -> List[float]:
+    """Read a WAV file and resample to 22,050 Hz mono float in [-1, 1] using pure Python stdlib."""
     p = Path(wav_path).expanduser()
     with wave.open(str(p), "rb") as w:
         sr = w.getframerate()
@@ -360,15 +356,34 @@ def _ensure_mono_22k(wav_path: Union[str, Path]) -> np.ndarray:
         raw = w.readframes(w.getnframes())
     if sw != 2:
         raise ValueError(f"{p}: expected 16-bit PCM WAV (got {8 * sw}-bit)")
-    arr = np.frombuffer(raw, dtype="<i2").astype(np.float64) / 32768.0
+    pcm = array.array("h")
+    pcm.frombytes(raw)
+    if sys.byteorder != "little":
+        pcm.byteswap()
     if ch > 1:
-        arr = arr.reshape(-1, ch).mean(axis=1)
-    if sr != FRAME_SR:
-        from math import gcd
-        from scipy.signal import resample_poly
-        g = gcd(sr, FRAME_SR)
-        arr = np.clip(resample_poly(arr, FRAME_SR // g, sr // g), -1.0, 1.0)
-    return arr
+        n_frames = len(pcm) // ch
+        mono = [sum(pcm[i * ch + c] for c in range(ch)) / (ch * 32768.0) for i in range(n_frames)]
+    else:
+        mono = [s / 32768.0 for s in pcm]
+
+    if sr == FRAME_SR or not mono:
+        return mono
+
+    n_in = len(mono)
+    n_out = max(1, int(round(n_in * FRAME_SR / sr)))
+    ratio = sr / float(FRAME_SR)
+    out = [0.0] * n_out
+    last = n_in - 1
+    for i in range(n_out):
+        pos = i * ratio
+        i0 = int(pos)
+        if i0 >= last:
+            out[i] = mono[last]
+        else:
+            frac = pos - i0
+            v = mono[i0] * (1.0 - frac) + mono[i0 + 1] * frac
+            out[i] = max(-1.0, min(1.0, v))
+    return out
 
 
 def resynthesize_from_frames(
@@ -392,12 +407,12 @@ def resynthesize_from_frames(
     x = _ensure_mono_22k(src_path)[: int(max_seconds * FRAME_SR)]
     track = analyze_frames(x, sr=FRAME_SR, hop=HOP)
     dsp = get_dsp()
-    env_flat = track.env_db.reshape(-1).tolist()
-    ap_flat = track.ap.reshape(-1).tolist()
-    grid_hz = env_grid_hz(FRAME_SR).tolist()
+    env_flat = [v for row in track.env_db for v in row]
+    ap_flat = [v for row in track.ap for v in row]
+    grid_hz = env_grid_hz(FRAME_SR)
 
     rendered = dsp.vocoder_render(
-        track.f0.tolist(),
+        list(track.f0),
         env_flat,
         grid_hz,
         ap_flat,
@@ -414,14 +429,15 @@ def resynthesize_from_frames(
     stamp = int(time.time() * 1000)
     orig_wav = out_folder / f"frames_orig_{stamp}.wav"
     resyn_wav = out_folder / f"frames_resyn_{stamp}.wav"
-    write_wav(orig_wav, x.tolist(), FRAME_SR)
+    write_wav(orig_wav, x, FRAME_SR)
     write_wav(resyn_wav, norm_rendered, FRAME_SR)
 
-    voiced_mask = track.f0 > 0.0
-    voiced_count = int(np.sum(voiced_mask))
-    f0_med = round(float(np.median(track.f0[voiced_mask])), 2) if voiced_count else None
-    ap_mean = round(float(np.mean(track.ap[voiced_mask])), 4) if voiced_count else None
-    rms_med = round(float(np.median(track.rms_db[voiced_mask])), 2) if voiced_count else None
+    voiced_idx = [i for i in range(track.n) if track.f0[i] > 0.0]
+    voiced_count = len(voiced_idx)
+    f0_med = round(float(statistics.median(track.f0[i] for i in voiced_idx)), 2) if voiced_count else None
+    ap_vals = [v for i in voiced_idx for v in track.ap[i]]
+    ap_mean = round(float(statistics.fmean(ap_vals)), 4) if ap_vals else None
+    rms_med = round(float(statistics.median(track.rms_db[i] for i in voiced_idx)), 2) if voiced_count else None
     elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 1)
 
     return {
@@ -463,7 +479,9 @@ def measure_and_prove_voice_profile(
 
     all_f0: List[float] = []
     phrase_contours: List[List[float]] = []
-    f1s, f2s, f3s = [], [], []
+    f1s: List[float] = []
+    f2s: List[float] = []
+    f3s: List[float] = []
     CONTOUR_BINS = 10
     OCTAVE_GUARD_ST = 10.0
 
@@ -626,14 +644,14 @@ def build_frame_voice_center(
 
     recordings: List[Dict[str, str]] = []
     tokens: List[Dict[str, Any]] = []
-    raw_samples_list: List[np.ndarray] = []
+    raw_samples_list: List[List[float]] = []
 
     for ri, raw_p in enumerate(wav_paths):
         src_p = Path(raw_p).expanduser()
         x = _ensure_mono_22k(src_p)
         raw_samples_list.append(x)
         w22_path = conv_dir / src_p.name
-        write_wav(w22_path, x.tolist(), FRAME_SR)
+        write_wav(w22_path, x, FRAME_SR)
         recordings.append({"path": str(w22_path), "session": "session_0"})
 
         phrase = (transcripts or {}).get(src_p.name) or (transcripts or {}).get(str(src_p)) or _infer_phrase_from_filename(src_p)

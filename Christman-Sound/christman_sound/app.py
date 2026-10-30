@@ -926,10 +926,15 @@ class ChristmanSoundApp:
             sample_rate=CHRISTMAN_SOUND_SAMPLE_RATE,
         )
         track = analyze_frames(rendered.samples, sr=CHRISTMAN_SOUND_SAMPLE_RATE)
-        voiced_mask = track.f0 > 0
-        voiced_count = int(voiced_mask.sum())
-        med_f0 = round(float( sorted(track.f0[voiced_mask])[voiced_count // 2] ), 2) if voiced_count else None
-        mean_ap = [round(float(v), 4) for v in track.ap[voiced_mask].mean(axis=0)] if voiced_count else [1.0] * 8
+        voiced_idx = [i for i in range(track.n) if track.f0[i] > 0.0]
+        voiced_count = len(voiced_idx)
+        voiced_f0s = sorted(track.f0[i] for i in voiced_idx)
+        med_f0 = round(float(voiced_f0s[voiced_count // 2]), 2) if voiced_count else None
+        mean_ap = (
+            [round(sum(track.ap[i][b] for i in voiced_idx) / voiced_count, 4) for b in range(8)]
+            if voiced_count
+            else [1.0] * 8
+        )
         return _json_resp({
             "status": "ok",
             "sr": track.sr,
@@ -938,7 +943,7 @@ class ChristmanSoundApp:
             "voiced_frames": voiced_count,
             "f0_median_hz": med_f0,
             "mean_voiced_aperiodicity_8band": mean_ap,
-            "env_bins": int(track.env_db.shape[1]),
+            "env_bins": len(track.env_db[0]) if track.env_db else 96,
             "f0_preview": [round(float(v), 1) for v in track.f0[:40]],
         }, 200)
 
@@ -951,11 +956,11 @@ class ChristmanSoundApp:
         pcm_list = [render_canal_source(s, sr=CODECWAR_SAMPLE_RATE) for s in scene.sources]
         for idx, (s, pcm) in enumerate(zip(scene.sources, pcm_list)):
             fname = f"canal_{scene_id}_{s.id}_{int(datetime.now().timestamp() * 1000)}.wav"
-            write_wav(_audio_cache_dir() / fname, pcm.tolist(), CODECWAR_SAMPLE_RATE)
+            write_wav(_audio_cache_dir() / fname, list(pcm), CODECWAR_SAMPLE_RATE)
             report["canals"][idx]["audio_url"] = f"/audio/{fname}"
         fused = fuse_pcm(pcm_list)
         fused_name = f"fused_{scene_id}_{int(datetime.now().timestamp() * 1000)}.wav"
-        write_wav(_audio_cache_dir() / fused_name, fused.tolist(), CODECWAR_SAMPLE_RATE)
+        write_wav(_audio_cache_dir() / fused_name, list(fused), CODECWAR_SAMPLE_RATE)
         report["fused_audio_url"] = f"/audio/{fused_name}"
         return _json_resp({"status": "ok", **report}, 200)
 
@@ -1009,16 +1014,17 @@ class ChristmanSoundApp:
 
         if data.get("record_canal_frame"):
             cf = data["record_canal_frame"]
-            self.canal_recorder.record(
-                t_ms=float(cf.get("t_ms", 0.0)),
-                rms=float(cf.get("rms", 0.02)),
-                zcr=float(cf.get("zcr", 0.05)),
-                f0=cf.get("f0"),
-                f1=cf.get("f1"),
-                f2=cf.get("f2"),
-            )
+            if cf.get("t_ms") is not None and cf.get("rms") is not None and cf.get("zcr") is not None:
+                self.canal_recorder.record(
+                    t_ms=float(cf["t_ms"]),
+                    rms=float(cf["rms"]),
+                    zcr=float(cf["zcr"]),
+                    f0=cf.get("f0"),
+                    f1=cf.get("f1"),
+                    f2=cf.get("f2"),
+                )
 
-        event = data.get("event") or {"durationMs": 220.0, "attackMs": 45.0, "peakRms": 0.14, "f0": hz}
+        event = data.get("event")
         recent_events = data.get("recent_events") or []
         route = analyze_grunt_physics(event, seat=self.speaker_seat, recent_events=recent_events)
         stimming = detect_vocal_stimming(recent_events) if recent_events else False
@@ -1132,6 +1138,7 @@ class ChristmanSoundApp:
 
     def _handle_whole_house(self, data: Dict[str, Any]) -> AppResponse:
         from christman_voice_sdk.audio.whole_house import (
+            Scene,
             classify_smell,
             describe_house,
             frame_from_sense,
@@ -1139,10 +1146,27 @@ class ChristmanSoundApp:
             whole_environment,
         )
 
-        smell_raw = data.get("smell", {"channels": [0.62, 0.48, 0.18, 0.35], "temp_c": 22.5, "humidity_pct": 44.0})
-        skin_raw = data.get("skin", {"pads": [0.28, 0.32, 0.25, 0.29], "temp_c": 34.2, "imu_delta_g": 0.04})
+        smell_raw = data.get("smell")
+        skin_raw = data.get("skin")
         smell_res = classify_smell(smell_raw)
         skin_res = frame_from_sense(skin_raw)
+
+        if isinstance(data.get("add_scene"), dict):
+            sc = data["add_scene"]
+            if sc.get("id") and sc.get("title"):
+                self.memory_chamber.add_scene(
+                    Scene(
+                        id=str(sc["id"]),
+                        title=str(sc["title"]),
+                        who=str(sc.get("who") or ""),
+                        what=str(sc.get("what") or ""),
+                        where=str(sc.get("where") or ""),
+                        when=str(sc.get("when") or ""),
+                        feeling=str(sc.get("feeling") or ""),
+                        weight=float(sc.get("weight", 1.0)),
+                        shadow=bool(sc.get("shadow", False)),
+                    )
+                )
 
         if data.get("reclaim_scene_id"):
             self.memory_chamber.reclaim_scene(str(data["reclaim_scene_id"]))
@@ -1155,14 +1179,14 @@ class ChristmanSoundApp:
         else:
             rem_scene = None
 
-        query = data.get("memory_query") or {"who": "Everett", "where": "porch coffee"}
+        query = data.get("memory_query") or {}
         completion = self.memory_chamber.complete(query)
 
         house_state = merge_house(
-            ear=data.get("ear") or {"speaker": "Everett", "text": query.get("what", "")},
+            ear=data.get("ear"),
             cornea=data.get("cornea"),
-            smell=smell_res,
-            skin=skin_res,
+            smell=smell_res if smell_res.get("available") else None,
+            skin=skin_res if skin_res.get("available") else None,
             porch=data.get("porch"),
         )
         return _json_resp({

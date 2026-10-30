@@ -8,6 +8,10 @@ christman_voice_sdk.audio.whole_house — OpenSmell 21-Profile Classifier, Skin
 Haptic Posture Classifier, House Fifth Stream, and TCAP-V-0044 Five-Element
 Memory Chamber (ported from everettnc/thewholehouse
 src/lib/smell/*, src/lib/skin/*, and src/modules/memory/{model,house}.ts).
+
+No sample content or personal scenes ship in the Memory Chamber; every
+MemoryChamber instance starts empty. Unmeasured sensor inputs stay None and
+report that they could not measure.
 """
 
 from __future__ import annotations
@@ -23,6 +27,17 @@ __all__ = [
     "SKIN_POSTURES",
     "ELEMENTS",
     "RESONANCE_GATE",
+    "SCALAR_HAZARD_LOAD",
+    "PROFILE_SIMILARITY_FLOOR",
+    "HAZARD_CONFIDENCE_FLOOR",
+    "RECOIL_MIN_IMU_G",
+    "RECOIL_MIN_PAD",
+    "TREMOR_MIN_IMU_G",
+    "TREMOR_MIN_MEAN_PAD",
+    "STROKE_MIN_PAD_VAR",
+    "PRESS_MIN_PAD",
+    "HOLD_MIN_MEAN_PAD",
+    "DEFAULT_SCENES",
     "parse_smell_payload",
     "classify_smell",
     "posture_of",
@@ -37,6 +52,54 @@ __all__ = [
 ]
 
 HOUSE_CHANNEL = "thewholehouse"
+
+# -----------------------------------------------------------------------------
+# THRESHOLDS — EVERY NUMBER BELOW IS A CHOSEN STARTING VALUE, NOT A MEASUREMENT.
+# Each is held until client data replaces it, with its reason written beside it:
+# -----------------------------------------------------------------------------
+
+#: Scalar MQ-135 high-load alert threshold (0.75 of full-scale ADC range).
+#: CHOSEN STARTING VALUE, NOT A MEASUREMENT — held until client data replaces
+#: it. Reason: upper quartile (75%) of normalized reducing-gas voltage load.
+SCALAR_HAZARD_LOAD = 0.75
+
+#: Multi-channel MOS vector cosine/Euclidean similarity floor (0.55).
+#: CHOSEN STARTING VALUE, NOT A MEASUREMENT — held until client data replaces
+#: it. Reason: requires better than half-scale vector agreement (RMS channel
+#: distance <= 0.45) before naming a candidate profile.
+PROFILE_SIMILARITY_FLOOR = 0.55
+
+#: Hazard profile alert threshold (0.70). CHOSEN STARTING VALUE, NOT A
+#: MEASUREMENT — held until client data replaces it. Reason: carried from
+#: thewholehouse src/lib/smell/types.ts (ALERT_THRESHOLD = 0.7).
+HAZARD_CONFIDENCE_FLOOR = 0.70
+
+#: Skin haptic posture thresholds. CHOSEN STARTING VALUES, NOT MEASUREMENTS —
+#: held until client data replaces them. Reasons:
+#: - RECOIL_MIN_IMU_G (1.2 g) & RECOIL_MIN_PAD (0.55): sharp jolt above 1 g with
+#:   firm contact (>55% pad range) marks sudden withdrawal/impact.
+#: - TREMOR_MIN_IMU_G (0.45 g) & TREMOR_MIN_MEAN_PAD (0.12): moderate IMU
+#:   oscillation while touching (>12% mean pad pressure) marks shaking/tremor.
+#: - STROKE_MIN_PAD_VAR (0.08): spatial variance across the 4 pads while mean
+#:   pressure is moderate (0.10..0.65) marks a moving sweep across pads.
+#: - PRESS_MIN_PAD (0.72): any pad in the top ~28% of full-scale pressure marks
+#:   a deliberate press.
+#: - HOLD_MIN_MEAN_PAD (0.15): steady contact above 15% mean pad pressure marks
+#:   a resting hand hold; below 0.15 with active pads is light rest.
+RECOIL_MIN_IMU_G = 1.2
+RECOIL_MIN_PAD = 0.55
+TREMOR_MIN_IMU_G = 0.45
+TREMOR_MIN_MEAN_PAD = 0.12
+STROKE_MIN_PAD_VAR = 0.08
+PRESS_MIN_PAD = 0.72
+HOLD_MIN_MEAN_PAD = 0.15
+
+#: Memory Chamber completion gate (1.15). CHOSEN STARTING VALUE, NOT A
+#: MEASUREMENT — held until client data replaces it. Reason: carried from
+#: thewholehouse src/modules/memory/model.ts (RESONANCE_GATE = 1.15); requires
+#: at least two sensory doors (2 * 0.65 = 1.30 >= 1.15) to open before a scene
+#: completes.
+RESONANCE_GATE = 1.15
 
 SMELL_PROFILES: Tuple[Dict[str, Any], ...] = (
     {"id": "clean_air", "label": "Clean Baseline Air", "category": "baseline", "vector": (0.05, 0.05, 0.05, 0.05)},
@@ -69,7 +132,7 @@ def parse_smell_payload(raw: Any) -> Dict[str, Any]:
     if isinstance(raw, Mapping):
         if "channels" in raw and isinstance(raw["channels"], Sequence):
             ch = [float(v) for v in raw["channels"]]
-        elif "mq135" in raw:
+        elif "mq135" in raw and raw["mq135"] is not None:
             ch = [float(raw["mq135"])]
         else:
             ch = [float(raw[k]) for k in ("voc", "nh3", "co", "moisture") if k in raw and raw[k] is not None]
@@ -91,7 +154,7 @@ def classify_smell(raw: Any) -> Dict[str, Any]:
             "air_load": None,
             "species": [],
             "hazard": False,
-            "honesty_note": "no sensor channels received",
+            "honesty_note": "could not measure: no sensor channels received",
         }
     if len(ch) == 1:
         load = max(0.0, min(1.0, float(ch[0])))
@@ -100,7 +163,7 @@ def classify_smell(raw: Any) -> Dict[str, Any]:
             "channel_count": 1,
             "air_load": round(load, 4),
             "species": [],
-            "hazard": load >= 0.75,
+            "hazard": load >= SCALAR_HAZARD_LOAD,
             "honesty_note": "1 scalar channel (MQ-135) measures nonspecific gas load only; cannot separate chemical species.",
         }
 
@@ -120,10 +183,10 @@ def classify_smell(raw: Any) -> Dict[str, Any]:
             "confidence": round(sim, 3),
         }
         for sim, p in scored[:3]
-        if sim >= 0.55
+        if sim >= PROFILE_SIMILARITY_FLOOR
     ]
     load = max(0.0, min(1.0, sum(vec) / len(vec)))
-    hazard = any(item["category"] == "hazard" and item["confidence"] >= 0.70 for item in top)
+    hazard = any(item["category"] == "hazard" and item["confidence"] >= HAZARD_CONFIDENCE_FLOOR for item in top)
     return {
         "available": True,
         "channel_count": len(ch),
@@ -140,40 +203,62 @@ SKIN_POSTURES: Tuple[str, ...] = ("rest", "hold", "press", "tremor", "recoil", "
 
 
 def posture_of(
-    pads: Sequence[float],
+    pads: Optional[Sequence[float]],
     temp_c: Optional[float] = None,
-    imu_delta_g: float = 0.0,
-    pad_variance: float = 0.0,
-) -> str:
-    vals = [max(0.0, min(1.0, float(p))) for p in pads] if pads else [0.0, 0.0, 0.0, 0.0]
+    imu_delta_g: Optional[float] = None,
+    pad_variance: Optional[float] = None,
+) -> Optional[str]:
+    """Classify skin contact posture from measured pad pressures and IMU delta.
+    If no pad measurements are provided, returns None rather than inventing 'rest'."""
+    if not pads:
+        return None
+    vals = [max(0.0, min(1.0, float(p))) for p in pads]
     mean_p = sum(vals) / len(vals)
     max_p = max(vals)
-    if imu_delta_g >= 1.2 and max_p >= 0.55:
+    imu = float(imu_delta_g) if imu_delta_g is not None else 0.0
+    var_p = float(pad_variance) if pad_variance is not None else (
+        sum((p - mean_p) ** 2 for p in vals) / len(vals)
+    )
+    if imu >= RECOIL_MIN_IMU_G and max_p >= RECOIL_MIN_PAD:
         return "recoil"
-    if imu_delta_g >= 0.45 and mean_p >= 0.12:
+    if imu >= TREMOR_MIN_IMU_G and mean_p >= TREMOR_MIN_MEAN_PAD:
         return "tremor"
-    if pad_variance >= 0.08 and 0.10 <= mean_p <= 0.65:
+    if var_p >= STROKE_MIN_PAD_VAR and 0.10 <= mean_p <= 0.65:
         return "stroke"
-    if max_p >= 0.72:
+    if max_p >= PRESS_MIN_PAD:
         return "press"
-    if mean_p >= 0.15:
+    if mean_p >= HOLD_MIN_MEAN_PAD:
         return "hold"
     return "rest"
 
 
-def frame_from_sense(raw: Mapping[str, Any]) -> Dict[str, Any]:
-    pads = [float(v) for v in (raw.get("pads") or [0.0, 0.0, 0.0, 0.0])]
+def frame_from_sense(raw: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
+    """Build a skin frame from measured sensor values.
+    Never fills in [0, 0, 0, 0] when pads are absent; unmeasured fields stay None."""
+    if not raw or not isinstance(raw, Mapping) or not raw.get("pads"):
+        return {
+            "available": False,
+            "pads": None,
+            "mean_pressure": None,
+            "temp_c": None,
+            "imu_delta_g": None,
+            "posture": None,
+            "honesty_note": "could not measure: no skin sensor pads provided",
+        }
+    pads = [float(v) for v in raw["pads"]]
     temp_c = float(raw["temp_c"]) if raw.get("temp_c") is not None else None
-    imu = float(raw.get("imu_delta_g") or 0.0)
-    mean_p = sum(pads) / len(pads) if pads else 0.0
-    var_p = sum((p - mean_p) ** 2 for p in pads) / len(pads) if pads else 0.0
+    imu = float(raw["imu_delta_g"]) if raw.get("imu_delta_g") is not None else None
+    mean_p = sum(pads) / len(pads)
+    var_p = sum((p - mean_p) ** 2 for p in pads) / len(pads)
     posture = posture_of(pads, temp_c=temp_c, imu_delta_g=imu, pad_variance=var_p)
     return {
+        "available": True,
         "pads": [round(p, 4) for p in pads],
         "mean_pressure": round(mean_p, 4),
         "temp_c": temp_c,
-        "imu_delta_g": round(imu, 4),
+        "imu_delta_g": round(imu, 4) if imu is not None else None,
         "posture": posture,
+        "honesty_note": "measured skin pad frame",
     }
 
 
@@ -210,17 +295,17 @@ def whole_environment(house_state: Mapping[str, Any]) -> Dict[str, str]:
     cornea = house_state.get("cornea") or {}
 
     route = porch.get("route") or []
-    who = ", ".join(route) if route else str(ear.get("speaker") or "present caller")
-    what = str(porch.get("asSaid") or ear.get("text") or skin.get("posture") or "quiet presence")
+    who = ", ".join(route) if route else str(ear.get("speaker") or "")
+    what = str(porch.get("asSaid") or ear.get("text") or skin.get("posture") or "")
     species = smell.get("species") or []
     where_parts = []
     if species:
         where_parts.append(str(species[0].get("label", "")))
     if cornea.get("cell"):
         where_parts.append(f"gaze {cornea['cell']}")
-    where = " · ".join(p for p in where_parts if p) or "the house"
-    when = str((cornea.get("stamp") or {}).get("time_of_day") or "now")
-    feeling = str(skin.get("posture") or ear.get("mode") or "steady")
+    where = " · ".join(p for p in where_parts if p)
+    when = str((cornea.get("stamp") or {}).get("time_of_day") or "")
+    feeling = str(skin.get("posture") or ear.get("mode") or "")
     return {
         "who": who,
         "what": what,
@@ -232,11 +317,11 @@ def whole_environment(house_state: Mapping[str, Any]) -> Dict[str, str]:
 
 def describe_house(house_state: Mapping[str, Any]) -> str:
     env = whole_environment(house_state)
-    return f"[{env['when']}] {env['who']} — {env['what']} ({env['where']}; feeling: {env['feeling']})"
+    parts = [p for p in (env["when"], env["who"], env["what"], env["where"], env["feeling"]) if p]
+    return " · ".join(parts)
 
 
 ELEMENTS: Tuple[str, ...] = ("who", "what", "where", "when", "feeling")
-RESONANCE_GATE = 1.15
 
 
 def _tokens(text: str) -> List[str]:
@@ -247,11 +332,11 @@ def _tokens(text: str) -> List[str]:
 class Scene:
     id: str
     title: str
-    who: str
-    what: str
-    where: str
-    when: str
-    feeling: str
+    who: str = ""
+    what: str = ""
+    where: str = ""
+    when: str = ""
+    feeling: str = ""
     weight: float = 1.0
     shadow: bool = False
     reclaimed: bool = False
@@ -320,39 +405,8 @@ class CompletionResult:
         }
 
 
-DEFAULT_SCENES: Tuple[Scene, ...] = (
-    Scene(
-        id="porch-evening-coffee",
-        title="Evening Coffee on the Porch",
-        who="Everett, Misty",
-        what="drinking fresh coffee and talking through the voice architecture",
-        where="front porch, fresh coffee roast in the air",
-        when="evening",
-        feeling="warm, grounded, steady",
-        weight=1.35,
-    ),
-    Scene(
-        id="alphavox-first-lock",
-        title="AlphaVox First Sovereign Frame Lock",
-        who="Everett, AlphaVox, Brockston",
-        what="hearing the stitched voice speak from its own measured frames without a robotic table",
-        where="studio bench",
-        when="late night",
-        feeling="electric, proud, clear",
-        weight=1.45,
-    ),
-    Scene(
-        id="hillsboro-fraud-dispute",
-        title="Disputed Credit One / LVNV Collection Call",
-        who="Everett, debt collector",
-        what="demanding written FDCPA validation for the disputed 2022 Hillsboro account",
-        where="phone line, Columbus / Gahanna",
-        when="afternoon",
-        feeling="guarded, firm, protective",
-        weight=1.25,
-        shadow=True,
-    ),
-)
+# Every MemoryChamber starts empty — no sample content or personal scenes.
+DEFAULT_SCENES: Tuple[Scene, ...] = ()
 
 
 class MemoryChamber:

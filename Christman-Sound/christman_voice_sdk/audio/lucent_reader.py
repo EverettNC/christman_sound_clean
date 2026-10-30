@@ -5,9 +5,11 @@
 # ==============================================================================
 """
 christman_voice_sdk.audio.lucent_reader — Gullstrand Two-Surface Cornea Optics,
-4x4 Head Pose, AlphaVox 9-Cell Gaze, Blink Log, 5-Part Rhythm Tracker, and
+4x4 Head Pose, 9-Cell Gaze, Blink Log, 5-Part Rhythm Tracker, and
 Body-Signal Producer Bridge (ported from everettnc/lucent
 src/lib/cornea/{optics,house-record}.ts and src/lib/reader/{geometry,rhythm,time,reading}.ts).
+
+Pure Python standard library only. Unmeasured inputs stay None.
 """
 
 from __future__ import annotations
@@ -25,6 +27,8 @@ __all__ = [
     "N_CORNEA",
     "N_AQUEOUS",
     "EYE_CLOSED_RATIO",
+    "GAZE_CELL_THRESHOLD",
+    "BLINK_THRESHOLD",
     "CORNEA_LAYERS",
     "CORNEA_PRESETS",
     "BODY_PARTS",
@@ -43,10 +47,28 @@ __all__ = [
     "reading_to_body_signal_frame",
 ]
 
+# Gullstrand schematic eye refractive indices:
 N_AIR = 1.000
 N_CORNEA = 1.376
 N_AQUEOUS = 1.336
+
+#: Palpebral fissure aspect ratio (height / width < 0.20) below which the lid
+#: is closed and iris vertical position is not measurable. CHOSEN STARTING
+#: VALUE, NOT A MEASUREMENT — held until client data replaces it. Reason:
+#: carried from everettnc/lucent src/lib/reader/geometry.ts (EAR < 0.20).
 EYE_CLOSED_RATIO = 0.20
+
+#: Horizontal/vertical gaze deflection threshold (0.18) separating center/middle
+#: from left/right/up/down in the 3x3 gaze grid. CHOSEN STARTING VALUE, NOT A
+#: MEASUREMENT — held until client data replaces it. Reason: carried from
+#: everettnc/lucent src/lib/reader/geometry.ts (~10 deg blendshape deflection).
+GAZE_CELL_THRESHOLD = 0.18
+
+#: Mean bilateral eyeBlink blendshape threshold (0.55) marking a blink event.
+#: CHOSEN STARTING VALUE, NOT A MEASUREMENT — held until client data replaces
+#: it. Reason: carried from everettnc/lucent src/lib/reader/geometry.ts (lid
+#: closure past half-aperture).
+BLINK_THRESHOLD = 0.55
 
 CORNEA_LAYERS: Tuple[Dict[str, Any], ...] = (
     {"id": "epithelium", "name": "Epithelium", "thickness_um": 50.0, "role": "Barrier & tear-film optical interface"},
@@ -178,7 +200,17 @@ def pose_from_matrix(m: Sequence[float]) -> Optional[Dict[str, float]]:
     }
 
 
-def gaze_from_blendshapes(shapes: Mapping[str, float]) -> Dict[str, Any]:
+def gaze_from_blendshapes(shapes: Optional[Mapping[str, float]]) -> Dict[str, Any]:
+    """Compute 9-cell gaze and blink state from measured eye blendshapes.
+    If no blendshapes are provided, returns None fields rather than inventing center gaze."""
+    if not shapes or not isinstance(shapes, Mapping):
+        return {
+            "x": None,
+            "y": None,
+            "cell": None,
+            "blink": None,
+            "reason": "could not measure: no eye blendshapes provided",
+        }
     left_in = float(shapes.get("eyeLookInLeft", 0.0))
     left_out = float(shapes.get("eyeLookOutLeft", 0.0))
     right_in = float(shapes.get("eyeLookInRight", 0.0))
@@ -190,9 +222,9 @@ def gaze_from_blendshapes(shapes: Mapping[str, float]) -> Dict[str, Any]:
 
     gx = 0.5 * ((right_out - right_in) + (left_in - left_out))
     gy = up - down
-    col = "left" if gx < -0.18 else ("right" if gx > 0.18 else "center")
-    row = "up" if gy > 0.18 else ("down" if gy < -0.18 else "middle")
-    blink = 0.5 * (blink_l + blink_r) > 0.55
+    col = "left" if gx < -GAZE_CELL_THRESHOLD else ("right" if gx > GAZE_CELL_THRESHOLD else "center")
+    row = "up" if gy > GAZE_CELL_THRESHOLD else ("down" if gy < -GAZE_CELL_THRESHOLD else "middle")
+    blink = 0.5 * (blink_l + blink_r) > BLINK_THRESHOLD
     return {
         "x": round(gx, 4),
         "y": round(gy, 4),

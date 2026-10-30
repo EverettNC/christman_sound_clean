@@ -5,11 +5,11 @@
 """
 End-to-end tests for the integrated 7-repository Christman-Sound house
 architecture:
-  1. christman_sound.frames (4.99 ms frame analysis, 5-pass Viterbi forced
-     alignment, native write_voice_bank -> FrameBank round-trip)
+  1. christman_sound.frames (4.99 ms frame analysis, radix-2 FFT, 5-pass Viterbi
+     forced alignment, native write_voice_bank -> FrameBank round-trip)
   2. christman_sound.dispersion (4-canal Dispersion & War, Refused-Mix guard)
-  3. christman_sound.being (Silico-Stasis orbital field, 2 Hz shaker, 9-unit
-     psychoacoustic converter, streaming codec inspector)
+  3. christman_sound.being (Silico-Stasis equilibrium, concentric cube/room/universe
+     shape, 2 Hz shaker, psychoacoustic unit lattice, streaming codec inspector)
   4. christman_sound.ear.{mouth,board,porch} (Filament mouth map, CONF_FLOOR=0.55
      Carbon pile, Family/Residual boards, 15 dialect regions, TCAP-V-0020
      mouth-cooperation, 33 family names, Vosk 0.22 discovery)
@@ -23,16 +23,20 @@ architecture:
      1-scalar refusal guard, Skin haptic posture, House Fifth Stream, and
      TCAP-V-0044 Five-Element Memory Chamber)
   8. Studio API endpoints (/api/frames-analyze, /api/dispersion, /api/porch,
-     /api/corti-canal, /api/lucent, /api/being, /api/whole-house)
+     /api/corti-canal, /api/lucent, /api/being, /api/whole-house,
+     /api/voice-creation-center)
+  9. Sovereignty check: all new modules run with numpy, scipy, soundfile,
+     sounddevice, pygame, and librosa blocked via builtins.__import__.
 """
 
 from __future__ import annotations
 
 import math
+import os
+import subprocess
 import sys
 from pathlib import Path
 
-import numpy as np
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -41,7 +45,7 @@ sys.path.insert(0, str(ROOT))
 
 def test_frames_analyze_and_native_voice_bank_roundtrip(tmp_path):
     from christman_sound.frames import FRAME_SR, HOP, analyze_frames, write_voice_bank
-    from christman_sound.stitch import FrameBank, select_units, join_units
+    from christman_sound.stitch import FrameBank, join_units, select_units
     from christman_sound.synth import render_codecwar_table, write_wav
 
     res = render_codecwar_table(
@@ -56,9 +60,9 @@ def test_frames_analyze_and_native_voice_bank_roundtrip(tmp_path):
 
     track = analyze_frames(res.samples, sr=FRAME_SR, hop=HOP)
     assert track.n > 15
-    assert track.env_db.shape == (track.n, 96)
-    assert track.ap.shape == (track.n, 8)
-    assert np.any(track.f0 > 0)
+    assert len(track.env_db) == track.n and len(track.env_db[0]) == 96
+    assert len(track.ap) == track.n and len(track.ap[0]) == 8
+    assert any(f > 0.0 for f in track.f0)
 
     out_bank = tmp_path / "bank_out"
     summary = write_voice_bank(
@@ -104,25 +108,74 @@ def test_dispersion_four_canals_and_refused_mix():
         assert rep["comparison"]["pitch_corrupted_by_mix"] is True
 
 
-def test_being_silico_stasis_units_and_stream():
+def test_being_silico_stasis_shape_units_and_stream():
     from christman_sound.being import (
+        CUBE_DWELL,
+        CUBE_VERTS,
+        LATTICE,
+        LAYER_R,
+        NEST,
         OPEN_FRAGMENTS,
+        Qty,
+        TICK_SEC,
         attach_perturbations,
+        bark_to_hz,
         convert_unit,
         create_stasis_field,
+        cube_centroid,
+        cube_edge_length,
+        empty_stasis,
+        hz_to_bark,
         inspect_stream,
+        intensity_of,
+        layer_of,
+        nearest_phone,
         place_perturbation,
         shaker_pulse,
+        shannon,
         tick_stasis,
     )
 
+    assert len(OPEN_FRAGMENTS) == 5
+    assert OPEN_FRAGMENTS[0]["title"] == "54, 64, 84"
+    assert NEST == {"cube": 1, "room": 2, "universe": 3}
+    assert LAYER_R["center"] < LAYER_R["cube"] < LAYER_R["room"] < LAYER_R["universe"]
+    assert len(CUBE_VERTS) == 8
+    assert cube_edge_length() == 2.0
+    c = cube_centroid()
+    assert abs(c["x"]) < 1e-12 and abs(c["y"]) < 1e-12 and abs(c["z"]) < 1e-12
+    assert any(q["name"] == "fs" and q["unit"] == "Hz" for q in LATTICE)
+
+    # Settled silico-stasis rules (codec/src/lib/being/units.test.ts)
+    q0 = Qty("energy", "energy", 0.0, "RMS", 0.0, 1.0, "filament")
+    q_high = Qty("energy", "energy", 0.9, "RMS", 0.0, 1.0, "filament")
+    assert intensity_of(q0) == 0.0
+    assert layer_of(0.0, 10.0) == "center"
+    assert layer_of(0.3, 0.0) == "room"
+    assert layer_of(0.1, 0.0) == "universe"
+    assert layer_of(0.5, CUBE_DWELL) == "cube"
+
+    now = CUBE_DWELL + TICK_SEC
+    occ = {"energy": {"arrived": 0.0, "last": now, "intensity": 0.9}}
+    ps = attach_perturbations([q_high], occ, now)
+    assert ps[0].layer == "cube"
+    next_state = tick_stasis(empty_stasis(), ps, now, TICK_SEC)
+    assert next_state.timeSense == TICK_SEC
+
+    # Studio StasisField wrapper
     field = create_stasis_field(OPEN_FRAGMENTS)
-    assert len(field.nodes) == len(OPEN_FRAGMENTS)
-    p = place_perturbation("test-shock", magnitude=0.4, layer="membrane")
+    p = place_perturbation("test-shock", magnitude=0.6, layer="cube")
     attach_perturbations(field, [p, shaker_pulse(0.25)])
     tick_stasis(field, steps=5)
     assert field.ticks == 5
     assert 0.0 < field.quantities.coherence <= 1.0
+
+    # Psychoacoustic conversions & vowel F1-F2 lookup
+    assert abs(bark_to_hz(hz_to_bark(1000.0)) - 1000.0) < 1e-6
+    assert nearest_phone(270.0, 2290.0)["phone"]["id"] == "IY"
+    assert nearest_phone(730.0, 1090.0)["phone"]["id"] == "AA"
+    assert shannon([1.0, 0.0, 0.0]) == 0.0
+    assert abs(shannon([0.25, 0.25, 0.25, 0.25]) - math.log(4.0)) < 1e-12
 
     u = convert_unit(440.0, "hz")
     assert u["hz"] == 440.0
@@ -204,13 +257,12 @@ def test_corti_canal_greenwood_dsp_seat_and_alphavox(tmp_path):
     assert abs(place_to_freq(p) - 1000.0) < 1e-3
 
     # Silence produces None for jitter/shimmer/hnr_db
-    sil_q = voice_quality_dsp(np.zeros(4096), 16000)
+    sil_q = voice_quality_dsp([0.0] * 4096, 16000)
     assert sil_q == {"jitter": None, "shimmer": None, "hnr_db": None}
 
     # Clean periodic wave locks jitter/shimmer/HNR
     sr = 16000
-    t = np.arange(sr // 2, dtype=np.float64) / sr
-    wave_sig = 0.5 * np.sin(2.0 * np.pi * 160.0 * t)
+    wave_sig = [0.5 * math.sin(2.0 * math.pi * 160.0 * (i / sr)) for i in range(sr // 2)]
     q = voice_quality_dsp(wave_sig, sr, f0=160.0)
     assert q["jitter"] is not None and q["jitter"] < 0.02
     assert q["shimmer"] is not None and q["shimmer"] < 0.02
@@ -309,14 +361,112 @@ def test_lucent_cornea_optics_rhythm_and_body_signal_bridge():
     assert win.trends["breath_freq"].slope_per_s > 0
 
 
+def test_corti_grunt_physics_measured_confidence_missing_refusal_and_threshold_reasons():
+    import inspect
+    import christman_voice_sdk.audio.corti_canal as cc
+    from christman_voice_sdk.audio.corti_canal import (
+        SpeakerSeat,
+        analyze_grunt_physics,
+        detect_vocal_stimming,
+    )
+
+    # 1. Every threshold has its reason written beside it in the module source
+    src = inspect.getsource(cc)
+    assert "CHOSEN STARTING VALUE" in src and "held until client data" in src
+    for name in (
+        "DISTRESS_MAX_ATTACK_MS",
+        "DISTRESS_MIN_PEAK_RMS",
+        "DISTRESS_MIN_F0_RATIO",
+        "DISTRESS_UNSEATED_MIN_F0_HZ",
+        "FRUSTRATION_MIN_DURATION_MS",
+    ):
+        assert hasattr(cc, name), name
+
+    # 2. Missing measurements are NEVER filled in with 200 ms, 80 ms, or 0.02;
+    #    they stay None and the component says it could not measure.
+    r_none = analyze_grunt_physics(None)
+    assert r_none.key == "unknown" and r_none.confidence is None
+    assert "could not measure" in r_none.physics_note
+
+    r_no_rms = analyze_grunt_physics({"durationMs": 180.0, "attackMs": 40.0, "f0": 280.0})
+    assert r_no_rms.key == "unknown" and r_no_rms.confidence is None
+    assert r_no_rms.peak_rms is None and "peak_rms" in r_no_rms.physics_note
+
+    r_no_attack = analyze_grunt_physics({"durationMs": 180.0, "peakRms": 0.16, "f0": 280.0})
+    assert r_no_attack.key == "unknown" and r_no_attack.confidence is None
+    assert r_no_attack.attack_ms is None and "attack_ms" in r_no_attack.physics_note
+
+    r_no_dur = analyze_grunt_physics({"attackMs": 40.0, "peakRms": 0.16, "f0": 280.0})
+    assert r_no_dur.key == "unknown" and r_no_dur.confidence is None
+    assert r_no_dur.duration_ms is None and "duration_ms" in r_no_dur.physics_note
+
+    # Stimming also refuses when duration or f0 is missing on any recent event
+    assert detect_vocal_stimming([
+        {"f0": 180.0},
+        {"f0": 180.0},
+        {"f0": 180.0},
+    ]) is False
+
+    # 3. Confidence is measured from the sound, never fixed at 0.86 / 0.88 / 0.79 / 0.75
+    seat = SpeakerSeat()
+    for hz in (130.0, 132.0, 134.0):
+        seat.observe(hz, 0.05)
+
+    d_mild = analyze_grunt_physics({"durationMs": 190.0, "attackMs": 75.0, "peakRms": 0.125, "f0": 185.0}, seat=seat)
+    d_strong = analyze_grunt_physics({"durationMs": 190.0, "attackMs": 15.0, "peakRms": 0.24, "f0": 260.0}, seat=seat)
+    assert d_mild.key == "grunt_distress" and d_strong.key == "grunt_distress"
+    assert d_mild.confidence is not None and d_strong.confidence is not None
+    assert d_strong.confidence > d_mild.confidence
+
+    f_mild = analyze_grunt_physics({"durationMs": 470.0, "attackMs": 120.0, "peakRms": 0.055, "f0": 140.0}, seat=seat)
+    f_strong = analyze_grunt_physics({"durationMs": 850.0, "attackMs": 120.0, "peakRms": 0.14, "f0": 140.0}, seat=seat)
+    assert f_mild.key == "grunt_frustration" and f_strong.key == "grunt_frustration"
+    assert f_mild.confidence is not None and f_strong.confidence is not None
+    assert f_strong.confidence > f_mild.confidence
+
+    a_quiet = analyze_grunt_physics({"durationMs": 380.0, "attackMs": 95.0, "peakRms": 0.018, "f0": 132.0}, seat=seat)
+    a_clear = analyze_grunt_physics({"durationMs": 160.0, "attackMs": 140.0, "peakRms": 0.09, "f0": 132.0}, seat=seat)
+    assert a_quiet.key == "grunt_acknowledge" and a_clear.key == "grunt_acknowledge"
+    assert a_quiet.confidence is not None and a_clear.confidence is not None
+    assert a_clear.confidence != a_quiet.confidence
+
+    stim_tight = [
+        {"durationMs": 300.0, "attackMs": 90.0, "peakRms": 0.06, "f0": 180.0},
+        {"durationMs": 300.0, "attackMs": 90.0, "peakRms": 0.06, "f0": 180.0},
+        {"durationMs": 300.0, "attackMs": 90.0, "peakRms": 0.06, "f0": 180.0},
+    ]
+    stim_loose = [
+        {"durationMs": 260.0, "attackMs": 90.0, "peakRms": 0.06, "f0": 172.0},
+        {"durationMs": 340.0, "attackMs": 90.0, "peakRms": 0.06, "f0": 188.0},
+        {"durationMs": 290.0, "attackMs": 90.0, "peakRms": 0.06, "f0": 180.0},
+    ]
+    r_tight = analyze_grunt_physics(stim_tight[-1], seat=seat, recent_events=stim_tight)
+    r_loose = analyze_grunt_physics(stim_loose[-1], seat=seat, recent_events=stim_loose)
+    assert r_tight.key == "vocal_stimming" and r_loose.key == "vocal_stimming"
+    assert r_tight.confidence is not None and r_loose.confidence is not None
+    assert r_tight.confidence > r_loose.confidence
+
+
 def test_whole_house_smell_skin_and_memory_chamber():
     from christman_voice_sdk.audio.whole_house import (
+        DEFAULT_SCENES,
         MemoryChamber,
+        Scene,
         classify_smell,
         frame_from_sense,
         merge_house,
         whole_environment,
     )
+
+    # Every MemoryChamber starts completely empty with zero default scenes
+    assert DEFAULT_SCENES == ()
+    chamber = MemoryChamber()
+    assert chamber.scenes == []
+
+    # Missing skin pads stay None and refuse rather than inventing [0,0,0,0] / "rest"
+    empty_skin = frame_from_sense(None)
+    assert empty_skin["available"] is False and empty_skin["posture"] is None
+    assert "could not measure" in empty_skin["honesty_note"]
 
     # 1 scalar channel refuses to invent chemical species
     one_ch = classify_smell(0.42)
@@ -331,32 +481,94 @@ def test_whole_house_smell_skin_and_memory_chamber():
     skin = frame_from_sense({"pads": [0.8, 0.75, 0.7, 0.72], "imu_delta_g": 0.05})
     assert skin["posture"] == "press"
 
-    chamber = MemoryChamber()
-    # 1 door with non-unique token refuses gateway
-    refused = chamber.complete({"who": "Everett"})
+    # Caller explicitly adds scenes to its own chamber
+    chamber.add_scene(Scene(
+        id="scene-rain",
+        title="Rain on the Window",
+        who="listener, companion",
+        what="listening to rain on the roof",
+        where="quiet room window",
+        when="evening",
+        feeling="calm, steady",
+        weight=1.35,
+    ))
+    chamber.add_scene(Scene(
+        id="scene-bench",
+        title="Workbench Frame Lock",
+        who="listener, engineer",
+        what="measuring a periodic waveform lock",
+        where="workbench",
+        when="night",
+        feeling="focused, clear",
+        weight=1.40,
+    ))
+    chamber.add_scene(Scene(
+        id="scene-shadow-test",
+        title="Withheld Shadow Scene",
+        who="listener, caller",
+        what="boundary test on a loud alarm",
+        where="hallway",
+        when="afternoon",
+        feeling="guarded, alert",
+        weight=1.25,
+        shadow=True,
+    ))
+
+    # 1 door with non-unique token ("listener" is in all 3 scenes) refuses gateway
+    refused = chamber.complete({"who": "listener"})
     assert refused.completed is None and "gateway refused" in refused.gate_reason
 
-    # 2 doors complete the porch coffee scene
-    hit = chamber.complete({"who": "Everett Misty", "where": "porch coffee"})
-    assert hit.completed is not None and hit.completed.id == "porch-evening-coffee"
+    # 2 doors complete the matching scene
+    hit = chamber.complete({"who": "listener companion", "where": "quiet room window"})
+    assert hit.completed is not None and hit.completed.id == "scene-rain"
 
     # Shadow scene returns ShadowHit somatic marker without completing until reclaimed
-    sh = chamber.complete({"who": "Everett debt collector", "what": "FDCPA validation Hillsboro"})
+    sh = chamber.complete({"who": "listener caller", "what": "boundary alarm"})
     assert sh.completed is None
-    assert len(sh.shadows) == 1 and sh.shadows[0].scene_id == "hillsboro-fraud-dispute"
+    assert len(sh.shadows) == 1 and sh.shadows[0].scene_id == "scene-shadow-test"
 
-    chamber.reclaim_scene("hillsboro-fraud-dispute")
-    reclaimed = chamber.complete({"who": "Everett debt collector", "what": "FDCPA validation Hillsboro"})
-    assert reclaimed.completed is not None and reclaimed.completed.id == "hillsboro-fraud-dispute"
+    chamber.reclaim_scene("scene-shadow-test")
+    reclaimed = chamber.complete({"who": "listener caller", "what": "boundary alarm"})
+    assert reclaimed.completed is not None and reclaimed.completed.id == "scene-shadow-test"
 
     night = chamber.apply_night(level=1)
-    assert night["scenes_after"] >= 3
+    assert night["scenes_after"] == 3
     dream = chamber.apply_rem()
     assert dream is not None and dream.dream is True
 
-    h = merge_house(ear={"speaker": "Everett", "text": "hello"}, smell=multi, skin=skin)
+    h = merge_house(ear={"speaker": "listener", "text": "hello"}, smell=multi, skin=skin)
     env = whole_environment(h)
-    assert env["who"] == "Everett"
+    assert env["who"] == "listener"
+
+
+def test_memory_chamber_starts_empty_and_no_personal_scenes_in_repo():
+    from christman_voice_sdk.audio.whole_house import DEFAULT_SCENES, MemoryChamber
+
+    assert DEFAULT_SCENES == ()
+    assert MemoryChamber().scenes == []
+
+    # Personal financial/life scene strings must appear nowhere in the repository
+    forbidden = (
+        "hillsboro",
+        "lvnv",
+        "credit one",
+        "fdcpa",
+        "gahanna",
+        "debt collector",
+        "porch-evening-coffee",
+        "booth-first-lock",
+        "alphavox-first-lock",
+    )
+    this_file = Path(__file__).resolve()
+    for folder in ("christman_sound", "christman_voice_sdk", "tests"):
+        for p in (ROOT / folder).rglob("*"):
+            if not p.is_file() or p.resolve() == this_file or "__pycache__" in p.parts:
+                continue
+            if p.suffix not in (".py", ".html", ".js", ".json", ".md", ".webmanifest"):
+                continue
+            low = p.read_text(encoding="utf-8", errors="ignore").lower()
+            for term in forbidden:
+                assert term not in low, f"personal scene string {term!r} found in {p.relative_to(ROOT)}"
 
 
 def test_studio_integrated_api_routes(tmp_path, monkeypatch):
@@ -381,21 +593,44 @@ def test_studio_integrated_api_routes(tmp_path, monkeypatch):
     assert "Christman" in p_data["porch"]["asSaid"]
     assert "haptic feedback" in p_data["porch"]["asSaid"]
 
+    # Without an event, /api/corti-canal refuses to guess a grunt route
     r_corti = client.post("/api/corti-canal", json={"hz": 265.0})
     assert r_corti.status_code == 200
-    assert 0.0 < r_corti.get_json()["greenwood"]["place"] < 1.0
+    c_json = r_corti.get_json()
+    assert 0.0 < c_json["greenwood"]["place"] < 1.0
+    assert c_json["alphavox_route"]["key"] == "unknown"
+    assert c_json["alphavox_route"]["confidence"] is None
 
     r_lucent = client.post("/api/lucent", json={"preset": "keratoconus"})
     assert r_lucent.status_code == 200
-    assert r_lucent.get_json()["optics"]["d_cornea_total"] > 45.0
+    l_json = r_lucent.get_json()
+    assert l_json["optics"]["d_cornea_total"] > 45.0
+    assert l_json["gaze"]["cell"] is None
 
     r_being = client.post("/api/being", json={"shaker": True, "ticks": 2, "unit_value": 440.0})
     assert r_being.status_code == 200
     assert r_being.get_json()["units"]["hz"] == 440.0
 
-    r_house = client.post("/api/whole-house", json={"memory_query": {"who": "Everett", "where": "porch coffee"}, "run_rem": True})
+    # Whole house starts with an empty memory chamber
+    r_house_empty = client.post("/api/whole-house", json={})
+    assert r_house_empty.status_code == 200
+    assert r_house_empty.get_json()["scenes"] == []
+    assert r_house_empty.get_json()["smell"]["available"] is False
+    assert r_house_empty.get_json()["skin"]["available"] is False
+
+    # Adding a scene explicitly and querying 2 doors completes that scene
+    r_house = client.post("/api/whole-house", json={
+        "add_scene": {
+            "id": "scene-1",
+            "title": "Rain on the Roof",
+            "who": "listener",
+            "where": "quiet room",
+            "what": "steady rain",
+        },
+        "memory_query": {"who": "listener", "where": "quiet room"},
+    })
     assert r_house.status_code == 200
-    assert r_house.get_json()["memory_completion"]["completed"]["id"] == "porch-evening-coffee"
+    assert r_house.get_json()["memory_completion"]["completed"]["id"] == "scene-1"
 
 
 def test_voice_creation_center_controls_presets_frames_and_bank(tmp_path, monkeypatch):
@@ -452,3 +687,47 @@ def test_voice_creation_center_controls_presets_frames_and_bank(tmp_path, monkey
     assert r_spk["status"] == "ok"
     assert r_spk["renderer"] == "christman_vocoder"
     assert r_spk["audio_url"].startswith("/audio/")
+
+
+def test_new_modules_import_no_numpy_scipy_or_outside_audio_packages(tmp_path):
+    """Run frames, dispersion, being, voice_creation_center, corti_canal,
+    lucent_reader, whole_house, and ear/porch with numpy, scipy, soundfile,
+    sounddevice, pygame, and librosa blocked via builtins.__import__."""
+    code = f"""
+import builtins, sys
+BLOCK = {{"numpy", "scipy", "soundfile", "sounddevice", "pygame", "librosa"}}
+real = builtins.__import__
+def guard(name, *a, **k):
+    if name.split(".")[0] in BLOCK:
+        raise ImportError("blocked " + name)
+    return real(name, *a, **k)
+builtins.__import__ = guard
+sys.path.insert(0, {str(ROOT)!r})
+
+from christman_sound.frames import analyze_frames
+from christman_sound.dispersion import discern_canals
+from christman_sound.being import OPEN_FRAGMENTS, convert_unit, create_stasis_field, tick_stasis
+from christman_sound.voice_creation_center import bundled_alphavox_wavs, resynthesize_from_frames
+from christman_sound.ear.porch import reconstruct_dialect
+from christman_voice_sdk.audio.corti_canal import freq_to_place, voice_quality_dsp
+from christman_voice_sdk.audio.lucent_reader import CORNEA_PRESETS, evaluate_optics
+from christman_voice_sdk.audio.whole_house import MemoryChamber, classify_smell
+
+rep = discern_canals("kitchen")
+assert len(rep["canals"]) == 3
+wavs = bundled_alphavox_wavs()
+resyn = resynthesize_from_frames(wavs[0], {str(tmp_path / "resyn")!r}, max_seconds=1.5)
+assert resyn["n_frames"] > 10
+field = create_stasis_field(OPEN_FRAGMENTS)
+tick_stasis(field, steps=2)
+assert convert_unit(440.0, "hz")["hz"] == 440.0
+assert "AlphaVox" in reconstruct_dialect("Alpha Vox").as_said
+assert 0.0 < freq_to_place(440.0) < 1.0
+assert evaluate_optics(CORNEA_PRESETS["emmetropic"]).d_cornea_total > 40.0
+assert classify_smell(0.5)["species"] == []
+loaded = sorted(m for m in sys.modules if m.split(".")[0] in BLOCK)
+print("OK", loaded)
+"""
+    proc = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=dict(os.environ))
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == "OK []"
