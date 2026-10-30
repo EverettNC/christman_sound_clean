@@ -43,6 +43,7 @@ from __future__ import annotations
 import array
 import json
 import math
+import os
 import statistics
 import sys
 import time
@@ -62,7 +63,9 @@ from .frames import (
     track_ltas,
     write_voice_bank,
 )
-from .lexicon import Lexicon, discover_align_lexicon, load_lexicon, normalize_word
+from .build_voice_bank import VoiceBuildRefused, build_voice_bank
+from .lexicon import LEXICON_ENV, Lexicon, LexiconUnavailable, discover_align_lexicon, load_lexicon, normalize_word
+from .measure_voice import measure_voice_profile
 from .stitch import (
     CONTROL_NAMES,
     FrameBank,
@@ -458,302 +461,140 @@ def resynthesize_from_frames(
     }
 
 
+def _ear_and_lexicon(
+    lexicon_path: Optional[Union[str, Path]] = None,
+    vosk_model: Optional[Union[str, Path]] = None,
+) -> Tuple[Path, Path]:
+    """
+    The lexicon file and the ear's model folder a measurement runs on.
+    Nothing is assumed: with no lexicon found it refuses (LexiconUnavailable),
+    with no model folder it refuses (VoiceBuildRefused). The model folder is
+    the one passed, else $CHRISTMAN_VOSK_MODEL or $VOSK_MODEL_PATH, else the
+    model the lexicon came from (<model>/graph/phones/align_lexicon.txt).
+    """
+    lpath = Path(lexicon_path).expanduser() if lexicon_path else discover_align_lexicon()
+    if lpath is None or not Path(lpath).is_file():
+        raise LexiconUnavailable(
+            f"no lexicon: pass lexicon_path or set ${LEXICON_ENV} to "
+            "vosk-model-en-us-0.22/graph/phones/align_lexicon.txt"
+        )
+    model = vosk_model or os.environ.get("CHRISTMAN_VOSK_MODEL") or os.environ.get("VOSK_MODEL_PATH")
+    model_dir = Path(model).expanduser() if model else Path(lpath).expanduser().resolve().parents[2]
+    if not model_dir.is_dir():
+        raise VoiceBuildRefused(
+            f"no ear model folder at {model_dir}: pass vosk_model or set $CHRISTMAN_VOSK_MODEL"
+        )
+    return Path(lpath), model_dir
+
+
 def measure_and_prove_voice_profile(
     name: str,
     wav_paths: Sequence[Union[str, Path]],
     out_path: Union[str, Path],
-    lexicon: Optional[Lexicon] = None,
     lexicon_path: Optional[Union[str, Path]] = None,
-    test_phrase: str = "Hello, Christman.",
+    vosk_model: Optional[Union[str, Path]] = None,
+    prefix: str = "",
 ) -> Dict[str, Any]:
     """
-    Measure a being's own recordings into a verified `VoiceProfile` JSON file
-    (F0 median, 10-bin semitone phrase contour with octave guard, speaking rate,
-    and per-vowel F1/F2/F3 formants), load it with `load_voice_profile`, and
-    run the Before (bare table) vs. After (measured profile) proof.
+    Measure a being's own recordings into a voice profile, and prove it.
+
+    WHAT CHANGED AND WHY (2026-10-30, Everett's ruling: the voice matches the
+    recordings by the numbers): this runs christman_sound.measure_voice, the
+    same measurement scripts/measure_voice.py runs. Each vowel's F1, F2, F3
+    come from that vowel's own voiced frames, the words' times from
+    christman_sound.ear, the pitch contour and the rate from the phrases, and
+    the before/after proof is the script's own (before, after, and after with
+    each phrase held out). It used to take one average over all the audio and
+    stretch Codec War's whole vowel table by it, fall back to 520, 1480 and
+    2520 Hz when nothing was measured, mark every vowel "applied", and set the
+    rate to 1.0 without measuring it. Now a vowel is applied only when it was
+    measured from at least two tokens; the rest are listed under not_measured
+    and measured_not_applied. A value that cannot be measured refuses
+    (VoiceBuildRefused). Each recording's words come from its file name after
+    `prefix`; a recording the ear hears as other words is left out and named.
+    When the proof cannot be made the profile is still written and the proof
+    says why, in place of an empty value.
     """
-    dsp = get_dsp()
     paths = [Path(p).expanduser() for p in wav_paths]
     if not paths:
-        raise ValueError("at least one WAV recording is required to measure a voice profile")
-
-    all_f0: List[float] = []
-    phrase_contours: List[List[float]] = []
-    f1s: List[float] = []
-    f2s: List[float] = []
-    f3s: List[float] = []
-    CONTOUR_BINS = 10
-    OCTAVE_GUARD_ST = 10.0
-
-    for p in paths:
-        samples, sr = read_wav_mono(p)
-        fm = measure_formants(samples, sr)
-        s = fm.summary
-        if s and s.f1_median_hz and s.f2_median_hz and s.f3_median_hz:
-            f1s.append(float(s.f1_median_hz))
-            f2s.append(float(s.f2_median_hz))
-            f3s.append(float(s.f3_median_hz))
-
-        c_f0 = [float(fr.f0_hz) for fr in fm.frames if fr.f0_hz is not None and fr.f0_hz > 0.0]
-        if c_f0:
-            med = float(statistics.median(c_f0))
-            kept = [f for f in c_f0 if abs(12.0 * math.log2(f / med)) <= OCTAVE_GUARD_ST]
-            all_f0.extend(kept)
-            if len(kept) >= CONTOUR_BINS:
-                bins: List[float] = []
-                for b in range(CONTOUR_BINS):
-                    lo = (b * len(kept)) // CONTOUR_BINS
-                    hi = max(lo + 1, ((b + 1) * len(kept)) // CONTOUR_BINS)
-                    b_med = float(statistics.median(kept[lo:hi]))
-                    bins.append(round(12.0 * math.log2(b_med / med), 3))
-                phrase_contours.append(bins)
-
-    if not all_f0:
-        raise ValueError("no voiced frames locked in the provided recordings; cannot measure F0")
-
-    f0_median = round(float(statistics.median(all_f0)), 2)
-    positions: List[float] = []
-    semitones_from_median: List[float] = []
-    for b in range(CONTOUR_BINS):
-        pos = round((b + 0.5) / CONTOUR_BINS, 4)
-        st_val = round(float(statistics.median(pc[b] for pc in phrase_contours)), 3) if phrase_contours else 0.0
-        positions.append(pos)
-        semitones_from_median.append(st_val)
-
-    base_table = dsp.synth_phone_formants()
-    med_f1 = float(statistics.median(f1s)) if f1s else 520.0
-    med_f2 = float(statistics.median(f2s)) if f2s else 1480.0
-    med_f3 = float(statistics.median(f3s)) if f3s else 2520.0
-    scale_f1 = max(0.75, min(1.30, med_f1 / 520.0))
-    scale_f2 = max(0.75, min(1.30, med_f2 / 1480.0))
-    scale_f3 = max(0.80, min(1.25, med_f3 / 2520.0))
-
-    vowels_doc: Dict[str, Any] = {}
-    for ph, (fmt_tuple, is_voiced) in base_table.items():
-        if is_voiced and fmt_tuple[0] > 0 and ph not in ("B", "D", "G", "V", "DH", "Z", "ZH", "JH", "M", "N", "NG", "L", "R", "W", "Y"):
-            vowels_doc[ph] = {
-                "f1_hz": round(float(fmt_tuple[0]) * scale_f1, 1),
-                "f2_hz": round(float(fmt_tuple[1]) * scale_f2, 1),
-                "f3_hz": round(float(fmt_tuple[2]) * scale_f3, 1),
-                "tokens": len(paths),
-                "applied": True,
-            }
-
-    profile_doc = {
-        "voice": name,
-        "schema": 1,
-        "built": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "f0": {"median_hz": f0_median, "n_voiced_frames": len(all_f0)},
-        "pitch_contour": {
-            "positions": positions,
-            "semitones_from_median": semitones_from_median,
-        },
-        "rate": {"value": 1.0},
-        "vowels": vowels_doc,
-        "glides": {},
-        "sources": [str(p) for p in paths],
-    }
-
+        raise VoiceBuildRefused("no recordings given: a voice profile is measured from the being's own recordings")
+    lpath, model_dir = _ear_and_lexicon(lexicon_path, vosk_model)
     target_out = Path(out_path).expanduser()
     target_out.parent.mkdir(parents=True, exist_ok=True)
-    target_out.write_text(json.dumps(profile_doc, indent=2), encoding="utf-8")
-    loaded_profile: VoiceProfile = load_voice_profile(target_out)
-
-    proof: Optional[Dict[str, Any]] = None
-    try:
-        lex = lexicon
-        if lex is None:
-            lpath = lexicon_path or discover_align_lexicon()
-            if lpath:
-                lex = load_lexicon(lpath)
-        if lex is not None:
-            before = render_codecwar_table(test_phrase, f0=f0_median, rate=1.0, lexicon=lex)
-            after = synthesize(test_phrase, voice=loaded_profile, lexicon=lex)
-            fm_before = measure_formants(before.samples, before.sample_rate).summary
-            fm_after = measure_formants(after.samples, after.sample_rate).summary
-            proof = {
-                "phrase": test_phrase,
-                "target_f0_hz": f0_median,
-                "target_f1_hz": round(med_f1, 1),
-                "target_f2_hz": round(med_f2, 1),
-                "before_bare_table": {
-                    "duration_s": round(before.duration, 3),
-                    "f1_hz": fm_before.f1_median_hz if fm_before else None,
-                    "f2_hz": fm_before.f2_median_hz if fm_before else None,
-                    "f3_hz": fm_before.f3_median_hz if fm_before else None,
-                },
-                "after_measured_profile": {
-                    "duration_s": round(after.duration, 3),
-                    "f1_hz": fm_after.f1_median_hz if fm_after else None,
-                    "f2_hz": fm_after.f2_median_hz if fm_after else None,
-                    "f3_hz": fm_after.f3_median_hz if fm_after else None,
-                },
-            }
-    except Exception:
-        proof = None
-
+    proof_path = target_out.with_name(target_out.stem + ".proof.json")
+    result = measure_voice_profile(
+        paths=paths,
+        out=target_out,
+        name=name,
+        vosk_model=model_dir,
+        lexicon=lpath,
+        prefix=prefix,
+        prove=proof_path,
+        script="christman_sound.voice_creation_center.measure_and_prove_voice_profile",
+    )
+    profile = result["profile"]
+    loaded: VoiceProfile = load_voice_profile(target_out)
+    files = profile["sources"]["recordings"]["files"]
     return {
-        "name": loaded_profile.name,
+        "name": loaded.name,
         "path": str(target_out),
-        "fingerprint": loaded_profile.fingerprint(),
-        "f0_median_hz": loaded_profile.f0_median_hz,
-        "rate": loaded_profile.rate,
-        "vowels_measured": len(loaded_profile.vowel_formants),
-        "contour_points": [list(pt) for pt in loaded_profile.contour_points],
-        "proof": proof,
+        "fingerprint": loaded.fingerprint(),
+        "f0_median_hz": loaded.f0_median_hz,
+        "rate": loaded.rate,
+        "vowels_measured": len(profile.get("vowels") or {}),
+        "measured_not_applied": profile.get("measured_not_applied"),
+        "not_measured": profile.get("not_measured"),
+        "recordings_left_out": [{"name": f["name"], "why": f["excluded"]} for f in files if f["excluded"]],
+        "contour_points": [list(pt) for pt in loaded.contour_points],
+        "proof": result["proof"],
+        "proof_path": str(proof_path) if proof_path.is_file() else None,
     }
-
-
-def _infer_phrase_from_filename(path: Path) -> str:
-    stem = path.stem
-    for prefix in ("alphavox_", "voice_", "take_"):
-        if stem.lower().startswith(prefix):
-            stem = stem[len(prefix):]
-            break
-    return stem.replace("_", " ").replace("-", " ").strip()
 
 
 def build_frame_voice_center(
     name: str,
     wav_paths: Sequence[Union[str, Path]],
     out_dir: Union[str, Path],
-    lexicon: Optional[Lexicon] = None,
     lexicon_path: Optional[Union[str, Path]] = None,
-    transcripts: Optional[Mapping[str, str]] = None,
+    vosk_model: Optional[Union[str, Path]] = None,
     spoken_as: Optional[Mapping[str, str]] = None,
     min_conf: float = 0.9,
 ) -> FrameVoice:
     """
-    Build a complete `FrameVoice` folder (`bank.json`, `frames.bin`, `voice.json`)
-    natively in Python from 22,050 Hz mono WAV recordings and return the loaded
-    `FrameVoice`.
+    Build a frame voice folder (bank.json, frames.bin, voice.json) from a
+    being's own recordings and return it loaded.
+
+    WHAT CHANGED AND WHY (2026-10-30, Everett's ruling: the voice matches the
+    recordings by the numbers, jitter carried exactly): this runs
+    christman_sound.build_voice_bank, the same build scripts/build_voice_bank.py
+    runs. Every word's start, end and confidence come from christman_sound.ear,
+    and a word under `min_conf` is not cut into units. Jitter, shimmer, HNR and
+    CPPS are measured by Praat, and what the renderer's own frames carry is
+    measured from renderings, calibrated on whole recordings and on stitched
+    sentences. It used to split each recording into equal slices, one per
+    word, each stamped with confidence 0.99; fill in jitter 0.015, shimmer
+    0.045, HNR 14 dB and aperiodicity 0.12 for anything not measured; and
+    make up the carried values by multiplying (jitter x 0.5 and x 0.6, CPPS as
+    0.75 of HNR). Now a value that cannot be measured stops the build with its
+    name (VoiceBuildRefused, or PraatUnavailable when Praat is not installed).
+    Recordings must be 22050 Hz, 16-bit, mono WAV, as the build has always
+    required: nothing converts them here.
     """
-    from christman_voice_sdk.audio.corti_canal import voice_quality_dsp
-
-    lex = lexicon
-    if lex is None:
-        lpath = lexicon_path or discover_align_lexicon()
-        if lpath is None:
-            raise ValueError("lexicon or lexicon_path is required to build a frame voice bank")
-        lex = load_lexicon(lpath)
-
+    paths = [Path(p).expanduser() for p in wav_paths]
+    if not paths:
+        raise VoiceBuildRefused("no recordings given: a frame voice is built from the being's own recordings")
+    lpath, model_dir = _ear_and_lexicon(lexicon_path, vosk_model)
     out = Path(out_dir).expanduser()
-    out.mkdir(parents=True, exist_ok=True)
-    conv_dir = out / "_wav22k"
-    conv_dir.mkdir(parents=True, exist_ok=True)
-
-    recordings: List[Dict[str, str]] = []
-    tokens: List[Dict[str, Any]] = []
-    raw_samples_list: List[List[float]] = []
-
-    for ri, raw_p in enumerate(wav_paths):
-        src_p = Path(raw_p).expanduser()
-        x = _ensure_mono_22k(src_p)
-        raw_samples_list.append(x)
-        w22_path = conv_dir / src_p.name
-        write_wav(w22_path, x, FRAME_SR)
-        recordings.append({"path": str(w22_path), "session": "session_0"})
-
-        phrase = (transcripts or {}).get(src_p.name) or (transcripts or {}).get(str(src_p)) or _infer_phrase_from_filename(src_p)
-        words = [normalize_word(w) for w in phrase.split() if normalize_word(w)]
-        words_in_lex = [w for w in words if w in lex]
-        if not words_in_lex:
-            continue
-        dur_s = len(x) / FRAME_SR
-        usable_s = max(0.15, dur_s - 0.08)
-        per_word = usable_s / len(words_in_lex)
-        for wi, w in enumerate(words_in_lex):
-            t_start = round(0.04 + wi * per_word, 3)
-            t_end = round(0.04 + (wi + 1) * per_word, 3)
-            phones = [ph for ph, _ in lex.phones_timed(w)]
-            tokens.append({
-                "rec": ri,
-                "word": w,
-                "start": t_start,
-                "end": t_end,
-                "conf": 0.99,
-                "phones": phones,
-            })
-
-    write_voice_bank(out, recordings, tokens, min_conf=min_conf)
-    bank = FrameBank(out)
-    dsp = get_dsp()
-    vowels = {k for k, (_, v) in dsp.synth_phone_formants().items() if v}
-
-    f0s: List[float] = []
-    levels: List[float] = []
-    aps: List[float] = []
-    ltas = [0.0] * bank.ne
-    nv = 0
-    for ri in range(len(bank.recordings)):
-        n = int(bank.recordings[ri]["n"])
-        for i in range(n):
-            f0, env, apv, rms = bank.frame(ri, i)
-            if f0 > 0:
-                f0s.append(f0)
-                levels.append(rms)
-                aps.extend(apv[:5])
-                mean_e = sum(env) / bank.ne
-                for k in range(bank.ne):
-                    ltas[k] += env[k] - mean_e
-                nv += 1
-
-    if not f0s or nv == 0:
-        raise ValueError("recordings hold no voiced frames for frame voice profile")
-
-    st_vals = sorted(12.0 * math.log2(f) for f in f0s)
-    p05 = st_vals[max(0, int(0.05 * (len(st_vals) - 1)))]
-    p95 = st_vals[min(len(st_vals) - 1, int(0.95 * (len(st_vals) - 1)))]
-    phrase_range_st = max(1.5, p95 - p05)
-
-    nuclei = max(1, sum(1 for u in bank.units if u.phone in vowels))
-    speech_frames = max(1, sum(u.end - u.start for u in bank.units))
-    syllable_rate = nuclei / (speech_frames * bank.hop / bank.sr)
-
-    jitters, shimmers, hnrs = [], [], []
-    for x in raw_samples_list:
-        q = voice_quality_dsp(x, FRAME_SR)
-        if q["jitter"] is not None:
-            jitters.append(float(q["jitter"]))
-        if q["shimmer"] is not None:
-            shimmers.append(float(q["shimmer"]))
-        if q["hnr_db"] is not None:
-            hnrs.append(float(q["hnr_db"]))
-
-    med_jitter = float(statistics.median(jitters)) if jitters else 0.015
-    med_shimmer = float(statistics.median(shimmers)) if shimmers else 0.045
-    med_hnr = float(statistics.median(hnrs)) if hnrs else 14.0
-    raw_ap = sum(aps) / len(aps) if aps else 0.12
-
-    measures = check_measures({
-        "f0_median_hz": round(float(statistics.median(f0s)), 3),
-        "phrase_range_st": round(float(phrase_range_st), 3),
-        "syllable_rate": round(float(syllable_rate), 3),
-        "voiced_aperiodicity": round(float(raw_ap * 0.25), 4),
-        "ltas_db": [round(v / nv, 4) for v in ltas],
-        "level_db": round(float(statistics.median(levels)), 3),
-        "jitter": round(med_jitter, 5),
-        "shimmer": round(med_shimmer, 5),
-        "jitter_carried": round(med_jitter * 0.5, 5),
-        "shimmer_carried": round(med_shimmer * 0.5, 5),
-        "hnr_db": round(med_hnr, 2),
-        "cpp_db": round(max(6.0, med_hnr * 0.75), 2),
-        "stitched_aperiodicity": round(max(0.005, min(0.045, raw_ap * 0.15)), 4),
-        "stitched_jitter_carried": round(med_jitter * 0.6, 5),
-        "stitched_shimmer_carried": round(med_shimmer * 0.6, 5),
-    }, bank.ne)
-
-    doc = {
-        "name": name,
-        "measures": measures,
-        "spoken_as": dict(spoken_as or {}),
-        "provenance": {
-            "built": datetime.now().astimezone().isoformat(timespec="seconds"),
-            "builder": "christman_sound.voice_creation_center.build_frame_voice_center",
-            "sources": [str(Path(p).expanduser()) for p in wav_paths],
-        },
-    }
-    (out / "voice.json").write_text(json.dumps(doc, indent=2), encoding="utf-8")
+    build_voice_bank(
+        name=name,
+        out=out,
+        recordings=paths,
+        profile_from=paths,
+        vosk_model=model_dir,
+        lexicon=lpath,
+        min_conf=min_conf,
+        spoken_as=dict(spoken_as or {}),
+    )
     return load_frame_voice(out)
 
 

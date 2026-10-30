@@ -810,17 +810,16 @@ class ChristmanSoundApp:
                 name = str(data.get("name") or "AlphaVox_Measured")
                 wav_list = data.get("wav_paths") or [str(p) for p in default_wavs]
                 out_file = cache / f"profile_{name}.json"
-                lex_obj = None
+                lex_path = None
                 if data.get("lexicon_text"):
-                    tf = cache / "tmp_vcc_lex.txt"
-                    tf.write_text(str(data["lexicon_text"]), encoding="utf-8")
-                    lex_obj = load_lexicon(tf)
+                    lex_path = cache / "tmp_vcc_lex.txt"
+                    lex_path.write_text(str(data["lexicon_text"]), encoding="utf-8")
                 res = measure_and_prove_voice_profile(
                     name=name,
                     wav_paths=wav_list,
                     out_path=out_file,
-                    lexicon=lex_obj,
-                    test_phrase=str(data.get("test_phrase") or "i need help please"),
+                    lexicon_path=lex_path,
+                    prefix=str(data.get("prefix") or ""),
                 )
                 return _json_resp({"status": "ok", **res}, 200)
 
@@ -828,25 +827,15 @@ class ChristmanSoundApp:
                 name = str(data.get("name") or "AlphaVox_FrameVoice")
                 wav_list = data.get("wav_paths") or [str(p) for p in default_wavs]
                 out_dir = cache / f"frame_voice_{name}"
-                lex_obj = None
+                lex_path = None
                 if data.get("lexicon_text"):
-                    tf = cache / "tmp_vcc_lex.txt"
-                    tf.write_text(str(data["lexicon_text"]), encoding="utf-8")
-                    lex_obj = load_lexicon(tf)
-                elif not discover_align_lexicon():
-                    tf = cache / "tmp_vcc_default_lex.txt"
-                    tf.write_text(
-                        "i i aI_S\nneed need n_B i_I d_E\nhelp help h_B E_I l_I p_E\nplease please p_B l_I i_I z_E\n"
-                        "want want w_B A_I n_I t_E\nto to t_B u_E\ngo go g_B oU_E\nhome home h_B oU_I m_E\n"
-                        "hello hello h_B @_I l_I oU_E\nchristman christman k_B r_I I_I s_I t_I m_I V_I n_E\n",
-                        encoding="utf-8",
-                    )
-                    lex_obj = load_lexicon(tf)
+                    lex_path = cache / "tmp_vcc_lex.txt"
+                    lex_path.write_text(str(data["lexicon_text"]), encoding="utf-8")
                 fv = build_frame_voice_center(
                     name=name,
                     wav_paths=wav_list,
                     out_dir=out_dir,
-                    lexicon=lex_obj,
+                    lexicon_path=lex_path,
                 )
                 return _json_resp({
                     "status": "ok",

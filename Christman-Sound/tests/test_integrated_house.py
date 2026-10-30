@@ -633,7 +633,15 @@ def test_studio_integrated_api_routes(tmp_path, monkeypatch):
     assert r_house.get_json()["memory_completion"]["completed"]["id"] == "scene-1"
 
 
-def test_voice_creation_center_controls_presets_frames_and_bank(tmp_path, monkeypatch):
+def _no_lexicon_anywhere(tmp_path, monkeypatch):
+    """No lexicon and no model folder this process can find (2026-10-30)."""
+    monkeypatch.setenv("HOME", str(tmp_path / "empty_home"))
+    monkeypatch.setenv("CHRISTMAN_LEXICON_PATH", str(tmp_path / "no_lexicon_here.txt"))
+    monkeypatch.setenv("VOSK_MODEL_PATH", str(tmp_path / "no_model_here"))
+    monkeypatch.delenv("CHRISTMAN_VOSK_MODEL", raising=False)
+
+
+def test_voice_creation_center_controls_presets_and_frames_room(tmp_path, monkeypatch):
     from christman_sound.app import create_app
     from christman_sound.voice_creation_center import (
         VOICE_CREATION_CONTROLS,
@@ -660,33 +668,87 @@ def test_voice_creation_center_controls_presets_frames_and_bank(tmp_path, monkey
     assert len(meta["controls"]) == 12
     assert "warm_grounding" in meta["presets"]
 
-    # 1. Frames Room A/B Resynthesis on bundled AlphaVox recording
     r_resyn = client.post("/api/voice-creation-center", json={"action": "resynthesize_frames"}).get_json()
     assert r_resyn["status"] == "ok"
     assert r_resyn["n_frames"] > 50
     assert r_resyn["source_audio_url"].startswith("/audio/")
     assert r_resyn["rendered_audio_url"].startswith("/audio/")
 
-    # 2. Measure & Prove VoiceProfile
-    r_prof = client.post("/api/voice-creation-center", json={"action": "measure_profile", "name": "AlphaVox_Test"}).get_json()
-    assert r_prof["status"] == "ok"
-    assert r_prof["f0_median_hz"] > 60.0
-    assert len(r_prof["fingerprint"]) == 64
 
-    # 3. Build native FrameVoice bank from bundled AlphaVox recordings and speak with VCC controls
-    r_fv = client.post("/api/voice-creation-center", json={"action": "build_frame_voice", "name": "AlphaVox_FV"}).get_json()
-    assert r_fv["status"] == "ok"
-    assert r_fv["units_count"] > 0
+def test_voice_creation_center_refuses_to_measure_without_a_lexicon_and_fills_nothing_in(tmp_path, monkeypatch):
+    """
+    2026-10-30: the Voice Creation Center measures or refuses. With no
+    lexicon it refuses by name, writes no profile and no voice, and writes
+    no lexicon of its own (it used to write a hidden ten-word one).
+    """
+    from christman_sound.app import create_app
 
-    r_spk = client.post("/api/voice-creation-center", json={
-        "action": "speak_vcc",
-        "text": "i need help please",
-        "voice": r_fv["frame_voice_dir"],
-        "preset": "warm_grounding",
-    }).get_json()
-    assert r_spk["status"] == "ok"
-    assert r_spk["renderer"] == "christman_vocoder"
-    assert r_spk["audio_url"].startswith("/audio/")
+    _no_lexicon_anywhere(tmp_path, monkeypatch)
+    cache = tmp_path / "vcc_cache"
+    monkeypatch.setenv("CHRISTMAN_VOICE_CACHE", str(cache))
+    client = create_app().test_client()
+    rec = tmp_path / "phrase.wav"
+    rec.write_bytes(b"")  # never read: the refusal comes before any recording is opened
+
+    r = client.post("/api/voice-creation-center", json={
+        "action": "measure_profile", "name": "measured", "wav_paths": [str(rec)]}).get_json()
+    assert r["status"] == "refused"
+    assert r["kind"] == "LexiconUnavailable"
+    assert not (cache / "profile_measured.json").exists()
+
+    r = client.post("/api/voice-creation-center", json={
+        "action": "build_frame_voice", "name": "built", "wav_paths": [str(rec)]}).get_json()
+    assert r["status"] == "refused"
+    assert r["kind"] == "LexiconUnavailable"
+    assert not (cache / "frame_voice_built" / "voice.json").exists()
+    assert not (cache / "tmp_vcc_default_lex.txt").exists()
+
+
+def test_voice_creation_center_measures_and_builds_from_a_beings_recordings(tmp_path, monkeypatch):
+    """
+    The Voice Creation Center runs the same measurement and build as
+    scripts/measure_voice.py and scripts/build_voice_bank.py (2026-10-30):
+    every applied vowel was measured, every unit's word came from the ear
+    with its own confidence, and the profile says what measured each value.
+    Needs CHRISTMAN_VOICE_RECORDINGS (a being's recorded phrases, 22050 Hz
+    16-bit mono; CHRISTMAN_VOICE_PREFIX is their file name prefix),
+    CHRISTMAN_VOSK_MODEL, CHRISTMAN_LEXICON_PATH, and Praat (parselmouth).
+    """
+    import json
+
+    need = {k: os.environ.get(k) for k in
+            ("CHRISTMAN_VOICE_RECORDINGS", "CHRISTMAN_VOSK_MODEL", "CHRISTMAN_LEXICON_PATH")}
+    missing = [k for k, v in need.items() if not v]
+    if missing:
+        pytest.skip("not run: needs " + ", ".join(missing) +
+                    " (a being's recordings, the model folder, its lexicon); runs on Everett's Mac")
+    pytest.importorskip("parselmouth", reason="not run: Praat (parselmouth) is not installed here")
+    from christman_sound.voice_creation_center import build_frame_voice_center, measure_and_prove_voice_profile
+
+    prefix = os.environ.get("CHRISTMAN_VOICE_PREFIX", "")
+    recs = sorted(Path(need["CHRISTMAN_VOICE_RECORDINGS"]).expanduser().glob(prefix + "*.wav"))
+    assert recs, "CHRISTMAN_VOICE_RECORDINGS holds no recordings"
+
+    res = measure_and_prove_voice_profile("measured voice", recs, tmp_path / "voice.json",
+                                          lexicon_path=need["CHRISTMAN_LEXICON_PATH"],
+                                          vosk_model=need["CHRISTMAN_VOSK_MODEL"], prefix=prefix)
+    prof = json.loads((tmp_path / "voice.json").read_text(encoding="utf-8"))
+    assert res["vowels_measured"] == len(prof["vowels"])
+    for vowel, entry in prof["vowels"].items():
+        assert entry["n_tokens"] >= 2, vowel
+    assert prof["rate"]["n_phrases"] >= 1
+    assert res["proof"] is not None
+
+    fv = build_frame_voice_center("built voice", recs, tmp_path / "frame_voice",
+                                  lexicon_path=need["CHRISTMAN_LEXICON_PATH"],
+                                  vosk_model=need["CHRISTMAN_VOSK_MODEL"])
+    doc = json.loads((tmp_path / "frame_voice" / "voice.json").read_text())
+    assert doc["provenance"]["builder"] == "Christman-Sound scripts/build_voice_bank.py"
+    assert "Praat" in doc["provenance"]["measured_by"]["jitter, shimmer, hnr_db"]
+    assert fv.measures["jitter_carried"] <= fv.measures["jitter"]
+    # Every word's confidence is the ear's own: they are not one stamped value.
+    confs = [t["conf"] for t in json.loads((tmp_path / "frame_voice" / "bank.json").read_text())["tokens"]]
+    assert confs and len(set(confs)) > 1
 
 
 def test_new_modules_import_no_numpy_scipy_or_outside_audio_packages(tmp_path):

@@ -132,7 +132,9 @@ Do not wire the card source as a `SoundDetectorBackend`.
 ### christman_sound — the voice
 
 - `app.py` — Local application server, installable PWA studio, Voice Creation Center host, and desktop application installer (127.0.0.1)
-- `voice_creation_center.py` — The Voice Creation Center & Booth studio engine: all 12 frame-voice controls and presets, Frames Room A/B resynthesis, voice profile measurement & proof, native frame voice builder, and `.voicepack` packager
+- `voice_creation_center.py` — The Voice Creation Center & Booth studio engine: all 12 frame-voice controls and presets, Frames Room A/B resynthesis, voice profile measurement & proof and the frame voice build (both through the two modules below, the same code the scripts run), and `.voicepack` packager
+- `measure_voice.py` — measures a being's voice profile from its own recordings (per-vowel formants from each vowel's own frames, word times from the ear, pitch contour, rate) and proves it; `scripts/measure_voice.py` is its command line
+- `build_voice_bank.py` — builds a frame voice (bank and measured profile: ear word times and confidences, Praat jitter, shimmer, HNR and CPPS, calibrated carried values); refuses by name when a value cannot be measured; `scripts/build_voice_bank.py` is its command line
 - `frames.py` — 4.99 ms 22,050 Hz frame analyzer, 5-pass 3-state Viterbi forced phone aligner, and native Python `bank.json` / `frames.bin` builder
 - `dispersion.py` — 4-canal Dispersion & War engine (`kitchen`, `two-booths`, `crisis`) and Refused-Mix guard
 - `being.py` — Silico-stasis equilibrium engine, 2 Hz shaker, 9-unit psychoacoustic converter, and streaming text codec inspector
