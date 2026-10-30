@@ -173,3 +173,58 @@ def test_install_desktop_bundle_creates_macos_app_structure(tmp_path):
     assert (bundle / "Contents" / "MacOS" / "ChristmanSound").is_file()
     assert (bundle / "Contents" / "Resources" / "AppIcon.png").is_file()
     assert os.access(bundle / "Contents" / "MacOS" / "ChristmanSound", os.X_OK)
+
+
+# -- the studio's door (2026-10-30) ---------------------------------------------
+
+
+def test_studio_door_refuses_other_sites_and_unbounded_bodies():
+    from christman_sound.app import MAX_BODY_BYTES, check_request
+
+    ok = {"Host": "127.0.0.1:5480", "Content-Type": "application/json", "Content-Length": "2"}
+    assert check_request("POST", ok, 5480) is None
+    assert check_request("POST", {**ok, "Origin": "http://127.0.0.1:5480"}, 5480) is None
+    assert check_request("POST", {**ok, "Origin": "https://another.site"}, 5480)[0] == 403
+    assert check_request("POST", {**ok, "Host": "another.site:5480"}, 5480)[0] == 403
+    assert check_request("POST", {k: v for k, v in ok.items() if k != "Content-Length"}, 5480)[0] == 411
+    assert check_request("POST", {**ok, "Content-Length": str(MAX_BODY_BYTES + 1)}, 5480)[0] == 413
+    assert check_request("POST", {**ok, "Content-Type": "text/plain"}, 5480)[0] == 415
+    assert check_request("GET", {"Host": "localhost:5480"}, 5480) is None
+    assert check_request("GET", {"Host": "[::1]:5480"}, 5480) is None
+
+
+def test_studio_server_refuses_another_sites_page_over_a_real_socket():
+    import http.client
+    import threading
+
+    server = create_app().make_server("127.0.0.1", 0)
+    worker = threading.Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+    try:
+        port = server.server_address[1]
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        conn.request("POST", "/api/voice-creation-center", body=b'{"action": "speak_vcc", "text": "hi"}',
+                     headers={"Content-Type": "application/json", "Origin": "https://another.site"})
+        r = conn.getresponse()
+        r.read()
+        assert r.status == 403
+        conn.request("POST", "/api/voice-creation-center", body=b"not json", headers={"Content-Type": "text/plain"})
+        r = conn.getresponse()
+        r.read()
+        assert r.status == 415
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_studio_binds_only_to_this_machine():
+    with pytest.raises(ValueError):
+        create_app().make_server("0.0.0.0", 0)
+
+
+def test_a_voice_name_cannot_reach_outside_the_voice_cache():
+    client = create_app().test_client()
+    for name in ("../../elsewhere", "a/b", ".hidden"):
+        r = client.post("/api/voice-creation-center",
+                        json={"action": "measure_profile", "name": name, "wav_paths": ["x.wav"]})
+        assert r.status_code == 400 and r.get_json()["kind"] == "UnsafeName", name

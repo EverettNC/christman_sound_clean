@@ -44,7 +44,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 from urllib.parse import urlsplit
 
 from . import dsp as dsp_mod
@@ -114,6 +114,81 @@ DEFAULT_APP_HOST = os.getenv("CHRISTMAN_APP_HOST", "127.0.0.1")
 DEFAULT_APP_PORT = int(os.getenv("CHRISTMAN_APP_PORT", "5480"))
 
 _SAFE_FILENAME = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+# -----------------------------------------------------------------------------
+# WHAT CHANGED AND WHY (2026-10-30): the studio server took any request. Any
+# web page open in the browser could post to it and speak through the
+# speakers, run the compiler, write into ~/Applications, and read or write
+# files by name. It now holds the checks christman_voice_sdk.audio.
+# corti_receiver already has: it binds only to this machine; a request must
+# name this machine as its Host (a page on another site cannot rebind its name
+# here); a browser request must come from the studio's own page; a POST must
+# say how long it is, stay under the cap, and be JSON or a WAV upload.
+# A request with no Origin header (not from a browser, e.g. a being on this
+# machine) is not an origin question and is accepted, as in corti_receiver.
+# -----------------------------------------------------------------------------
+_LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
+#: A POST body above this is refused (413). 64 MB: a chosen starting value, not
+#: a measurement. Reason: a WAV upload to /api/recognize-wav is the largest body
+#: the studio takes; ten minutes of 16 kHz 16-bit mono is about 19 MB.
+MAX_BODY_BYTES = 64 * 1024 * 1024
+_POST_CONTENT_TYPES = ("application/json", "multipart/form-data")
+
+
+def _host_name(host_header: str) -> str:
+    h = (host_header or "").strip()
+    if h.startswith("["):
+        return h[1:h.find("]")] if "]" in h else h
+    return h.rsplit(":", 1)[0] if h.count(":") == 1 else h
+
+
+def _own_origins(port: int) -> Tuple[str, ...]:
+    return tuple(f"http://{h}:{port}" for h in ("127.0.0.1", "localhost", "[::1]"))
+
+
+def check_request(method: str, headers: Mapping[str, str], port: int) -> Optional[Tuple[int, str]]:
+    """
+    The studio server's door. Returns (status, reason) to refuse a request,
+    or None to let it through. Pure, so it is tested without a socket.
+    """
+    hdr = {str(k).lower(): str(v) for k, v in (headers or {}).items()}
+    host = hdr.get("host")
+    if not host or _host_name(host) not in _LOOPBACK_HOSTS:
+        return 403, f"Host must be this machine (127.0.0.1, localhost or [::1]); got {host!r}"
+    origin = hdr.get("origin")
+    if origin is not None and origin not in _own_origins(port):
+        return 403, f"origin not allowed: {origin} (only the studio's own page, {_own_origins(port)[0]})"
+    if method == "POST":
+        try:
+            length = int(hdr.get("content-length", ""))
+        except ValueError:
+            return 411, "Content-Length required"
+        if length < 0:
+            return 400, "Content-Length is negative"
+        if length > MAX_BODY_BYTES:
+            return 413, f"body {length} bytes exceeds cap {MAX_BODY_BYTES}"
+        ctype = hdr.get("content-type", "").split(";", 1)[0].strip().lower()
+        if length > 0 and ctype not in _POST_CONTENT_TYPES:
+            return 415, f"Content-Type must be one of {_POST_CONTENT_TYPES}; got {ctype or 'none'}"
+    return None
+
+
+def _check_bind_host(host: str) -> str:
+    if host not in _LOOPBACK_HOSTS:
+        raise ValueError(f"the studio binds only to this machine (127.0.0.1, localhost or ::1); refused host {host!r}")
+    return host
+
+
+def _temp_path(suffix: str, prefix: str) -> Path:
+    """A temp file created now, owned by this process (mkstemp), not a name another process could take first."""
+    fd, name = tempfile.mkstemp(suffix=suffix, prefix=prefix)
+    os.close(fd)
+    return Path(name)
+
+
+def _safe_name(name: str) -> Optional[str]:
+    """A voice name becomes a file name: letters, digits, '_', '.', '-' only, never '..'."""
+    return name if (_SAFE_FILENAME.match(name) and ".." not in name and not name.startswith(".")) else None
 
 
 def _audio_cache_dir() -> Path:
@@ -415,7 +490,7 @@ class ChristmanSoundApp:
         tmp_files: List[Path] = []
         try:
             if voice_json_inline and not voice_arg:
-                tf = Path(tempfile.mktemp(suffix=".json", prefix="cs_voice_"))
+                tf = _temp_path(".json", "cs_voice_")
                 tf.write_text(
                     voice_json_inline if isinstance(voice_json_inline, str) else json.dumps(voice_json_inline),
                     encoding="utf-8",
@@ -433,7 +508,7 @@ class ChristmanSoundApp:
 
             lex_obj: Optional[Lexicon] = None
             if lexicon_inline and isinstance(lexicon_inline, str) and lexicon_inline.strip():
-                lf = Path(tempfile.mktemp(suffix=".txt", prefix="cs_lex_"))
+                lf = _temp_path(".txt", "cs_lex_")
                 lf.write_text(lexicon_inline, encoding="utf-8")
                 tmp_files.append(lf)
                 lex_obj = load_lexicon(lf)
@@ -535,7 +610,7 @@ class ChristmanSoundApp:
         try:
             lex_obj: Optional[Lexicon] = None
             if lexicon_inline and isinstance(lexicon_inline, str) and lexicon_inline.strip():
-                lf = Path(tempfile.mktemp(suffix=".txt", prefix="cs_lex_"))
+                lf = _temp_path(".txt", "cs_lex_")
                 lf.write_text(lexicon_inline, encoding="utf-8")
                 tmp_files.append(lf)
                 lex_obj = load_lexicon(lf)
@@ -687,7 +762,7 @@ class ChristmanSoundApp:
                 _, files = _parse_multipart(body, content_type)
                 if "file" not in files:
                     return _json_resp({"error": "missing file upload"}, 400)
-                tmp_wav = Path(tempfile.mktemp(suffix=".wav", prefix="cs_meas_"))
+                tmp_wav = _temp_path(".wav", "cs_meas_")
                 tmp_wav.write_bytes(files["file"])
                 wav_path = tmp_wav
             else:
@@ -820,6 +895,9 @@ class ChristmanSoundApp:
                 if not name:
                     return _json_resp({"status": "refused", "kind": "NoName",
                                        "reason": "no voice name given: pass name"}, 400)
+                if _safe_name(name) is None:
+                    return _json_resp({"status": "refused", "kind": "UnsafeName",
+                                       "reason": "a voice name may hold only letters, digits, '_', '.' and '-'"}, 400)
                 wav_list = list(data.get("wav_paths") or [])
                 out_file = cache / f"profile_{name}.json"
                 lex_path = None
@@ -840,6 +918,9 @@ class ChristmanSoundApp:
                 if not name:
                     return _json_resp({"status": "refused", "kind": "NoName",
                                        "reason": "no voice name given: pass name"}, 400)
+                if _safe_name(name) is None:
+                    return _json_resp({"status": "refused", "kind": "UnsafeName",
+                                       "reason": "a voice name may hold only letters, digits, '_', '.' and '-'"}, 400)
                 wav_list = list(data.get("wav_paths") or [])
                 out_dir = cache / f"frame_voice_{name}"
                 lex_path = None
@@ -905,6 +986,9 @@ class ChristmanSoundApp:
                 if not name:
                     return _json_resp({"status": "refused", "kind": "NoName",
                                        "reason": "no voice name given: pass name"}, 400)
+                if _safe_name(name) is None:
+                    return _json_resp({"status": "refused", "kind": "UnsafeName",
+                                       "reason": "a voice name may hold only letters, digits, '_', '.' and '-'"}, 400)
                 wav_list = list(data.get("wav_paths") or [])
                 out_vp = cache / f"{name}.voicepack"
                 vp_res = package_voicepack_center(name=name, wav_paths=wav_list, out_path=out_vp)
@@ -1209,11 +1293,30 @@ class ChristmanSoundApp:
     def test_client(self) -> "AppTestClient":
         return AppTestClient(self)
 
-    def run(self, host: str = DEFAULT_APP_HOST, port: int = DEFAULT_APP_PORT) -> None:
+    def make_server(self, host: str = DEFAULT_APP_HOST, port: int = DEFAULT_APP_PORT) -> ThreadingHTTPServer:
         app_ref = self
+        _check_bind_host(host)
 
         class Handler(BaseHTTPRequestHandler):
+            def _refuse(self, code: int, reason: str) -> None:
+                data = json.dumps({"status": "refused", "reason": reason}).encode("utf-8")
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def _door(self, method: str) -> bool:
+                refused = check_request(method, dict(self.headers), self.server.server_address[1])
+                if refused is not None:
+                    logger.warning("refused (%d): %s", refused[0], refused[1])
+                    self._refuse(*refused)
+                    return False
+                return True
+
             def do_GET(self):
+                if not self._door("GET"):
+                    return
                 resp = app_ref.dispatch("GET", self.path, headers=dict(self.headers))
                 self.send_response(resp.status_code)
                 self.send_header("Content-Type", resp.content_type)
@@ -1222,6 +1325,8 @@ class ChristmanSoundApp:
                 self.wfile.write(resp.data)
 
             def do_POST(self):
+                if not self._door("POST"):
+                    return
                 length = int(self.headers.get("Content-Length", "0"))
                 body = self.rfile.read(length) if length > 0 else b""
                 resp = app_ref.dispatch("POST", self.path, body=body, headers=dict(self.headers))
@@ -1234,7 +1339,10 @@ class ChristmanSoundApp:
             def log_message(self, format: str, *args: Any) -> None:
                 logger.info(format, *args)
 
-        server = ThreadingHTTPServer((host, port), Handler)
+        return ThreadingHTTPServer((host, port), Handler)
+
+    def run(self, host: str = DEFAULT_APP_HOST, port: int = DEFAULT_APP_PORT) -> None:
+        server = self.make_server(host, port)
         try:
             server.serve_forever()
         except KeyboardInterrupt:
