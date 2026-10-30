@@ -32,6 +32,10 @@ from christman_sound.dsp import ChristmanDSP  # noqa: E402
 from christman_voice_sdk.tone import tonescore_engine as tse  # noqa: E402
 from christman_voice_sdk.tone import voice_measure as vm  # noqa: E402
 
+# 2026-10-30: these measure through Praat; without it they are NOT RUN, not failed.
+needs_praat = pytest.mark.skipif(vm._parselmouth is None,
+                                 reason="not run: Praat (parselmouth) is not installed here")
+
 
 @pytest.fixture(scope="module")
 def built_dsp(tmp_path_factory) -> ChristmanDSP:
@@ -82,6 +86,7 @@ def pulse_wav(path: Path, sr: int, f0: float, spread: float, seed: int = 5) -> n
     return periods
 
 
+@needs_praat
 def test_the_engine_measures_pitch_with_yin_and_quality_with_praat(dsp, tmp_path):
     path = tmp_path / "voice.wav"
     periods = pulse_wav(path, 24000, 140.0, 0.02)
@@ -98,6 +103,7 @@ def test_the_engine_measures_pitch_with_yin_and_quality_with_praat(dsp, tmp_path
         assert old_key not in phys, "the old keys held a different quantity"
 
 
+@needs_praat
 def test_how_the_engine_reads_a_person_is_held(dsp, tmp_path):
     path = tmp_path / "voice.wav"
     pulse_wav(path, 16000, 150.0, 0.01)
@@ -110,6 +116,7 @@ def test_how_the_engine_reads_a_person_is_held(dsp, tmp_path):
     assert tse.ToneScoreEngine.READ_AROUSAL_AND_DOMINANCE is False
 
 
+@needs_praat
 def test_arousal_and_dominance_when_ruled_on_are_bounded_readings(dsp, tmp_path, monkeypatch):
     path = tmp_path / "voice.wav"
     pulse_wav(path, 24000, 140.0, 0.02)
@@ -119,6 +126,7 @@ def test_arousal_and_dominance_when_ruled_on_are_bounded_readings(dsp, tmp_path,
     assert tse.AROUSAL_DOMINANCE_HELD not in r.notes
 
 
+@needs_praat
 def test_silence_has_no_pitch_and_no_arousal_even_when_ruled_on(dsp, tmp_path, monkeypatch):
     path = tmp_path / "silence.wav"
     wavfile.write(str(path), 16000, np.zeros(16000, dtype=np.int16))

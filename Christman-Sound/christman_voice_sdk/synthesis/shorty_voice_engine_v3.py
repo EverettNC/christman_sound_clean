@@ -27,7 +27,7 @@ emotion detector and the measured baseline from the reference clip.
 
 `synthesize` still quantifies the emotion first (so a bad emotion or a
 missing baseline fails exactly as before), then raises
-`SynthesisUnavailable("sovereign synthesizer not wired yet")` carrying the
+`SynthesisUnavailable(SOVEREIGN_NOT_WIRED)` (this path is retired; the voice is voice_synthesis) carrying the
 quantified voice parameters on the exception as `voice_params`. It never
 returns a result that pretends to be speech.
 

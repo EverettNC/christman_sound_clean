@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Christman Sound
-Comment=Sovereign Audio, Voice, and Speech Studio
-Exec="/usr/bin/python3" -m christman_sound.app --open-browser
-Icon=/tmp/cs_work/Christman-Sound/christman_sound/static/icons/icon-512.png
-Terminal=false
-Categories=AudioVideo;Audio;

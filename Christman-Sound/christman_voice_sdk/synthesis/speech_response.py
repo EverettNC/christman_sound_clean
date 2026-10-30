@@ -19,7 +19,7 @@ Removed (quoted from main 99a6cce):
     engine.runAndWait()
 
 `speak()` keeps its name and signature so callers still import, and raises
-`SynthesisUnavailable("sovereign synthesizer not wired yet")`. It never
+`SynthesisUnavailable(SOVEREIGN_NOT_WIRED)` (this path is retired; the voice is voice_synthesis). It never
 speaks in a voice that is not the being's own, and it never returns as if it
 had spoken.
 """

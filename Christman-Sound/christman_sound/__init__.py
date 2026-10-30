@@ -42,3 +42,6 @@ cochlea (`corti_canal.py`), Lucent cornea optics & 5-part rhythm reader
 Memory Chamber (`whole_house.py`), recognition, tone, timbre, and the speaking
 engine (`synthesis/voice_synthesis.py`).
 """
+
+#: The package version: the one in pyproject.toml, VERSION.txt and christman_voice_sdk.
+__version__ = "1.0.0"

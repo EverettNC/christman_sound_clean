@@ -323,15 +323,17 @@ def voice_quality(y: Any, sample_rate: int) -> VoiceQuality:
     Raises PraatUnavailable when parselmouth is not installed, ValueError for
     empty audio or a sample rate that was not given.
     """
+    # 2026-10-30: the input is checked first, so empty audio is refused as
+    # empty audio whether or not Praat is installed.
+    sr = _rate(sample_rate)
+    samples = _mono(y)
+    if samples.size == 0:
+        raise ValueError("no samples: nothing to measure")
     if _parselmouth is None or _praat_call is None:
         raise PraatUnavailable(
             "no jitter, shimmer or HNR measured: parselmouth (Praat) is not installed "
             f"({_PRAAT_IMPORT_ERROR}). It is declared in pyproject.toml as praat-parselmouth."
         )
-    sr = _rate(sample_rate)
-    samples = _mono(y)
-    if samples.size == 0:
-        raise ValueError("no samples: nothing to measure")
 
     snd = _parselmouth.Sound(samples.astype(np.float64), sampling_frequency=float(sr))
     points = _praat_call(snd, "To PointProcess (periodic, cc)",
