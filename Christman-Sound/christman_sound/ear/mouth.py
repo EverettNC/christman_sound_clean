@@ -34,15 +34,13 @@ __all__ = [
 CONF_FLOOR = 0.55
 CARBON_MAX = 80
 
+# WHAT CHANGED AND WHY (2026-10-30, Everett's ruling: nothing in the sound
+# package names a person or a being). The map used to rewrite "christmas" and
+# seven other spellings to "Christman", and "averett", "everette" and
+# "everitt" to "Everett", on every transcript that passed through dress(),
+# so any client who said Christmas got a family name back. Those rows came
+# out. They live on in THEWHOLEHOUSE's porch, where they were ported from.
 MANGLES: Tuple[Tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"\bchristmas\b", re.I), "Christman"),
-    (re.compile(r"\bchrist\s*man\b", re.I), "Christman"),
-    (re.compile(r"\bchris\s*man\b", re.I), "Christman"),
-    (re.compile(r"\bchrisman\b", re.I), "Christman"),
-    (re.compile(r"\bchristmann\b", re.I), "Christman"),
-    (re.compile(r"\bkristman\b", re.I), "Christman"),
-    (re.compile(r"\bkristmann\b", re.I), "Christman"),
-    (re.compile(r"\bchris\s*men\b", re.I), "Christman"),
     (re.compile(r"\bson\s+of\s+a\s+bitch\b", re.I), "sumbitch"),
     (re.compile(r"\bsonofa\s*bitch\b", re.I), "sumbitch"),
     (re.compile(r"\bsonofabitch\b", re.I), "sumbitch"),
@@ -54,9 +52,6 @@ MANGLES: Tuple[Tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\bsumbich\b", re.I), "sumbitch"),
     (re.compile(r"\bsun\s+bitch\b", re.I), "sumbitch"),
     (re.compile(r"\bsomebeach\b", re.I), "sumbitch"),
-    (re.compile(r"\baverett\b", re.I), "Everett"),
-    (re.compile(r"\beverette\b", re.I), "Everett"),
-    (re.compile(r"\beveritt\b", re.I), "Everett"),
 )
 
 

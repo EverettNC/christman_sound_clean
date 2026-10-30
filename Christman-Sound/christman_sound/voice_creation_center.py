@@ -25,15 +25,15 @@ What lives here:
      `christman_vocoder.c` (`vocoder_render`), so the original recording and
      "From its frames" can be heard and compared side by side.
   3. Voice Profile Measurement & Proof (`measure_and_prove_voice_profile`):
-     Measures a being's own recordings into a verified `VoiceProfile` JSON file
-     (F0 median, 10-bin semitone phrase contour, speaking rate, per-vowel
-     F1/F2/F3 formants, SHA-256 fingerprint) and runs the Before vs. After
-     proof against Codec War's bare table.
-  4. Native Frame Voice Bank Builder (`build_frame_voice_center`):
-     Builds a complete `FrameVoice` folder (`bank.json`, `frames.bin`,
-     `voice.json`) from 22,050 Hz mono WAV recordings (including bundled
-     AlphaVox reference takes) so a stitched frame voice can be built,
-     calibrated, and spoken with all 12 Voice Creation Center controls.
+     Runs christman_sound.measure_voice on a being's own recordings: per-vowel
+     F1/F2/F3 from each vowel's own frames, word times from the ear, pitch
+     contour and rate, and the before/after/held-out proof. Refuses by name
+     what it cannot measure.
+  4. Frame Voice Bank Builder (`build_frame_voice_center`):
+     Runs christman_sound.build_voice_bank on a being's own 22,050 Hz 16-bit
+     mono recordings: bank.json, frames.bin and a voice.json whose every value
+     was measured (Praat for jitter, shimmer, HNR and CPPS), to be spoken with
+     the 12 Voice Creation Center controls. Refuses by name what it cannot measure.
   5. Voicepack Archive Packaging (`package_voicepack_center`):
      Packages and validates `.voicepack` archives through `VoicepackBuilder`.
 """
@@ -87,7 +87,6 @@ __all__ = [
     "measure_and_prove_voice_profile",
     "build_frame_voice_center",
     "package_voicepack_center",
-    "bundled_alphavox_wavs",
 ]
 
 VOICE_CREATION_CONTROLS: Tuple[Dict[str, Any], ...] = (
@@ -299,30 +298,13 @@ VOICE_CREATION_PRESETS: Dict[str, Dict[str, Any]] = {
     },
 }
 
+# Phrases a booth session can read, the words only. 2026-10-30: these named
+# one being and carried a person's name; the package names no being, and
+# a being's own script lives with the being.
 BOOTH_SCRIPT_SAMPLES: Tuple[Dict[str, str], ...] = (
-    {
-        "id": "alphavox-help",
-        "label": "AlphaVox — I need help please",
-        "text": "i need help please",
-    },
-    {
-        "id": "alphavox-home",
-        "label": "AlphaVox — I want to go home",
-        "text": "i want to go home",
-    },
-    {
-        "id": "booth-creed",
-        "label": "Booth — Sovereign Voice Creed",
-        "text": "Hello, Christman.",
-    },
+    {"id": "need-help", "label": "I need help please", "text": "i need help please"},
+    {"id": "go-home", "label": "I want to go home", "text": "i want to go home"},
 )
-
-
-def bundled_alphavox_wavs() -> List[Path]:
-    td = Path(__file__).resolve().parent / "static" / "testdata"
-    if not td.is_dir():
-        return []
-    return sorted(td.glob("*.wav"))
 
 
 def resolve_vcc_controls(preset: Optional[str] = None, overrides: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:

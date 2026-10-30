@@ -15,7 +15,7 @@ without stubs or outside engines:
   - Multi-canal Dispersion & War bench (christman_sound.dispersion)
   - Silico-Stasis equilibrium, 2 Hz shaker & psychoacoustic units (christman_sound.being)
   - Hearing, structural affect, harm frame, crisis gate & nonverbal (Hearing)
-  - Corti Greenwood cochlea, cycle DSP quality, SpeakerSeat, AlphaVoxRouter &
+  - Corti Greenwood cochlea, cycle DSP quality, SpeakerSeat, grunt physics router &
     20 Hz CanalRecorder (christman_voice_sdk.audio.corti_canal)
   - Lucent Gullstrand cornea optics, 5-part RhythmTracker & BodySignalFrame
     bridge (christman_voice_sdk.audio.lucent_reader & body_signals)
@@ -96,7 +96,6 @@ from .voice_creation_center import (
     VOICE_CREATION_CONTROLS,
     VOICE_CREATION_PRESETS,
     build_frame_voice_center,
-    bundled_alphavox_wavs,
     measure_and_prove_voice_profile,
     package_voicepack_center,
     resolve_vcc_controls,
@@ -606,13 +605,13 @@ class ChristmanSoundApp:
         porch_result = None
 
         if isinstance(text, str) and text.strip():
-            porch_layer = reconstruct_dialect(text)
+            porch_layer = reconstruct_dialect(text, names=tuple(data.get("names") or ()))
             porch_result = porch_layer.to_dict()
 
-        alphavox_route = None
+        grunt_route = None
         if isinstance(corti_event, dict) and not acoustic_key and not (text and str(text).strip()):
             route_obj = analyze_grunt_physics(corti_event, seat=self.speaker_seat)
-            alphavox_route = route_obj.to_dict()
+            grunt_route = route_obj.to_dict()
             if data.get("auto_route_grunt"):
                 acoustic_key = route_obj.key
 
@@ -662,7 +661,7 @@ class ChristmanSoundApp:
             "presence_guide": presence,
             "grounding_script": grounding,
             "porch": porch_result,
-            "alphavox_route": alphavox_route,
+            "grunt_route": grunt_route,
         }, 200)
 
     def _handle_measure_wav(self, body: bytes, content_type: str) -> AppResponse:
@@ -779,7 +778,6 @@ class ChristmanSoundApp:
 
 
     def _handle_vcc_get(self) -> AppResponse:
-        wavs = [str(p) for p in bundled_alphavox_wavs()]
         voices_dir = Path.home() / ".christman_ai" / "voices"
         frame_voices = sorted(str(p) for p in voices_dir.glob("*") if (p / "voice.json").is_file()) if voices_dir.is_dir() else []
         return _json_resp({
@@ -787,7 +785,6 @@ class ChristmanSoundApp:
             "controls": list(VOICE_CREATION_CONTROLS),
             "presets": VOICE_CREATION_PRESETS,
             "script_samples": list(BOOTH_SCRIPT_SAMPLES),
-            "bundled_alphavox_wavs": wavs,
             "frame_voices": frame_voices,
             "plaque_url": "/static/plaque.jpg",
         }, 200)
@@ -795,20 +792,23 @@ class ChristmanSoundApp:
     def _handle_vcc_post(self, data: Dict[str, Any]) -> AppResponse:
         action = str(data.get("action") or "resynthesize_frames")
         cache = _audio_cache_dir()
-        default_wavs = bundled_alphavox_wavs()
         try:
             if action == "resynthesize_frames":
-                wav_in = data.get("wav_path") or (str(default_wavs[0]) if default_wavs else None)
+                wav_in = data.get("wav_path")
                 if not wav_in or not Path(wav_in).expanduser().is_file():
-                    return _json_resp({"error": "no WAV file found to resynthesize"}, 400)
+                    return _json_resp({"status": "refused", "kind": "NoRecording",
+                                       "reason": "no WAV given: pass wav_path, a recording to resynthesize"}, 400)
                 rep = resynthesize_from_frames(wav_in, cache)
                 rep["source_audio_url"] = f"/audio/{Path(rep['source_wav_path']).name}"
                 rep["rendered_audio_url"] = f"/audio/{Path(rep['rendered_wav_path']).name}"
                 return _json_resp({"status": "ok", **rep}, 200)
 
             if action == "measure_profile":
-                name = str(data.get("name") or "AlphaVox_Measured")
-                wav_list = data.get("wav_paths") or [str(p) for p in default_wavs]
+                name = str(data.get("name") or "").strip()
+                if not name:
+                    return _json_resp({"status": "refused", "kind": "NoName",
+                                       "reason": "no voice name given: pass name"}, 400)
+                wav_list = list(data.get("wav_paths") or [])
                 out_file = cache / f"profile_{name}.json"
                 lex_path = None
                 if data.get("lexicon_text"):
@@ -824,8 +824,11 @@ class ChristmanSoundApp:
                 return _json_resp({"status": "ok", **res}, 200)
 
             if action == "build_frame_voice":
-                name = str(data.get("name") or "AlphaVox_FrameVoice")
-                wav_list = data.get("wav_paths") or [str(p) for p in default_wavs]
+                name = str(data.get("name") or "").strip()
+                if not name:
+                    return _json_resp({"status": "refused", "kind": "NoName",
+                                       "reason": "no voice name given: pass name"}, 400)
+                wav_list = list(data.get("wav_paths") or [])
                 out_dir = cache / f"frame_voice_{name}"
                 lex_path = None
                 if data.get("lexicon_text"):
@@ -852,26 +855,24 @@ class ChristmanSoundApp:
                 preset = data.get("preset")
                 overrides = data.get("controls") or {}
                 controls = resolve_vcc_controls(preset=preset, overrides=overrides)
-                voice_arg = data.get("voice")
-                if not voice_arg:
-                    default_fv = cache / "frame_voice_AlphaVox_FrameVoice"
-                    if (default_fv / "voice.json").is_file():
-                        voice_arg = str(default_fv)
+                # 2026-10-30: no default voice (it reached for one being's frame voice
+                # folder), and no lexicon of its own (it wrote a hidden ten-word one).
+                # The lexicon is the one sent, else the one on this disk; with none,
+                # synthesize refuses with LexiconUnavailable, and with no voice, NoVoice.
+                voice_arg = data.get("voice") or None
                 lex_obj = None
                 if data.get("lexicon_text"):
                     tf = cache / "tmp_vcc_lex.txt"
                     tf.write_text(str(data["lexicon_text"]), encoding="utf-8")
                     lex_obj = load_lexicon(tf)
-                elif not discover_align_lexicon() and not os.environ.get(LEXICON_ENV):
-                    tf = cache / "tmp_vcc_default_lex.txt"
-                    tf.write_text(
-                        "i i aI_S\nneed need n_B i_I d_E\nhelp help h_B E_I l_I p_E\nplease please p_B l_I i_I z_E\n"
-                        "want want w_B A_I n_I t_E\nto to t_B u_E\ngo go g_B oU_E\nhome home h_B oU_I m_E\n"
-                        "hello hello h_B @_I l_I oU_E\nchristman christman k_B r_I I_I s_I t_I m_I V_I n_E\n",
-                        encoding="utf-8",
-                    )
-                    lex_obj = load_lexicon(tf)
-                text = str(data.get("text") or "i need help please")
+                else:
+                    found = discover_align_lexicon()
+                    if found is not None:
+                        lex_obj = load_lexicon(found)
+                text = str(data.get("text") or "").strip()
+                if not text:
+                    return _json_resp({"status": "refused", "kind": "NoText",
+                                       "reason": "no text given: pass text"}, 400)
                 res = synthesize(text, voice=voice_arg, lexicon=lex_obj, **controls)
                 fname = f"vcc_{int(datetime.now().timestamp() * 1000)}.wav"
                 res.write_wav(cache / fname)
@@ -888,8 +889,11 @@ class ChristmanSoundApp:
                 }, 200)
 
             if action == "package_voicepack":
-                name = str(data.get("name") or "AlphaVox_Pack")
-                wav_list = data.get("wav_paths") or [str(p) for p in default_wavs]
+                name = str(data.get("name") or "").strip()
+                if not name:
+                    return _json_resp({"status": "refused", "kind": "NoName",
+                                       "reason": "no voice name given: pass name"}, 400)
+                wav_list = list(data.get("wav_paths") or [])
                 out_vp = cache / f"{name}.voicepack"
                 vp_res = package_voicepack_center(name=name, wav_paths=wav_list, out_path=out_vp)
                 return _json_resp(vp_res, 200)
@@ -967,7 +971,7 @@ class ChristmanSoundApp:
 
         raw_text = str(data.get("text") or "")
         extra = data.get("extra_lexicon") or []
-        layer = reconstruct_dialect(raw_text, extra_lexicon=extra)
+        layer = reconstruct_dialect(raw_text, extra_lexicon=extra, names=tuple(data.get("names") or ()))
         words = data.get("words") or []
         dressed = dress_filament({"ok": True, "final": True, "text": raw_text, "words": words})
         return _json_resp({
@@ -1027,7 +1031,7 @@ class ChristmanSoundApp:
                 "note": note,
             },
             "speaker_seat": self.speaker_seat.baseline() or {"seated": False, "locks": len(self.speaker_seat.f0_locks), "min_locks_required": self.speaker_seat.MIN_LOCKS},
-            "alphavox_route": route.to_dict(),
+            "grunt_route": route.to_dict(),
             "vocal_stimming_detected": stimming,
             "canal_buffer_frames": len(self.canal_recorder.frames),
         }, 200)

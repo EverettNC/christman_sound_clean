@@ -185,8 +185,8 @@
           </div>
           <label>Text to Speak in Frame Voice</label>
           <input id="vccText" value="i need help please" />
-          <label>Frame Voice Folder or Measured Profile Path (leave blank to use built AlphaVox FrameVoice)</label>
-          <input id="vccVoice" placeholder="Auto-uses built AlphaVox FrameVoice or ~/.christman_ai/voices/<voice>" />
+          <label>Frame Voice Folder or Measured Profile Path (required)</label>
+          <input id="vccVoice" placeholder="~/.christman_ai/voices/<voice>" />
 
           <div class="slider-grid">
             <div><label>Cadence (<span id="lbl_cadence">0.50</span>)</label><input id="ctl_cadence" type="range" min="0" max="1" step="0.01" value="0.50" oninput="updLbl('cadence')" /></div>
@@ -210,18 +210,22 @@
           </div>
 
           <div style="display:flex; flex-wrap:wrap; gap:8px;">
-            <button class="action" onclick="runVccBuildFrameVoice()">1. Build AlphaVox Frame Voice Bank</button>
+            <button class="action" onclick="runVccBuildFrameVoice()">1. Build Frame Voice Bank</button>
             <button class="action" onclick="runVccSpeak()">2. Speak with 12 VCC Controls</button>
             <button class="action" onclick="runCodecWar()">Verify Bare Table</button>
           </div>
           <audio id="vccAudio" controls></audio>
-          <pre id="vccOut">Click "1. Build AlphaVox Frame Voice Bank" then "2. Speak with 12 VCC Controls" to hear stitched frame synthesis.</pre>
+          <pre id="vccOut">Click "1. Build Frame Voice Bank" then "2. Speak with 12 VCC Controls" to hear stitched frame synthesis.</pre>
         </div>
 
         <div class="card">
           <h2>Voice Profile Measurement, Before/After Proof &amp; Voicepack Builder</h2>
           <label>Voice Name</label>
-          <input id="profName" value="AlphaVox_Sovereign" />
+          <input id="profName" value="" placeholder="the voice's name" />
+          <label>The being's own recordings (WAV paths, one per line; 22,050 Hz 16-bit mono for a frame voice)</label>
+          <textarea id="profWavs" rows="4" placeholder="/path/to/recording.wav"></textarea>
+          <label>File name prefix before each phrase's words (for measuring a profile)</label>
+          <input id="profPrefix" value="" placeholder="e.g. take_" />
           <div style="display:flex; flex-wrap:wrap; gap:8px;">
             <button class="action" onclick="runVccMeasureProfile()">Measure &amp; Prove VoiceProfile (.json)</button>
             <button class="action" onclick="runVccPackageVoicepack()">Package .voicepack Archive</button>
@@ -238,8 +242,8 @@
       <div class="card">
         <h2>Frames Room — 4.99 ms Frame Measurement &amp; Side-by-Side Vocoder Resynthesis</h2>
         <p class="subtitle">Measures a recording every 4.99 ms (pitch, 96-point CheapTrick mel envelope, 8-band aperiodicity) and renders it back out from those numbers alone via christman_vocoder.c.</p>
-        <label>WAV Path (leave blank to use bundled AlphaVox recording)</label>
-        <input id="framesWavPath" placeholder="Defaults to bundled alphavox_i_need_help_please.wav" />
+        <label>WAV Path (required)</label>
+        <input id="framesWavPath" placeholder="a recording to resynthesize" />
         <button class="action" onclick="runFramesRoom()">Measure Recording &amp; Render From Its Frames</button>
         <div class="grid" style="margin-top:12px;">
           <div>
@@ -298,7 +302,7 @@
     <section id="tab-corti" class="tab">
       <div class="grid">
         <div class="card">
-          <h2>Greenwood Cochlea, SpeakerSeat &amp; AlphaVox Grunt Physics</h2>
+          <h2>Greenwood Cochlea, SpeakerSeat &amp; Grunt Physics</h2>
           <label>Frequency (Hz)</label>
           <input id="cortiHz" type="number" value="265" />
           <button class="action" onclick="runCortiCanal()">Evaluate Cochlea &amp; Grunt Physics</button>
@@ -426,10 +430,16 @@
       return out;
     }
 
+    function profWavPaths() {
+      return document.getElementById('profWavs').value.split('\n').map(x => x.trim()).filter(Boolean);
+    }
+
     async function runVccBuildFrameVoice() {
       const d = await postJson('/api/voice-creation-center', {
         action: 'build_frame_voice',
-        name: document.getElementById('profName').value || 'AlphaVox_FrameVoice'
+        name: document.getElementById('profName').value,
+        wav_paths: profWavPaths(),
+        prefix: document.getElementById('profPrefix').value
       });
       document.getElementById('vccOut').textContent = JSON.stringify(d, null, 2);
       if (d.frame_voice_dir) document.getElementById('vccVoice').value = d.frame_voice_dir;
@@ -449,7 +459,9 @@
     async function runVccMeasureProfile() {
       const d = await postJson('/api/voice-creation-center', {
         action: 'measure_profile',
-        name: document.getElementById('profName').value || 'AlphaVox_Measured'
+        name: document.getElementById('profName').value,
+        wav_paths: profWavPaths(),
+        prefix: document.getElementById('profPrefix').value
       });
       document.getElementById('statusOut').textContent = JSON.stringify(d, null, 2);
     }
@@ -457,7 +469,9 @@
     async function runVccPackageVoicepack() {
       const d = await postJson('/api/voice-creation-center', {
         action: 'package_voicepack',
-        name: document.getElementById('profName').value || 'AlphaVox_Pack'
+        name: document.getElementById('profName').value,
+        wav_paths: profWavPaths(),
+        prefix: document.getElementById('profPrefix').value
       });
       document.getElementById('statusOut').textContent = JSON.stringify(d, null, 2);
     }

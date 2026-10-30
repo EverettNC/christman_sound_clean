@@ -12,9 +12,9 @@ architecture:
      shape, 2 Hz shaker, psychoacoustic unit lattice, streaming codec inspector)
   4. christman_sound.ear.{mouth,board,porch} (Filament mouth map, CONF_FLOOR=0.55
      Carbon pile, Family/Residual boards, 15 dialect regions, TCAP-V-0020
-     mouth-cooperation, 33 family names, Vosk 0.22 discovery)
+     mouth-cooperation, names each being hands in, Vosk 0.22 discovery)
   5. christman_voice_sdk.audio.corti_canal (Greenwood cochlea, cycle DSP voice
-     quality, SpeakerSeat >= 3 locks, AlphaVox grunt physics & stimming router,
+     quality, SpeakerSeat >= 3 locks, grunt physics & stimming router,
      20 Hz CanalRecorder & disk writer)
   6. christman_voice_sdk.audio.lucent_reader (Gullstrand cornea optics, 4x4 head
      pose, 9-cell gaze, iris/mouth landmarks, BlinkLog, 5-part RhythmTracker,
@@ -208,20 +208,29 @@ def test_filament_mouth_board_porch_and_vosk_discovery(tmp_path, monkeypatch):
             {"word": "mumble", "start": 0.5, "end": 0.8, "conf": 0.31},
         ],
     })
-    assert "Christman" in dressed["text"]
-    assert "Everett" in dressed["text"]
+    # 2026-10-30: the mouth map no longer turns a client's "Christmas" into a
+    # family name, or "Averett" into a person's.
+    assert "Christmas" in dressed["text"] and "Christman" not in dressed["text"]
+    assert "Averett" in dressed["text"] and "Everett" not in dressed["text"]
     assert "sumbitch" in dressed["text"]
     assert dressed["carbon"] is True
     assert len(dressed["unsure"]) == 1
 
-    porch = reconstruct_dialect("Alpha Vox said Miss Reed felt hectic feedback and leaved early with Broxton")
-    assert "AlphaVox" in porch.as_said
+    said = "Alpha Vox said Miss Reed felt hectic feedback and leaved early with Broxton"
+    porch = reconstruct_dialect(said)
     assert "misread" in porch.as_said
     assert "haptic feedback" in porch.as_said
     assert "lived" in porch.as_said
-    assert "Brockston" in porch.as_said
-    assert "AlphaVox" in porch.route
-    assert "Brockston" in porch.route
+    # The package knows no names (2026-10-30): nothing is recovered or routed
+    # to a name nobody handed in.
+    assert "Alpha Vox" in porch.as_said and "Broxton" in porch.as_said
+    assert porch.route == []
+    # A being hands in its own names and spellings.
+    own = reconstruct_dialect(said, extra_lexicon=[{"said": "alpha vox", "keep": "Nova"},
+                                                   {"said": "broxton", "keep": "Quill"}],
+                              names=("Nova", "Quill"))
+    assert "Nova" in own.as_said and "Quill" in own.as_said
+    assert own.route == ["Nova", "Quill"]
 
     add_family("y'all", "texas")
     add_residual("unheard", "kentucky", "slipped")
@@ -277,7 +286,7 @@ def test_corti_canal_greenwood_dsp_seat_and_alphavox(tmp_path):
     assert seat.seated is True
     assert seat.baseline()["resting_f0_hz"] == 132.0
 
-    # AlphaVoxRouter: stimming vs acute distress
+    # Grunt physics router: stimming vs acute distress
     stim_events = [
         {"durationMs": 300.0, "attackMs": 90.0, "peakRms": 0.06, "f0": 180.0},
         {"durationMs": 305.0, "attackMs": 92.0, "peakRms": 0.06, "f0": 181.0},
@@ -590,7 +599,7 @@ def test_studio_integrated_api_routes(tmp_path, monkeypatch):
     r_porch = client.post("/api/porch", json={"text": "Merry Christmas from Alpha Vox and hectic feedback"})
     assert r_porch.status_code == 200
     p_data = r_porch.get_json()
-    assert "Christman" in p_data["porch"]["asSaid"]
+    assert "Christmas" in p_data["porch"]["asSaid"] and "Christman" not in p_data["porch"]["asSaid"]
     assert "haptic feedback" in p_data["porch"]["asSaid"]
 
     # Without an event, /api/corti-canal refuses to guess a grunt route
@@ -598,8 +607,8 @@ def test_studio_integrated_api_routes(tmp_path, monkeypatch):
     assert r_corti.status_code == 200
     c_json = r_corti.get_json()
     assert 0.0 < c_json["greenwood"]["place"] < 1.0
-    assert c_json["alphavox_route"]["key"] == "unknown"
-    assert c_json["alphavox_route"]["confidence"] is None
+    assert c_json["grunt_route"]["key"] == "unknown"
+    assert c_json["grunt_route"]["confidence"] is None
 
     r_lucent = client.post("/api/lucent", json={"preset": "keratoconus"})
     assert r_lucent.status_code == 200
@@ -633,6 +642,22 @@ def test_studio_integrated_api_routes(tmp_path, monkeypatch):
     assert r_house.get_json()["memory_completion"]["completed"]["id"] == "scene-1"
 
 
+def _test_tone_wav(path, seconds=1.5, sr=22050, f0=150.0):
+    """A plain harmonic test tone, written for the test: no being's recording."""
+    import array
+    import wave
+
+    n = int(seconds * sr)
+    pcm = array.array("h", (int(9000 * sum(math.sin(2 * math.pi * f0 * k * i / sr) / k for k in range(1, 8)) / 2.6)
+                            for i in range(n)))
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes(pcm.tobytes())
+    return path
+
+
 def _no_lexicon_anywhere(tmp_path, monkeypatch):
     """No lexicon and no model folder this process can find (2026-10-30)."""
     monkeypatch.setenv("HOME", str(tmp_path / "empty_home"))
@@ -646,13 +671,11 @@ def test_voice_creation_center_controls_presets_and_frames_room(tmp_path, monkey
     from christman_sound.voice_creation_center import (
         VOICE_CREATION_CONTROLS,
         VOICE_CREATION_PRESETS,
-        bundled_alphavox_wavs,
         resolve_vcc_controls,
     )
 
     assert len(VOICE_CREATION_CONTROLS) == 12
     assert len(VOICE_CREATION_PRESETS) == 6
-    assert len(bundled_alphavox_wavs()) == 2
 
     resolved = resolve_vcc_controls(preset="warm_grounding", overrides={"cadence": 0.42})
     assert resolved["cadence"] == 0.42
@@ -668,7 +691,17 @@ def test_voice_creation_center_controls_presets_and_frames_room(tmp_path, monkey
     assert len(meta["controls"]) == 12
     assert "warm_grounding" in meta["presets"]
 
-    r_resyn = client.post("/api/voice-creation-center", json={"action": "resynthesize_frames"}).get_json()
+    # No recording, no name: refused, nothing reached for (2026-10-30).
+    r = client.post("/api/voice-creation-center", json={"action": "resynthesize_frames"})
+    assert r.status_code == 400 and r.get_json()["kind"] == "NoRecording"
+    r = client.post("/api/voice-creation-center", json={"action": "measure_profile"})
+    assert r.status_code == 400 and r.get_json()["kind"] == "NoName"
+    r = client.post("/api/voice-creation-center", json={"action": "speak_vcc", "text": "i need help"})
+    assert r.get_json()["status"] == "refused"
+
+    tone = _test_tone_wav(tmp_path / "tone.wav")
+    r_resyn = client.post("/api/voice-creation-center",
+                          json={"action": "resynthesize_frames", "wav_path": str(tone)}).get_json()
     assert r_resyn["status"] == "ok"
     assert r_resyn["n_frames"] > 50
     assert r_resyn["source_audio_url"].startswith("/audio/")
@@ -769,7 +802,7 @@ sys.path.insert(0, {str(ROOT)!r})
 from christman_sound.frames import analyze_frames
 from christman_sound.dispersion import discern_canals
 from christman_sound.being import OPEN_FRAGMENTS, convert_unit, create_stasis_field, tick_stasis
-from christman_sound.voice_creation_center import bundled_alphavox_wavs, resynthesize_from_frames
+from christman_sound.voice_creation_center import resynthesize_from_frames
 from christman_sound.ear.porch import reconstruct_dialect
 from christman_voice_sdk.audio.corti_canal import freq_to_place, voice_quality_dsp
 from christman_voice_sdk.audio.lucent_reader import CORNEA_PRESETS, evaluate_optics
@@ -777,13 +810,19 @@ from christman_voice_sdk.audio.whole_house import MemoryChamber, classify_smell
 
 rep = discern_canals("kitchen")
 assert len(rep["canals"]) == 3
-wavs = bundled_alphavox_wavs()
-resyn = resynthesize_from_frames(wavs[0], {str(tmp_path / "resyn")!r}, max_seconds=1.5)
+import array, math, wave
+tone = {str(tmp_path / "tone.wav")!r}
+sr = 22050
+pcm = array.array("h", (int(9000 * sum(math.sin(2 * math.pi * 150.0 * k * i / sr) / k for k in range(1, 8)) / 2.6)
+                        for i in range(int(1.5 * sr))))
+with wave.open(tone, "wb") as w:
+    w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr); w.writeframes(pcm.tobytes())
+resyn = resynthesize_from_frames(tone, {str(tmp_path / "resyn")!r}, max_seconds=1.5)
 assert resyn["n_frames"] > 10
 field = create_stasis_field(OPEN_FRAGMENTS)
 tick_stasis(field, steps=2)
 assert convert_unit(440.0, "hz")["hz"] == 440.0
-assert "AlphaVox" in reconstruct_dialect("Alpha Vox").as_said
+assert "misread" in reconstruct_dialect("Miss Reed").as_said
 assert 0.0 < freq_to_place(440.0) < 1.0
 assert evaluate_optics(CORNEA_PRESETS["emmetropic"]).d_cornea_total > 40.0
 assert classify_smell(0.5)["species"] == []

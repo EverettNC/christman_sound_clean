@@ -30,10 +30,17 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 SDK = ROOT / "christman_voice_sdk"
+VOICE = ROOT / "christman_sound"
+# 2026-10-30: christman_sound is scanned too, its code and its studio page.
+# core.py is set aside by Everett's standing ruling (kept for the record,
+# never wired, not touched).
 NEUTRAL_FILES = [
     SDK / "__init__.py",
     *(p for folder in ("audio", "tone", "utils", "music", "nonverbal", "timbre", "engines")
       for p in sorted((SDK / folder).rglob("*.py"))),
+    *(p for p in sorted(VOICE.rglob("*.py")) if p.name != "core.py"),
+    *sorted((VOICE / "static").glob("*.html")),
+    *sorted((VOICE / "static").glob("*.js")),
 ]
 # Spelled in pieces so this file does not hold the names it looks for.
 _PIECES = ("alpha|vox", "brock|ston", "der|ek", "gr|ok", "her|mes", "sie|rra", "infer|no",

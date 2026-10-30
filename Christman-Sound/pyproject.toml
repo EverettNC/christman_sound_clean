@@ -99,7 +99,7 @@ christman_voice_sdk = ["py.typed"]
 # The compiled DSP engine rides inside the package for wheel installs, if
 # scripts/build_dsp.py ran before the wheel was built; editable installs find
 # it in christman_sound/ where build_dsp.py writes it.
-christman_sound = ["*.so", "*.dylib", "*.json", "static/*", "static/icons/*", "static/testdata/*"]  # *.json: measured voice profiles shipped beside the code
+christman_sound = ["*.so", "*.dylib", "*.json", "static/*", "static/icons/*"]  # *.json: measured voice profiles shipped beside the code
 # The ear (christman_sound.ear): its C sources, and its library once
 # `python -m christman_sound.ear.build` has built it.
 "christman_sound.ear" = ["csrc/*/*.c", "csrc/*/*.h", "libear.dylib", "libear.so"]

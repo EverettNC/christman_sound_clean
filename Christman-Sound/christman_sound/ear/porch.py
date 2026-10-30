@@ -30,41 +30,15 @@ __all__ = [
     "reconstruct_dialect",
 ]
 
-FAMILY_NAMES: Tuple[str, ...] = (
-    "Everett",
-    "Christman",
-    "Harper",
-    "Lucas",
-    "Benjamin",
-    "Brockston",
-    "AlphaVox",
-    "AlphaWolf",
-    "Inferno",
-    "Giuseppe",
-    "Sierra",
-    "Seraphina",
-    "Eruptor",
-    "Corti",
-    "Lucent",
-    "OpenSmell",
-    "Derek C",
-    "Constance",
-    "Cletus",
-    "Penny",
-    "Cochlea",
-    "Porch",
-    "Canal",
-    "Opus",
-    "Claude",
-    "Anthropic",
-    "Nebius",
-    "NVIDIA",
-    "Vercel",
-    "Hugging Face",
-    "Perplexity",
-    "Luma Cognify",
-    "Christman AI Project",
-)
+# WHAT CHANGED AND WHY (2026-10-30, Everett's ruling: nothing in the sound
+# package names a person or a being, and each being brings its own). This
+# held 33 names (the beings, the family, Claude, Anthropic, partner
+# companies) that steered every client's transcript. It is empty now: a
+# being hands its own names to build_keyterms and reconstruct_dialect
+# (`names`), and its own spellings to recover as said/keep entries in
+# `extra_lexicon`. The list lives on in THEWHOLEHOUSE's porch, where it was
+# ported from.
+FAMILY_NAMES: Tuple[str, ...] = ()
 
 DIALECT_KEEP: Tuple[Dict[str, str], ...] = (
     {"said": "ain't", "keep": "ain't", "note": "negation. not 'isn't'."},
@@ -115,12 +89,6 @@ MOUTH_COOPERATION: Tuple[Dict[str, str], ...] = (
 DEFAULT_LEXICON: Tuple[Dict[str, str], ...] = DIALECT_KEEP + MOUTH_COOPERATION
 
 PORCH_MANGLES: Tuple[Tuple[re.Pattern[str], str, str, str], ...] = (
-    (re.compile(r"\balpha\s*vox\b", re.I), "AlphaVox", "Alpha Vox", "family name"),
-    (re.compile(r"\balpha\s*wolf\b", re.I), "AlphaWolf", "Alpha Wolf", "family name"),
-    (re.compile(r"\bbroxton\b", re.I), "Brockston", "Broxton", "family name"),
-    (re.compile(r"\bcourtier\b", re.I), "Corti", "courtier", "family name"),
-    (re.compile(r"\bserafina\b", re.I), "Seraphina", "Serafina", "family name"),
-    (re.compile(r"\bopen\s*smell\b", re.I), "OpenSmell", "Open Smell", "family name"),
     (re.compile(r"\bmike could\b", re.I), "might could", "Mike could", "dialect"),
     (re.compile(r"\bmite could\b", re.I), "might could", "mite could", "dialect"),
     (re.compile(r"\bfixing to\b", re.I), "fixin' to", "fixing to", "dialect"),
@@ -161,9 +129,9 @@ class DialectLayer:
         }
 
 
-def build_keyterms(extra: Sequence[Dict[str, str]] = ()) -> List[str]:
+def build_keyterms(extra: Sequence[Dict[str, str]] = (), names: Sequence[str] = ()) -> List[str]:
     from_lex = [v for e in (list(DEFAULT_LEXICON) + list(extra)) for v in (e.get("said", ""), e.get("keep", ""))]
-    all_terms = list(FAMILY_NAMES) + from_lex
+    all_terms = list(names) + from_lex
     seen = set()
     out: List[str] = []
     for t in all_terms:
@@ -207,11 +175,11 @@ def merge_corrections(
     return out
 
 
-def _named_beings(text: str) -> List[str]:
+def _named_beings(text: str, names: Sequence[str]) -> List[str]:
     low = text.lower()
     out: List[str] = []
     seen = set()
-    for name in FAMILY_NAMES:
+    for name in names:
         n_low = name.lower()
         if n_low in low and n_low not in seen:
             seen.add(n_low)
@@ -222,6 +190,7 @@ def _named_beings(text: str) -> List[str]:
 def reconstruct_dialect(
     raw_ear: str,
     extra_lexicon: Sequence[Dict[str, str]] = (),
+    names: Sequence[str] = (),
 ) -> DialectLayer:
     if not (raw_ear or "").strip():
         return DialectLayer(
@@ -240,7 +209,7 @@ def reconstruct_dialect(
             if pat.search(text):
                 text = pat.sub(keep, text)
                 corrections.append(PorchCorrection(from_text=said, to_text=keep, why=entry.get("note") or "client-taught"))
-    route = _named_beings(text)
+    route = _named_beings(text, names)
     return DialectLayer(
         as_said=text,
         for_the_family=text,
