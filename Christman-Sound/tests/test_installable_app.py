@@ -142,11 +142,14 @@ def test_api_hear_crisis_and_nonverbal():
     app = create_app()
     client = app.test_client()
 
+    # 2026-10-30: the studio reaches no person, so distress is not marked
+    # delivered: CrisisNotDelivered, a 503 with the reason and what was read.
     r = client.post("/api/hear", json={"text": "I'm not okay"})
-    assert r.status_code == 200
+    assert r.status_code == 503
     body = r.get_json()
-    assert body["paged_human"] is True
-    assert body["turn"]["decision"]["safety"]["reason"] == "client_distress"
+    assert body["kind"] == "CrisisNotDelivered"
+    assert body["paged_human"] is False
+    assert body["pager_events"][0]["reason"] == "client_distress"
 
     r_sym = client.post("/api/hear", json={"nonverbal": {"symbol": "food"}})
     assert r_sym.status_code == 200

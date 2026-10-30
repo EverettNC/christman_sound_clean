@@ -667,7 +667,7 @@ class ChristmanSoundApp:
 
     def _handle_hear(self, data: Dict[str, Any]) -> AppResponse:
         from christman_voice_sdk.audio.corti_canal import analyze_grunt_physics
-        from christman_voice_sdk.audio.hearing import Hearing
+        from christman_voice_sdk.audio.hearing import CrisisNotDelivered, Hearing
         from christman_voice_sdk.utils.grounder import Grounder
         from christman_voice_sdk.utils.presence_guide import PresenceGuide
 
@@ -702,18 +702,33 @@ class ChristmanSoundApp:
                 "silent_alarm": safety_result.silent_alarm,
                 "voice_aloud": safety_result.voice_aloud,
             })
-            return True
+            # WHAT CHANGED AND WHY (2026-10-30): this returned True, which by the
+            # crisis contract (fusion_engine, hearing) means a human was reached,
+            # when all it did was append to this list. Nothing on the studio's web
+            # connection reaches a person, so it says so: False, and Hearing raises
+            # CrisisNotDelivered, answered below as a 503 with the reason. What a
+            # delivered page means over this connection is Everett's ruling to make.
+            return False
 
         hearing = Hearing(crisis_callback=crisis_pager)
-        turn = hearing.hear(
-            text=text,
-            corti_event=corti_event,
-            nonverbal=nonverbal,
-            acoustic_key=acoustic_key,
-            previous_turn=previous_turn,
-            between_beings=between_beings,
-            public_setting=public_setting if public_setting else None,
-        )
+        try:
+            turn = hearing.hear(
+                text=text,
+                corti_event=corti_event,
+                nonverbal=nonverbal,
+                acoustic_key=acoustic_key,
+                previous_turn=previous_turn,
+                between_beings=between_beings,
+                public_setting=public_setting if public_setting else None,
+            )
+        except CrisisNotDelivered as exc:
+            return _json_resp({
+                "status": "refused",
+                "kind": "CrisisNotDelivered",
+                "reason": str(exc),
+                "paged_human": False,
+                "pager_events": paged,
+            }, 503)
 
         presence = None
         if isinstance(text, str) and text.strip():
