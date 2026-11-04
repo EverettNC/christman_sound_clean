@@ -41,14 +41,13 @@ __all__ = [
 CONF_FLOOR = 0.55
 CARBON_MAX = 80
 
+# 2026-11-04 (Everett): "sumbitch" and "son of a bitch" are two different
+# things. The five rows that turned "son of a bitch" (and its run-together
+# spellings) into "sumbitch" came out; the rows left recover "sumbitch" from
+# the ways the ear mishears it.
 MANGLES: Tuple[Tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"\bson\s+of\s+a\s+bitch\b", re.I), "sumbitch"),
-    (re.compile(r"\bsonofa\s*bitch\b", re.I), "sumbitch"),
-    (re.compile(r"\bsonofabitch\b", re.I), "sumbitch"),
     (re.compile(r"\bsome\s+bitch\b", re.I), "sumbitch"),
     (re.compile(r"\bsum\s+bitch\b", re.I), "sumbitch"),
-    (re.compile(r"\bson\s+a\s+bitch\b", re.I), "sumbitch"),
-    (re.compile(r"\bson\s+bitch\b", re.I), "sumbitch"),
     (re.compile(r"\bsombitch\b", re.I), "sumbitch"),
     (re.compile(r"\bsumbich\b", re.I), "sumbitch"),
     (re.compile(r"\bsun\s+bitch\b", re.I), "sumbitch"),

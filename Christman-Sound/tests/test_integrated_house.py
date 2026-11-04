@@ -204,13 +204,15 @@ def test_filament_mouth_board_porch_and_vosk_discovery(tmp_path, monkeypatch):
     dressed = dress({
         "ok": True,
         "final": True,
-        "text": "that son of a bitch mumbled",
+        "text": "that son of a bitch mumbled, some bitch",
         "words": [
             {"word": "that", "start": 0.1, "end": 0.4, "conf": 0.92},
             {"word": "mumbled", "start": 0.5, "end": 0.8, "conf": 0.31},
         ],
     })
-    assert "sumbitch" in dressed["text"]
+    # 2026-11-04: "son of a bitch" is not "sumbitch"; a misheard "some bitch" is.
+    assert "son of a bitch" in dressed["text"]
+    assert dressed["text"].count("sumbitch") == 1
     assert dressed["carbon"] is True
     assert len(dressed["unsure"]) == 1
 
