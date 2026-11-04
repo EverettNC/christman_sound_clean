@@ -40,14 +40,13 @@ CARBON_MAX = 80
 # "everitt" to "Everett", on every transcript that passed through dress(),
 # so any client who said Christmas got a family name back. Those rows came
 # out. They live on in THEWHOLEHOUSE's porch, where they were ported from.
+# 2026-11-04 (Everett): "sumbitch" and "son of a bitch" are two different
+# things. The five rows that turned "son of a bitch" (and its run-together
+# spellings) into "sumbitch" came out; the rows left recover "sumbitch" from
+# the ways the ear mishears it.
 MANGLES: Tuple[Tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"\bson\s+of\s+a\s+bitch\b", re.I), "sumbitch"),
-    (re.compile(r"\bsonofa\s*bitch\b", re.I), "sumbitch"),
-    (re.compile(r"\bsonofabitch\b", re.I), "sumbitch"),
     (re.compile(r"\bsome\s+bitch\b", re.I), "sumbitch"),
     (re.compile(r"\bsum\s+bitch\b", re.I), "sumbitch"),
-    (re.compile(r"\bson\s+a\s+bitch\b", re.I), "sumbitch"),
-    (re.compile(r"\bson\s+bitch\b", re.I), "sumbitch"),
     (re.compile(r"\bsombitch\b", re.I), "sumbitch"),
     (re.compile(r"\bsumbich\b", re.I), "sumbitch"),
     (re.compile(r"\bsun\s+bitch\b", re.I), "sumbitch"),
