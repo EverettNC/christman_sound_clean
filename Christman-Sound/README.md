@@ -64,7 +64,7 @@ Do not wire the card source as a `SoundDetectorBackend`.
 - `tape_contour.py` — Tape contour (null F0 is a hole)
 - `structural_affect.py` — Clause-level affect. Structure decides
 - `harm_frame.py` — Who did what to whom. Grief is not crisis
-- `fusion_engine.py` — Carbon and silicon signals fused: decide, or unknown
+- `fusion_engine.py` — Carbon and silicon signals fused into a Reading: the safety reading, the affect reading, and resolved or unresolved with the reason. It decides nothing; the being decides
 - `face_reading.py` — A reading of the carbon (the client and the people they speak of): whose feeling it is, the clause that moved it, and arousal; data only, no emotion names, no face rendered
 - `face_vector.py` — The 8-dim face vector Sound hands the Soul Mirror, with its measured mask and the clauses it came from
 - `body_signals.py` — The body-signal input contract
@@ -87,13 +87,13 @@ Do not wire the card source as a `SoundDetectorBackend`.
 - `tts_service.py` — Local Flask service (127.0.0.1) in front of the mouth
 - `phoneme_labeler.py` — Phoneme and viseme timing
 - `speech_response.py` — `speak()`; raises `SynthesisUnavailable`. It does not reach the mouth; use `voice_synthesis`
-- `reply_guard.py` — Lines a being never says to a client ("you're not okay", "calm down"); runs on the being's own reply only, never on the client's words
+- `reply_guard.py` — Lines a being never says to a client ("you're not okay", "calm down"), as a word list the being reads: `forbidden_lines(reply)` names the lines it finds in the being's own reply, never in the client's words. It refuses nothing; what to say is the being's decision
 - `shorty_voice_engine_v3.py` — Emotion quantification; its `synthesize()` raises `SynthesisUnavailable`
 - `voice_synthesis_orchestrator.py` — Voicepack, timbre and emotion pipeline; its `synthesize()` raises `SynthesisUnavailable`
 
 #### Tone (`tone/`)
 - `voice_measure.py` — The one place the SDK measures a voice: pitch track (YIN in C), voice quality (jitter, shimmer, HNR by Praat), RMS contour
-- `tonescore_engine.py` — ToneScore: raw audio → measured features → adaptive response mode
+- `tonescore_engine.py` — ToneScore: raw audio → measured features → the ToneScore composite. It chooses no response mode; how to respond is the being's decision
 - `tonescore_analyzer.py` — Multi-layer tone analysis: pitch, jitter, shimmer, HNR, through `voice_measure`
 - `christman_tone_engine_v2.py` — Emotion and ToneScore engine v2. Its classifier loads only from local files; nothing is downloaded
 - `emotion_quantifier.py` — Stress, coherence, grounding and crisis signals from text
@@ -124,7 +124,7 @@ Do not wire the card source as a `SoundDetectorBackend`.
 - `voice_capture_client.py` — Microphone capture, frequency signature, voice profiles
 
 #### Utils (`utils/`)
-- `grounder.py` — Grounding scripts (breathing, 5-4-3-2-1, feet on the ground) chosen from stress metrics
+- `grounder.py` — Grounding scripts (breathing, 5-4-3-2-1, feet on the ground): a library the being calls by name, or looks up with `get_grounding_for_state`. Nothing in the package chooses or delivers one on the being's behalf
 - `presence_guide.py` — Reads text for states that need presence, not solutions, and checks a reply for toxic positivity
 - `voice_diagnostics.py` — Runs a local synthesis backend over voice profiles and reports byte-identical outputs
 - `logger.py` — Logging
@@ -180,14 +180,11 @@ audio = listen(8)                                           # 8 s at CAPTURE_SAM
 print(extract_frequency_signature(audio, CAPTURE_SAMPLE_RATE))  # None for anything that was not measured
 
 
-def page_a_human(safety_result, context) -> bool:
-    ...                                                     # return True ONLY once a person was reached
-    return True
-
-
-hearing = Hearing(crisis_callback=page_a_human)
+hearing = Hearing()                                         # reads; pages no one, decides nothing
 turn = hearing.hear(text="scared")                          # a measured card can be passed as corti_event=
-print(turn.decision.mode, turn.decision.safety.status)      # gentle-lift clear
+reading = turn.reading                                      # what was read; what it calls for is the being's
+print(reading.safety.status, reading.safety.reason)         # soft_redirect fear_without_context
+print(reading.safety.unclear, reading.resolved)             # cause False
 ```
 
 ### Speech Recognition
@@ -325,7 +322,7 @@ A profile stores only what was measured. Silence yields `fundamental_hz: null`, 
 Client input (measured card, words, text)
     ↓
 [christman_voice_sdk]
-    ├── Card + tape → hearing → affect, harm frame → decision
+    ├── Card + tape → hearing → affect, harm frame → reading (the being decides)
     ├── Audio → local speech recognition → text
     ├── Audio → tone and voice measurement → measured features
     └── Text → the mouth (voice_synthesis) ─┐
