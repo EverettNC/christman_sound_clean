@@ -135,14 +135,12 @@ WHAT CHANGED AND WHY
        TEMPORAL_HELP_INTENTS and reads "danger", the same as
        nonverbal_engine's "help" intent; the face model's "Worried" is kept
        in TEMPORAL_DANGER_INTENTS. The built-in map no longer carries a
-       `pages` field. An entry in the CLIENT'S OWN map marked
+       `pages` field. An entry in the CLIENT'S OWN map that carries
        `"pages": true` (for example {"intent": "Call caregiver",
-       "pages": true}) is the client's own knowledge that the meaning
-       calls for someone: it reads category "danger", `danger` True,
-       `danger_term` its intent, at any confidence, so Hearing reads it as
-       nonverbal distress exactly as at 2ad3ac0. (The first pass of this
-       change dropped that reading; the fix round restored it.) Nothing is
-       sent anywhere because of it.
+       "pages": true}) is passed through as `map_pages` True, exactly as
+       the map wrote it; its category and danger are read from its intent
+       and words alone (Everett, 2026-11-05: "Why would it read it as danger? Call caregiver, that doesn't fucking constitute danger.").
+       What the mark means for a client is the being's decision.
      - The multimodal result reports `danger_present` and
        `distress_present`. Nothing is blanked because of them.
      - The system's own sentences and the `system_note` key are deleted:
@@ -162,10 +160,9 @@ import numpy as np
 from .nonverbal_engine import (
     CATEGORY_DANGER,
     CATEGORY_NEED,
-    URGENT_MARK,
     category_of,
     danger_term,
-    marked_urgent,
+    carries_pages_mark,
 )
 
 logger = logging.getLogger(__name__)
@@ -227,17 +224,13 @@ def _reading(entry: Dict[str, Any],
     """
     (category, danger_term) for a map entry. A reading only; nothing here
     acts on it. Help and the face model's "Worried" read "danger" by their
-    intent. An entry the client marked `"pages": true` in their own map
-    (nonverbal_engine.URGENT_MARK) reads "danger" with its intent as the
-    term (its label, if the intent is blank). Every other entry is read by
-    nonverbal_engine's sets and words.
+    intent. Every other entry is read by nonverbal_engine's sets and
+    words. A `"pages": true` field in the entry is not read here: it is
+    passed through as `map_pages` (nonverbal_engine.PAGES_FIELD).
     """
     intent = entry.get("intent")
     if intent in TEMPORAL_HELP_INTENTS or intent in TEMPORAL_DANGER_INTENTS:
         return CATEGORY_DANGER, intent
-    if marked_urgent(entry):
-        named = intent if isinstance(intent, str) and intent.strip() else None
-        return CATEGORY_DANGER, named or expression or URGENT_MARK
     words = _words(entry)
     return category_of(intent, words), danger_term(intent, words)
 
@@ -259,6 +252,7 @@ UNAVAILABLE_RESULT: Dict[str, Any] = {
     "category": None,
     "danger": False,
     "danger_term": None,
+    "map_pages": False,
 }
 
 
@@ -293,6 +287,9 @@ class ClassificationResult:
     danger: bool = False
     #: What matched: the intent, or the word in the message. None if not danger.
     danger_term: Optional[str] = None
+    #: The client's own map entry carries `"pages": true`, passed through as
+    #: written. The package gives it no meaning (nonverbal_engine.PAGES_FIELD).
+    map_pages: bool = False
 
     @property
     def usable(self) -> bool:
@@ -314,6 +311,7 @@ class ClassificationResult:
             "category": self.category,
             "danger": self.danger,
             "danger_term": self.danger_term,
+            "map_pages": self.map_pages,
         }
 
 
@@ -653,6 +651,7 @@ class TemporalNonverbalEngine:
             category=category,
             danger=term is not None,
             danger_term=term,
+            map_pages=carries_pages_mark(entry),
         )
 
     def classify_gesture_sequence(self) -> Dict[str, Any]:

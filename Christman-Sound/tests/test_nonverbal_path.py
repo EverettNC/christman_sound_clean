@@ -475,14 +475,14 @@ def test_the_turn_keeps_the_clients_words_when_the_reading_is_under_the_bar(tmp_
     assert turn.person_message_below_threshold is True
 
 
-# -- the client's own urgent mark, "pages": true ------------------------------
-# 2026-11-04 fix round. A client's own map entry marked "pages": true (here
-# {"intent": "Call caregiver", "pages": true}) read as nonverbal distress at
-# 2ad3ac0, at 0.9 and at 0.4 confidence. The first pass of the read-only
-# change ignored the mark and Hearing got no safety reading at all. The mark
-# is the client's own knowledge, so it is read: category "danger", danger
-# True, danger_term the entry's intent, and Hearing reads status, reason,
-# flags and flagged_terms exactly as at 2ad3ac0.
+# -- the "pages" field in a client's own map ---------------------------------
+# Everett, 2026-11-05: "Why would it read it as danger? Call caregiver, that
+# doesn't fucking constitute danger." The public package passes a map entry's
+# "pages": true through as map_pages, exactly as the map wrote it, and reads
+# nothing into it. What the mark means for a client is decided by the being's
+# own copy of the package or the being's own code.
+# Rewritten 2026-11-05: these two tests pinned the 2026-11-04 reading
+# (category "danger", danger True, Hearing hard_block "nonverbal_distress").
 
 def _centred_on_wave_right(confidence):
     """CentroidModel over the four gesture labels, Wave Right (index 2) at 0
@@ -496,7 +496,8 @@ def _centred_on_wave_right(confidence):
 
 
 @pytest.mark.parametrize("confidence,status", [(0.9, "ok"), (0.4, "below_threshold")])
-def test_the_clients_own_urgent_mark_reads_as_nonverbal_distress(tmp_path, confidence, status):
+def test_a_pages_mark_in_the_clients_own_map_is_passed_through_not_read_as_danger(
+        tmp_path, confidence, status):
     path = tmp_path / "language_map.json"
     path.write_text(json.dumps({"Wave Right": {"intent": "Call caregiver", "pages": True}}),
                     encoding="utf-8")
@@ -508,38 +509,32 @@ def test_the_clients_own_urgent_mark_reads_as_nonverbal_distress(tmp_path, confi
     gesture = turn.temporal["all_results"]["gesture"]
     assert gesture["expression"] == "Wave Right" and gesture["status"] == status
     assert gesture["confidence"] == pytest.approx(confidence)
-    assert gesture["category"] == "danger"
-    assert gesture["danger"] is True and gesture["danger_term"] == "Call caregiver"
-    # Through Hearing: exactly the reading 2ad3ac0 gave (measured there).
-    assert turn.reading is not None
-    s = turn.reading.safety
-    assert (s.status, s.reason) == ("hard_block", "nonverbal_distress")
-    assert s.flags == ["nonverbal:temporal:gesture:Wave Right:Call caregiver",
-                       "words:clear:no_harm_frame"]
-    assert s.flagged_terms == ["Wave Right"]
-    assert s.danger is True
+    assert gesture["intent"] == "Call caregiver"
+    assert gesture["map_pages"] is True                     # passed through as written
+    assert gesture["category"] == "other"                   # from the intent alone
+    assert gesture["danger"] is False and gesture["danger_term"] is None
+    assert turn.nonverbal_distress == []
+    assert turn.reading is None                             # no words, no distress: nothing for the gate
 
 
 @pytest.mark.parametrize("confidence,status", [(0.9, "ok"), (0.4, "below_threshold")])
-def test_the_clients_own_urgent_mark_reads_the_same_in_the_nonverbal_engine(
-        tmp_path, confidence, status):
-    # The same field in the client's own gesture map reads the same way.
-    # (This engine never read the field before 2026-11-04; it reads it now
-    # so one client's map means the same thing on every channel.)
-    (tmp_path / "gestures_model.json").write_text(json.dumps({"wave": {
-        "intent": "call_caregiver", "confidence": confidence, "expression": "urgent",
-        "emotion_tier": "moderate", "message": None, "pages": True}}), encoding="utf-8")
-    turn = Hearing(nonverbal_engine=NonverbalEngine(data_dir=str(tmp_path))).hear(
-        nonverbal={"gesture": "wave"})
+def test_a_pages_mark_reads_the_same_in_the_nonverbal_engine(tmp_path, confidence, status):
+    (tmp_path / "gestures_model.json").write_text(json.dumps({
+        "wave": {"intent": "call_caregiver", "confidence": confidence, "expression": "urgent",
+                 "emotion_tier": "moderate", "message": None, "pages": True},
+        "nod": {"intent": "yes", "confidence": confidence, "expression": "positive",
+                "emotion_tier": "mild", "message": None}}), encoding="utf-8")
+    engine = NonverbalEngine(data_dir=str(tmp_path))
+    turn = Hearing(nonverbal_engine=engine).hear(nonverbal={"gesture": "wave"})
     [reading] = turn.nonverbal["all_results"]
     assert reading["status"] == status
-    assert reading["category"] == "danger"
-    assert reading["danger"] is True and reading["danger_term"] == "call_caregiver"
+    assert reading["map_pages"] is True
+    assert reading["category"] == "other"
+    assert reading["danger"] is False and reading["danger_term"] is None
     assert reading["message"] is None
-    s = turn.reading.safety
-    assert (s.status, s.reason) == ("hard_block", "nonverbal_distress")
-    assert s.danger is True
-    assert "nonverbal:gesture:wave:call_caregiver" in s.flags
+    assert turn.nonverbal_distress == [] and turn.reading is None
+    # An entry without the field carries map_pages False.
+    assert engine.classify_gesture("nod").to_dict()["map_pages"] is False
 
 
 def test_a_wordless_entry_in_the_clients_own_map_says_so(tmp_path):
