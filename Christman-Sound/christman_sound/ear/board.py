@@ -6,6 +6,13 @@
 """
 christman_sound.ear.board — Family Board, Residual Board, and 15-Region Dialect
 Tour Map (ported from THEFILAMENT ear/board.py and ear/dialect-map.js).
+
+WHAT CHANGED AND WHY (2026-11-05)
+A board file that could not be read, or was not a JSON list, read as an empty
+board, and the next row added wrote over it: every row on it was lost without
+a word. Now a missing file is an empty board (nothing kept yet), and a file
+that cannot be read or parsed raises, naming the file, and is left as it is.
+The Filament ear server (christman_sound/filament) runs through this file.
 """
 
 from __future__ import annotations
@@ -137,14 +144,17 @@ def filament_root() -> Path:
 
 
 def _load(path: Path) -> List[Dict[str, Any]]:
+    """The rows on one board. No file yet is an empty board; a file that cannot
+    be read or is not a JSON list raises, and is left as it is."""
+    if not path.exists():
+        return []
     try:
-        if path.is_file():
-            data = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(data, list):
-                return data
-    except (OSError, json.JSONDecodeError):
-        pass
-    return []
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"The board at {path} is not readable JSON ({exc}); it was left as it is.") from exc
+    if not isinstance(data, list):
+        raise ValueError(f"The board at {path} holds {type(data).__name__}, not a list of rows; it was left as it is.")
+    return data
 
 
 def _save(path: Path, rows: List[Dict[str, Any]]) -> None:
