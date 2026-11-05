@@ -71,8 +71,9 @@ from pathlib import Path
 from typing import Dict, List, Mapping, Optional, Tuple
 
 # Internal paths — all express assets live inside the center. They come from
-# vcc_paths: the base_dir passed to VoiceExpress, else $VCC_HOME, else this
-# repo. (They used to be Path(__file__).parent.parent / "express", which from
+# vcc_paths: the base_dir passed to VoiceExpress, else $VCC_HOME, else
+# vcc_paths' default (2026-11-05: this folder in a checkout, a per-user
+# folder when installed). (They used to be Path(__file__).parent.parent / "express", which from
 # the repo root is the folder ABOVE the repo.)
 from .vcc_paths import VCCPaths  # package import: the VCC is inside Christman-Sound (2026-11-05)
 

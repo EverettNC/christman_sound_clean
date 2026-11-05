@@ -47,7 +47,8 @@ logger = logging.getLogger("christman.voice_ingestor")
 # ── Internal paths ────────────────────────────────────────────────────────────
 # incoming/, processed/, failed/, packs/phrases/ and express/express_index.json
 # all sit under the VCC's one base directory (vcc_paths): the base_dir passed
-# in, else $VCC_HOME, else this repo. (They used to be built from
+# in, else $VCC_HOME, else vcc_paths' default (2026-11-05: this folder in a
+# checkout, a per-user folder when installed). (They used to be built from
 # Path(__file__).parent.parent, which from the repo root is the folder ABOVE
 # the repo.)
 from .vcc_paths import VCCPaths  # package import: the VCC is inside Christman-Sound (2026-11-05)
@@ -488,7 +489,9 @@ if __name__ == "__main__":
     parser.add_argument("--watch",    action="store_true", help="Watch incoming/ folder continuously")
     parser.add_argument("--file",     help="Ingest a single specific file")
     parser.add_argument("--base-dir", default=None,
-                        help="The VCC's base directory (default: $VCC_HOME, else this repo)")
+                        help="The VCC's base directory (default: $VCC_HOME; else this folder in a "
+                        "source checkout; else $CHRISTMAN_AI_HOME/voice_creation_center, "
+                        "~/.christman_ai/voice_creation_center when that is unset)")
     parser.add_argument(
         "--phrases",
         nargs="+",
