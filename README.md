@@ -14,4 +14,4 @@ From a clone or a downloaded archive of this repository, point pip at the folder
 
 It needs Python 3.10 or later and a C compiler (Xcode Command Line Tools on a Mac, gcc or clang on Linux).
 
-Not in the package, downloaded separately: the Vosk model folder `vosk-model-en-us-0.22`, which the ear hears through. The ear finds it at `$VOSK_MODEL_PATH`, else `~/Downloads/vosk-model-en-us-0.22`, else `~/models/vosk-model-en-us-0.22`.
+Not in the package, downloaded separately: the Vosk model folder `vosk-model-en-us-0.22`, which the ear hears through. Set `VOSK_MODEL_PATH` to it. The studio (`christman-sound`) also finds it on its own in `~/Downloads/vosk-model-en-us-0.22` or `~/models/vosk-model-en-us-0.22`; the speech recognition engine and the word-ear receiver read `VOSK_MODEL_PATH` only.

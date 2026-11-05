@@ -190,7 +190,7 @@ print(reading.safety.unclear, reading.resolved)             # cause False
 
 ### Speech Recognition
 
-Recognition is local. `christman_sound.ear` runs Vosk's recognizer (2026-11-05, Everett: Vosk is the ear, and Corti sits on top), and the SDK's `speech_recognition_engine.py` hears through it. Point it at a model folder with `VOSK_MODEL_PATH`; `~/models/vosk-model-en-us-0.22` and `~/Downloads/vosk-model-en-us-0.22` are found on their own. Audio at a rate other than 16 kHz is resampled to 16 kHz first, and the result says so.
+Recognition is local. `christman_sound.ear` runs Vosk's recognizer (2026-11-05, Everett: Vosk is the ear, and Corti sits on top), and the SDK's `speech_recognition_engine.py` hears through it. Point it at a model folder with `VOSK_MODEL_PATH` (or pass `model_path`); it looks nowhere else. (2026-11-05: this said `~/models` and `~/Downloads` were found on their own. That is true of `christman_sound.ear.discover_vosk_model()`, which the studio uses, not of this engine: on Everett's Mac, with the model in `~/Downloads` and no `VOSK_MODEL_PATH`, it reported no model folder.) Audio at a rate other than 16 kHz is resampled to 16 kHz first, and the result says so.
 
 ```python
 from christman_voice_sdk.audio.speech_recognition_engine import get_speech_recognition_engine
@@ -385,7 +385,7 @@ python3 -c "from christman_sound.dsp import get_dsp; d = get_dsp(); print(d.avai
 
 ### Not in the package: download these yourself
 
-- **The Vosk model folder `vosk-model-en-us-0.22`**, which the ear hears through. It is a folder, not a Python package, so pip does not fetch it. The ear finds it at `$VOSK_MODEL_PATH`, else `~/Downloads/vosk-model-en-us-0.22`, else `~/models/vosk-model-en-us-0.22`. The voice's lexicon is inside it, at `graph/phones/align_lexicon.txt` (`$CHRISTMAN_LEXICON_PATH` points elsewhere). Without it the ear reports unavailable with the reason.
+- **The Vosk model folder `vosk-model-en-us-0.22`**, which the ear hears through. It is a folder, not a Python package, so pip does not fetch it. Set `VOSK_MODEL_PATH` to it: the SDK's speech recognition engine and the word-ear receiver (`christman-word-ear`) read that and nothing else. `christman_sound.ear.discover_vosk_model()` and the studio (`christman-sound`) also look in `~/Downloads/vosk-model-en-us-0.22`, then `~/models/vosk-model-en-us-0.22`. The voice's lexicon is inside it, at `graph/phones/align_lexicon.txt` (`$CHRISTMAN_LEXICON_PATH` points elsewhere). Without it the ear reports unavailable with the reason.
 - **ffmpeg**, only for the Voice Creation Center's ingestor when the audio is not already `.wav`.
 
 ### Where an installed copy writes
