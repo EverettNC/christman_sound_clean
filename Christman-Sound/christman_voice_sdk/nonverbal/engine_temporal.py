@@ -152,7 +152,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from .nonverbal_engine import CATEGORY_DANGER, category_of, danger_term
+from .nonverbal_engine import CATEGORY_DANGER, CATEGORY_NEED, category_of, danger_term
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
@@ -252,6 +252,11 @@ class ClassificationResult:
 
     `confidence` is the model's own value, or None. There is no path that
     generates one.
+
+    `message` is the client's words for this reading, exactly as the
+    language map holds them, or None when the entry carries none. It is
+    never taken away because of the bar or because the reading is danger
+    (2026-11-04): whether to voice it is the being's decision.
     """
 
     modality: str
@@ -261,14 +266,21 @@ class ClassificationResult:
     confidence: Optional[float] = None
     message: Optional[str] = None
     reason: Optional[str] = None
-    #: This reading goes to the crisis gate and a human (Hand Up).
-    pages: bool = False
-    #: A danger meaning: paged, never spoken, never announced (ruling I).
-    silent_alarm: bool = False
+    #: "danger", "need" or "other" for a recognized reading; None otherwise.
+    category: Optional[str] = None
+    #: The meaning reads as help or danger. Reported, never acted on.
+    danger: bool = False
+    #: What matched: the intent, or the word in the message. None if not danger.
+    danger_term: Optional[str] = None
 
     @property
     def usable(self) -> bool:
         return self.status == "ok"
+
+    @property
+    def below_threshold(self) -> bool:
+        """The reading is under the confidence bar. Its words are still on it."""
+        return self.status == "below_threshold"
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -277,8 +289,10 @@ class ClassificationResult:
             "confidence": self.confidence,
             "confidence_known": self.confidence is not None,
             "message": self.message, "reason": self.reason,
-            "pages": self.pages,
-            "silent_alarm": self.silent_alarm,
+            "below_threshold": self.below_threshold,
+            "category": self.category,
+            "danger": self.danger,
+            "danger_term": self.danger_term,
         }
 
 
@@ -300,7 +314,7 @@ class TemporalNonverbalEngine:
         sequence_length: int = 10,
         # 0.6: a chosen starting value, not a measurement. Held until client
         # data replaces it. Reason: the same bar as nonverbal_engine, so one
-        # number decides "say it" across both engines; it sits above the 0.5
+        # number labels readings across both engines; it sits above the 0.5
         # coin-flip line on a two-way choice.
         confidence_threshold: float = 0.6,
     ) -> None:
@@ -310,8 +324,8 @@ class TemporalNonverbalEngine:
                 none, every modality reports `unavailable` and says why.
             language_map_path: a JSON language map. None uses the built-in
                 map and reads nothing.
-            confidence_threshold: a reading below this is `below_threshold`
-                and speaks nothing.
+            confidence_threshold: a reading below this is labelled
+                `below_threshold` and keeps its confidence and its words.
         """
         if not 0.0 <= confidence_threshold <= 1.0:
             raise ValueError(f"confidence_threshold {confidence_threshold} outside [0,1]")
@@ -586,62 +600,39 @@ class TemporalNonverbalEngine:
                 reason=f"no language-map entry for {expression!r}",
             )
 
-        if confidence < self.confidence_threshold:
-            return ClassificationResult(
-                modality=modality, status="below_threshold",
-                expression=expression, intent=entry.get("intent"),
-                confidence=confidence, message=None,
-                # Ruling M: nothing is held for confirmation; the being asks.
-                reason=(f"confidence {confidence:.3f} is below the "
-                        f"{self.confidence_threshold} threshold: reported, not spoken"),
-                # Below the speaking bar is not below the paging bar.
-                pages=_pages(entry),
-                silent_alarm=_silent_alarm(entry),
-            )
-
         # .get, not [] — a hand-edited map missing a key took the engine down.
-        # Help and danger first (ruling I): the silent alarm. They never reach
-        # _speaks, learned or built in.
-        if _silent_alarm(entry):
-            return ClassificationResult(
-                modality=modality, status="ok",
-                expression=expression, intent=entry.get("intent"),
-                message=None, confidence=confidence,
-                reason=(f"{expression!r} is help or danger: it goes to a human "
-                        "silently and is never spoken (silent alarm)"),
-                pages=True, silent_alarm=True,
-            )
-        # Silent or vocal by the conditions, not by a flag (rulings J, L).
-        speaks = self._speaks(entry)
+        # The client's words, exactly as the map holds them, never taken
+        # away: not for danger, not for the bar (2026-11-04). The built-in
+        # map holds no words (ruling J), so a built-in reading has message
+        # None and says why.
+        words = _words(entry)
+        category, term = _reading(entry)
+        if words is not None:
+            reason = None
+        elif getattr(self, "language_map_source", "built_in") != "client":
+            reason = (f"{expression!r} has no meaning learned for this client: the "
+                      "reading is reported, not spoken")
+        else:
+            reason = (f"{expression!r} has no words in the client's language map: "
+                      "the reading is reported, not spoken")
+        below = confidence < self.confidence_threshold
+        if below:
+            # Ruling M: nothing is held for confirmation. The reading is
+            # labelled and reported with its words; the being decides.
+            reason = (f"confidence {confidence:.3f} is below the "
+                      f"{self.confidence_threshold} threshold")
         return ClassificationResult(
-            modality=modality, status="ok",
+            modality=modality,
+            status="below_threshold" if below else "ok",
             expression=expression,
             intent=entry.get("intent"),
-            message=entry.get("message") if speaks else None,
+            message=words,
             confidence=confidence,
-            reason=None if speaks else (
-                f"{expression!r} has no meaning learned for this client: the "
-                "reading is reported, not spoken"
-            ),
-            pages=_pages(entry),
-            silent_alarm=False,
+            reason=reason,
+            category=category,
+            danger=term is not None,
+            danger_term=term,
         )
-
-    def _speaks(self, entry: Dict[str, Any], danger: bool = False) -> bool:
-        """
-        Silent or vocal, by the conditions (Everett, 2026-10-29, rulings I, J,
-        L). Help or danger: silent, always (ruling I; `_classify` never asks
-        about them, and this refuses them again in case anything else does).
-        Ruling J: the camera speaks only meanings learned for that client, so
-        a meaning speaks only when it comes from the client's own map and
-        carries words. Every built-in reading is silent.
-        """
-        if danger or _silent_alarm(entry):
-            return False
-        if getattr(self, "language_map_source", "built_in") != "client":
-            return False
-        message = entry.get("message")
-        return isinstance(message, str) and bool(message.strip())
 
     def classify_gesture_sequence(self) -> Dict[str, Any]:
         return self._classify("gesture", self.gesture_buffer).to_dict()
@@ -660,7 +651,14 @@ class TemporalNonverbalEngine:
         eye_features: Any = None,
         emotion_features: Any = None,
     ) -> Dict[str, Any]:
-        """Fold new frames in and classify whichever buffers are ready."""
+        """
+        Fold new frames in and classify whichever buffers are ready.
+
+        Reports every ready reading in `all_results` (with its words, under
+        the bar or over it), the primary reading, and `danger_present` /
+        `distress_present`. Nothing is blanked or sent anywhere because of
+        them; the being decides.
+        """
         ready: List[Tuple[str, ClassificationResult]] = []
 
         if gesture_features is not None and self.add_gesture_features(gesture_features):
@@ -671,25 +669,35 @@ class TemporalNonverbalEngine:
             ready.append(("emotion", self._classify("emotion", self.emotion_buffer)))
 
         usable = [(name, r) for name, r in ready if r.usable and r.confidence is not None]
+        readings = {
+            "all_results": {name: r.to_dict() for name, r in ready},
+            # Recognized help/danger or need readings, under the bar or over.
+            "distress_present": any(
+                r.category in (CATEGORY_DANGER, CATEGORY_NEED)
+                and r.status in ("ok", "below_threshold")
+                for _, r in ready),
+            "danger_present": any(r.danger for _, r in ready),
+        }
         if not usable:
             return {
                 "primary_type": None,
                 "primary_result": dict(UNAVAILABLE_RESULT),
-                "all_results": {name: r.to_dict() for name, r in ready},
                 "message": None,
-                "system_note": None,
-                "silent_alarm": any(r.silent_alarm for _, r in ready),
+                **readings,
                 "status": "no_usable_reading",
                 "note": (
-                    "No modality produced a reading. This is NOT a neutral or "
-                    "calm state — nothing was recognized."
+                    "No modality produced a reading at or above the confidence "
+                    "threshold. This is NOT a neutral or calm state. A reading "
+                    "under the bar is in all_results, labelled below_threshold, "
+                    "with its words."
                 ),
             }
 
-        # A speaking reading outranks an observed one: the person's chosen
-        # signal is what is said, if there is one.
-        speaking = [(n, r) for n, r in usable if r.message]
-        primary_type, primary = max(speaking or usable,
+        # A reading that carries the client's words outranks one that has
+        # none, then the higher confidence: the person's chosen signal is the
+        # primary reading, if there is one.
+        worded = [(n, r) for n, r in usable if r.message]
+        primary_type, primary = max(worded or usable,
                                     key=lambda kv: kv[1].confidence or 0.0)
 
         # The predecessor logged successful=True for every interaction, with
@@ -712,15 +720,10 @@ class TemporalNonverbalEngine:
         return {
             "primary_type": primary_type,
             "primary_result": primary.to_dict(),
-            "all_results": {name: r.to_dict() for name, r in ready},
-            # The person's words, from the map — or None. Never prefixed.
-            # Nothing at all is said when any reading is danger (ruling I).
-            "message": None if any(r.silent_alarm for _, r in ready) else primary.message,
-            "silent_alarm": any(r.silent_alarm for _, r in ready),
-            # The system's own words about what it saw. Separate on purpose.
-            # Not even "I see your gesture." when it is danger: nothing announced.
-            "system_note": (None if any(r.silent_alarm for _, r in ready)
-                            else SYSTEM_NOTES.get(primary_type)),
+            # The person's words, from the map — or None. Never prefixed,
+            # never taken away.
+            "message": primary.message,
+            **readings,
             "status": "ok",
         }
 
@@ -752,7 +755,7 @@ def get_temporal_engine(**kwargs: Any) -> TemporalNonverbalEngine:
 __all__ = [
     "TemporalNonverbalEngine", "ClassificationResult", "ModelLoadError",
     "get_temporal_engine", "DEFAULT_LANGUAGE_MAP", "DEFAULT_LABELS",
-    "SYSTEM_NOTES", "PAGING_INTENTS", "GENERIC_FEELING_INTENTS",
+    "TEMPORAL_HELP_INTENTS", "TEMPORAL_DANGER_INTENTS", "GENERIC_FEELING_INTENTS",
 ]
 
 # ==============================================================================

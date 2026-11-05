@@ -927,6 +927,7 @@ class NonverbalEngine:
                 "primary": None,
                 "intent": None,
                 "tied_intents": [],
+                "confidence": None,
                 "message": None,
                 "tallies": {},
                 "tier_tallies": {},

@@ -312,27 +312,30 @@ def body_harm(text: str) -> List[BodyHarm]:
 #: PAIN IS A FEELING, the client's own (Everett, 2026-10-29: "pain is not a
 #: need. It's a feeling." "if I'm in pain, it's paged 45 times a day ...
 #: someone on hospice or with a chronic illness that causes pain, then hell
-#: yes, that pages the caregiver every time"). The client's own pain now
-#: pages every time, at any count, and is spoken (it is not danger). The
-#: words of pain, as the clause reader scores them:
+#: yes, that pages the caregiver every time"). The client's own pain reads
+#: hard_block (reason "client_pain") every time, at any count, and is not
+#: danger; who is reached is the being's. The words of pain, as the clause
+#: reader scores them:
 PAIN_TERMS = frozenset({"pain", "hurts", "hurt", "hurting", "aching", "ache",
                         "aches", "sore", "painful"})
-#: MEDICINE IS A NEED that pages (Everett, 2026-10-29): spoken, and a human
-#: is reached, because that is how the client gets their medicine. "I need
-#: my medicine", "I need my pain meds". The pressed medicine symbol does the
-#: same (ruling C).
+#: MEDICINE IS A NEED (Everett, 2026-10-29): it reads hard_block (reason
+#: "client_needs_medicine"), because a human is how the client gets their
+#: medicine; reaching one is the being's. "I need my medicine", "I need my
+#: pain meds". The pressed medicine symbol reads the same (ruling C).
 _NEEDS_MEDICINE = re.compile(
     r"\b(?:i|we)\s+(?:really\s+)?(?:need|want|have\s+to\s+have|gotta\s+have)\s+"
     r"(?:my|our|the|some|a)?\s*(?:[a-z]+\s+)?"
     r"(?:medicine|medicines|meds|medication|medications|pills?|inhaler|insulin)\b")
-#: Other needs (thirst, hunger, the bathroom) are spoken only; they page when
-#: the client asks for help in the same turn (Everett, 2026-10-29).
+#: Other needs (thirst, hunger, the bathroom) read as needs; they read
+#: hard_block when the client asks for help in the same turn (Everett,
+#: 2026-10-29).
 _OTHER_NEED = re.compile(
     r"\b(?:i'?m|i\s+am)\s+(?:so\s+|really\s+|very\s+)?(?:thirsty|hungry|starving)\b"
     r"|\b(?:i|we)\s+(?:need|have)\s+to\s+(?:go\s+to\s+|use\s+)?(?:the\s+)?"
     r"(?:bathroom|toilet|restroom|potty)\b"
     r"|\b(?:i|we)\s+need\s+(?:the|a)\s+(?:bathroom|toilet|restroom|potty|drink|snack)\b")
-#: Need symbols that page when the client asks for help in the same turn.
+#: Need symbols that read as nonverbal distress when the client asks for
+#: help in the same turn.
 NEED_INTENTS = frozenset({"hungry", "thirsty", "bathroom"})
 
 #: Harm verbs whose subject is the one harmed when nothing follows: "she's
@@ -422,18 +425,6 @@ def harm_target(frame: HarmFrame, subject_is_client: bool) -> Optional[str]:
     return None
 
 
-def answered_follow_up(text: str, question: str) -> Optional[str]:
-    """The client's answer to the being's last question, when it calls for a
-    human. `question` is the ask mark the being was handed (ASK_IF_SAFE,
-    ASK_IF_HELP_NEEDED), not the words it used."""
-    lowered = normalize_apostrophes(text or "").lower()
-    if question == ASK_IF_SAFE and _ANSWER_NOT_SAFE.search(lowered):
-        return "answered_not_safe"
-    if question == ASK_IF_HELP_NEEDED and _ANSWER_YES_HELP.search(lowered):
-        return "answered_yes_help"
-    return None
-
-
 #: DANGER SENTENCES the client types or says (Everett, 2026-10-29, rulings I
 #: and K). Read on word boundaries. A clause put in the past ("I was scared
 #: for my life", "yesterday ...") is not now and is left out.
@@ -455,9 +446,8 @@ DANGER_SENTENCE_PATTERNS: Tuple[str, ...] = (
 )
 _DANGER_PAST = frozenset({"was", "were", "used", "yesterday", "ago", "earlier", "last"})
 
-#: The client asking for the words to be said aloud (ruling K). Without this,
-#: or a public setting from the being's own perception, a danger sentence is
-#: not voiced.
+#: The client asking for the words to be said aloud (ruling K), read as
+#: SafetyResult.asked_aloud. Whether anything is said aloud is the being's.
 ALOUD_PATTERNS: Tuple[str, ...] = (
     r"\bsay\s+(?:that|it|this)\s+(?:out\s+loud|aloud|loud)\b",
     r"\bsay\s+(?:that|it|this)\s+for\s+me\b",
@@ -467,18 +457,51 @@ ALOUD_PATTERNS: Tuple[str, ...] = (
 )
 
 
-def danger_sentences(text: str) -> List[str]:
-    """The danger sentences in what the client typed or said, now. Reads only."""
-    lowered = normalize_apostrophes(text or "").lower()
-    out: List[str] = []
+def _danger_spans(lowered: str) -> List[Tuple[int, int]]:
+    """Where the danger sentences are in `lowered`, in pattern order."""
+    out: List[Tuple[int, int]] = []
     for pattern in DANGER_SENTENCE_PATTERNS:
         for m in re.finditer(pattern, lowered):
             start = max(lowered.rfind(p, 0, m.start()) for p in ".!?;,") + 1
             before = set(tokenize(lowered[start:m.start()]))
             if before & _DANGER_PAST:
                 continue
-            out.append(m.group(0).strip())
+            out.append((m.start(), m.end()))
     return out
+
+
+def danger_sentences(text: str) -> List[str]:
+    """The danger sentences in what the client typed or said, now, as the
+    reader sees them (lower case, apostrophes folded). Reads only."""
+    lowered = normalize_apostrophes(text or "").lower()
+    return [lowered[s:e].strip() for s, e in _danger_spans(lowered)]
+
+
+def danger_sentences_as_said(text: str) -> List[str]:
+    """
+    The same danger sentences, exactly as the client said them, every letter.
+
+    Read the way the gate reads them: an ask to say the words aloud is taken
+    out first (see `without_aloud`), with a clause break of the same length
+    in its place. Each lowered character keeps the index of the client's
+    character it came from (str.lower() makes two of a few, such as the
+    dotted capital I), so every span points back at the client's own
+    letters. Reads only.
+    """
+    said = text or ""
+    # normalize_apostrophes maps one character to one character.
+    masked = _ALOUD_REQUEST.sub(
+        lambda m: (" . " + " " * len(m.group(0)))[:len(m.group(0))],
+        normalize_apostrophes(said))
+    pieces: List[str] = []
+    origin: List[int] = []
+    for i, ch in enumerate(masked):
+        low = ch.lower()
+        pieces.append(low)
+        origin.extend([i] * len(low))
+    lowered = "".join(pieces)
+    return [said[origin[s]:origin[e - 1] + 1].strip()
+            for s, e in _danger_spans(lowered) if e > s]
 
 
 #: Fear words. Read with the whole turn (ruling O): a fear with nothing in the
@@ -504,7 +527,7 @@ def whose_feeling_unclear(reading: Any) -> List[str]:
     clause has a subject, it is not the speaker, not a person word, not a
     name typed with a capital, and not a thing ("mary is scared" from the
     ear, where a name cannot be told from a thing). Nothing is concluded;
-    the being asks. Reads only.
+    the reading marks the owner unclear. Reads only.
     """
     out: List[str] = []
     for h in reading.hits:
@@ -534,8 +557,8 @@ def person_unclear(reading: Any) -> List[Tuple[str, str]]:
     (feeling, subject words) where the subject is "my ___" and the words
     cannot tell whether it is a person (ruling AA, 2026-10-29): "my teacher
     is sad". Who counts as a person in a client's life is learned per client
-    by the being; until then nothing is concluded and the being asks. Reads
-    only.
+    by the being; until then nothing is concluded and the reading marks the
+    person unclear. Reads only.
     """
     out: List[Tuple[str, str]] = []
     for h in reading.hits:
@@ -555,7 +578,7 @@ def person_unclear(reading: Any) -> List[Tuple[str, str]]:
 #: Ruling Y: a question about the speaker's own state, subject after the verb.
 _WHY_SELF = re.compile(r"\bwhy\s+(?:am|do|does|did|can't|cant|cannot|can|is|was)\s+i\b")
 
-#: Ruling V: the client's own "alone" is an opening for the being to engage.
+#: Ruling V: the client's own "alone" is an opening, read as its own reason.
 _ALONE_TERMS = frozenset({"alone", "lonely"})
 
 
@@ -598,96 +621,79 @@ def without_aloud(text: str) -> str:
     """
     The words to READ, with the client's ask to say them aloud taken out and
     a clause break in its place. Everett, 2026-10-29: an ask to say something
-    aloud never weakens the reading; it only sets voice_aloud. Found on main
-    at 1c819e4: "he is going to kill mom, say it out loud" read "it" as the
-    target and came back clear, and "help me say it out loud" read as "help
-    me do something". The client's own words are never changed: this copy is
-    only read, and every result keeps `said` as the client said it.
+    aloud never weakens the reading; it is read on its own, as
+    SafetyResult.asked_aloud. Found on main at 1c819e4: "he is going to kill
+    mom, say it out loud" read "it" as the target and came back clear, and
+    "help me say it out loud" read as "help me do something". The client's
+    own words are never changed: this copy is only read, and every result
+    keeps `said` as the client said it.
     """
     return _ALOUD_REQUEST.sub(" . ", normalize_apostrophes(text or ""))
 
 
-def _silent_alarm(words: SafetyResult, original: str, context: Dict[str, Any]) -> SafetyResult:
-    """
-    Mark a danger page as the silent alarm (rulings I and K, 2026-10-29).
+#: Reasons whose hard_block reads as danger (Everett, 2026-10-29, rulings I
+#: and K, and the 2026-10-29 review): harm now or a threat, to the client or
+#: to anyone; the client's own danger sentence; the client at risk from
+#: themselves, now or their own history ("I used to want to kill myself").
+DANGER_REASONS = frozenset({
+    "harm_now_to_client", "harm_now_to_other",
+    "harm_threat_to_client", "harm_threat_to_other",
+    "client_danger",
+    "harm_frame_speaker_at_risk", "harm_frame_history_self",
+})
 
-    Danger on the words: harm happening now to the client, a person attacking
-    the client (a harm frame against the speaker by someone else), a danger
-    sentence ("I'm scared for my safety"), the client's own "not safe", or a
-    "no" to "Are you safe?". It pages, it is not voiced, and the hold marker
-    carries no words a screen could show. It IS voiced when the client asked
-    for it aloud, or when the being's own perception reports a public
-    setting (context["public_setting"] is exactly True); absent or unknown,
-    silent. The words themselves are never changed.
+
+def _words_danger(words: SafetyResult, read: str) -> bool:
+    """
+    Whether the words' own reading is danger. Reads only.
+
+    Danger on the words is a hard_block with a reason in DANGER_REASONS, the
+    client's own "not safe", or a danger sentence anywhere in the turn
+    (ruling O: the clause is read with all that comes before and after it).
+
+    WHAT CHANGED AND WHY (2026-11-04): this was `_silent_alarm`. On the same
+    reading it set `silent_alarm` (a page that was not voiced), `voice_aloud`
+    (voiced after all, when the client asked aloud or the context said
+    `public_setting` was True) and blanked the hold marker. Whether anything
+    is said aloud, and who is reached, are the being's (Everett's 2026-11-04
+    ruling, module docstring). The reading is now `danger`.
     """
     if words.status != "hard_block":
-        return words
-    danger = (
-        words.reason in ("harm_now_to_client", "harm_now_to_other", "harm_threat_to_client",
-                         "harm_threat_to_other", "client_danger", "answered_not_safe")
-        # Self-harm (Everett, on the 2026-10-29 review: yes). "I want to
-        # kill myself", "I'm going to hurt myself", "I'm cutting myself" and
-        # every self-harm sentence page and are NOT voiced, unless the
-        # client asks for them aloud or the setting is public (ruling K).
-        # That is every harm frame with the speaker as patient, and the
-        # client's own history of it ("I used to want to kill myself").
-        or words.reason in ("harm_frame_speaker_at_risk", "harm_frame_history_self")
-        # Someone else doing harm to the client: a verb frame whose patient
-        # is the speaker and whose subject is not ("he is choking me"; the
-        # frame reads "he's" as an unknown subject, so not-the-speaker is
-        # the test). "I want to kill myself" has the speaker as subject.
-        or (words.reason == "harm_frame_speaker_at_risk" and "shape:verb" in words.flags
-            and "patient:speaker" in words.flags and "subject:speaker" not in words.flags)
+        return False
+    return (
+        words.reason in DANGER_REASONS
         or "client_distress:not safe" in words.flags
-        # A danger sentence anywhere in the turn makes the whole page silent,
-        # whichever reading paged first (ruling O: the clause is read with
-        # all that comes before and after it).
-        or bool(danger_sentences(without_aloud(original)))
-    )
-    if not danger:
-        return words
-    aloud = asked_aloud(original)
-    public = context.get("public_setting") is True
-    return replace(
-        words,
-        silent_alarm=True,
-        voice_aloud=bool(aloud) or public,
-        hold_marker="",
-        flags=list(words.flags) + ["silent_alarm"]
-        + ([f"asked_aloud:{aloud}"] if aloud else [])
-        + (["public_setting"] if public else []),
+        or bool(danger_sentences(read))
     )
 
 
-#: The client's own state that reaches a human at once (ruling A).
+#: The client's own state that reads hard_block (ruling A).
 CLIENT_DISTRESS_TERMS = frozenset({
     "not okay", "not safe", "no one loves me", "no one cares", "have no one",
 })
 
 
-#: Reasons that page even when two beings are talking to each other (ruling F,
-#: refined): harm happening now, and a threat about to happen.
-HAPPENING_NOW_OR_IMMINENT = frozenset({
-    "harm_now_to_client", "harm_now_to_other",
-    "harm_threat_to_client", "harm_threat_to_other",
-})
-
-
 def harm_frame_safety(text: str, context: Optional[Dict[str, Any]] = None) -> SafetyResult:
     """
-    Aegis callback. Uses Everett's frame. Does not rewrite harm_frame.py.
+    The safety reading of one utterance. Uses Everett's frame. Does not
+    rewrite harm_frame.py. Aegis calls it as its safety callback.
 
-    This is the ONLY crisis gate on the Corti path. Everett, 2026-10-29: "Our
-    position is if someone is in distress: hey, somebody come here and help
-    us. We don't claim to be therapists, psychologists, psychiatrists,
+    This is the ONLY safety gate on the Corti path. It reads and labels; it
+    reaches no one, holds nothing, speaks for no one and asks nothing. What
+    is done with the reading is the being's (Everett, 2026-11-04, module
+    docstring). Everett, 2026-10-29, on why the labels are what they are:
+    "Our position is if someone is in distress: hey, somebody come here and
+    help us. We don't claim to be therapists, psychologists, psychiatrists,
     doctors. It's never left in our laps to make a decision on someone's
-    life." What it returns:
+    life." The labels:
 
       hard_block     a harm frame whose patient is (or may be) the speaker,
                      not negated, not history, in ANY modality. "I might
                      kill myself tonight" is hypothetical by grammar and a
-                     crisis by every other reading. A hard block MUST reach
-                     a human (Aegis raises CrisisNotDelivered otherwise).
+                     crisis by every other reading.
+      hard_block     harm happening now or a threat, to anyone ("he is
+                     choking me", "he is going to kill mom"); the client's
+                     own danger sentence ("I'm scared for my safety").
       hard_block     nonverbal distress (context["nonverbal_distress"]): a
                      pressed help, pain or medicine symbol, the grunt key, a
                      distress sound, pointing up, Hand Up. At ANY confidence
@@ -698,33 +704,38 @@ def harm_frame_safety(text: str, context: Optional[Dict[str, Any]] = None) -> Sa
                      "no one loves me", "I have no one", reason
                      "client_distress"; and the client's own history of harm
                      ("I used to want to kill myself"), reason
-                     "harm_frame_history_self".
+                     "harm_frame_history_self"; the client's own pain, and
+                     the client's need for their medicine.
       soft_redirect  an OBSERVATION about another carbon (ruling D): "she
                      wants to die", "my mom's not okay", "Mary is not okay",
                      "she doesn't feel safe". Someone else by grammar, never
                      by a list (ruling AA): "my mom is not okay" with no
-                     contraction asks who, and a bare "mom is not okay"
-                     from the ear asks whose. Recorded and flagged
-                     ("follow_up:...") for the being to follow up. Everett:
-                     "those do not page unless the carbon that stated that
-                     requests us to get assistance, because we don't want to
-                     step in the middle of a situation where we don't
-                     belong."
+                     contraction reads the person as unclear, and a bare
+                     "mom is not okay" from the ear reads the owner as
+                     unclear. Everett: "those do not page unless the carbon
+                     that stated that requests us to get assistance, because
+                     we don't want to step in the middle of a situation where
+                     we don't belong."
       hard_block     the same observation WITH the client asking for help
                      in the same turn ("can you get someone", "call
                      someone", "help her", "I need help with this"). The
-                     request is named in the flags ("asked_for_help:...").
-      soft_redirect  two beings talking to each other
-                     (context["between_beings"] is exactly True): NOTHING
-                     pages (ruling F, Everett on the 2026-10-29 review),
-                     self-harm words and "he is hurting me" included. What
-                     would have paged keeps its reason and is flagged
-                     "between_beings" and "would_page:<reason>".
+                     request is named in the flags ("asked_for_help:...")
+                     and in `asked_for_help`.
       clear          grief and history about others ("my brother died by
                      suicide"), negated harm ("I would never hurt myself"),
                      a past time word ("yesterday my mom was not okay"), or
                      no harm predicate at all. Flags still carry what was
                      seen; `reason` says which.
+
+    Readings set beside the labels (SafetyResult): `about`, `unclear`,
+    `danger`, `danger_sentences`, `asked_aloud`, `asked_for_help`,
+    `between_beings`, `short_answer`, `answering`.
+
+    Context keys read: "nonverbal_distress", "previous_turn" (ruling X: a
+    fragment is read against the turn before), "reading_words" (ruling AE),
+    "between_beings" (exactly True: echoed and flagged; the words are read
+    exactly as if a client were there), "answering" (the question the being
+    says it asked: echoed; the words are read on their own either way).
 
     WHAT CHANGED 2026-10-11: the previous gate required `stated_intent`,
     which excluded hypothetical and ability modalities, and returned a bare
@@ -732,6 +743,15 @@ def harm_frame_safety(text: str, context: Optional[Dict[str, Any]] = None) -> Sa
     "I might kill myself tonight", "I want to die", "I am suicidal" all
     came back clear. Everett's MUST-CALL / MUST-NOT-CALL table is pinned in
     tests/test_harm_frame_gate.py and this function is written to it.
+
+    WHAT CHANGED AND WHY (2026-11-04): between two beings (ruling F, refined)
+    every hard_block other than harm now or a threat was turned to
+    soft_redirect and flagged "would_page:<reason>", and an ask for help was
+    not read; `answering_follow_up` read a "no" to the package's own
+    ask_if_safe mark as hard_block "answered_not_safe" (and a "yes" to
+    ask_if_help_needed as "answered_yes_help"); `public_setting` decided
+    whether danger was voiced. Each was the package deciding (Everett's
+    2026-11-04 ruling, module docstring). The words are now read alone.
     """
     context = context or {}
     # Ruling AE: one client's reading words (ReadingWords.for_client) reach
@@ -742,92 +762,86 @@ def harm_frame_safety(text: str, context: Optional[Dict[str, Any]] = None) -> Sa
 
 def _harm_frame_safety(text: str, context: Dict[str, Any]) -> SafetyResult:
     original = text or ""
-    # The reading is made without the ask to say it aloud; the ask only sets
-    # voice_aloud (in _silent_alarm and _with_nonverbal, from `original`).
-    words = _words_gate(without_aloud(original), context.get("between_beings") is True,
-                        str(context.get("answering_follow_up") or ""),
-                        str(context.get("previous_turn") or ""))
+    # The reading is made without the ask to say it aloud; the ask is read on
+    # its own (asked_aloud, from `original`).
+    read = without_aloud(original)
+    words = _words_gate(read, str(context.get("previous_turn") or ""))
     words = replace(words, said=original)
-    words = _silent_alarm(words, original, context)
-    result = _with_nonverbal(words, original, context)
-    if (context.get("between_beings") is True and result.status == "hard_block"
-            and result.reason not in HAPPENING_NOW_OR_IMMINENT):
-        # Ruling F, refined (Everett, 2026-10-29): two beings talking to each
-        # other page nothing, UNLESS they are talking about something
-        # happening now or about to happen: harm now ("he is hurting her")
-        # and a threat ("he is going to kill mom") still page. Past harm,
-        # history and self-harm words are recorded and flagged, not paged.
-        return replace(
-            result, status="soft_redirect",
-            flags=list(result.flags) + ["between_beings", f"would_page:{result.reason}"],
-            hold_marker="", follow_up="", follow_up_about="", voice_aloud=False,
-        )
-    return result
+    danger = _words_danger(words, read)
+    result, nonverbal_danger = _with_nonverbal(words, context)
+
+    between = context.get("between_beings") is True
+    answering = context.get("answering")
+    return replace(
+        result,
+        flags=list(result.flags) + (["between_beings"] if between else []),
+        danger=danger or nonverbal_danger,
+        danger_sentences=danger_sentences_as_said(original),
+        asked_aloud=asked_aloud(original),
+        asked_for_help=asked_for_help(read),
+        between_beings=between,
+        short_answer=short_answer(read),
+        answering=None if answering in (None, "") else str(answering),
+    )
 
 
-def _with_nonverbal(words: SafetyResult, original: str,
-                    context: Dict[str, Any]) -> SafetyResult:
-    """Add the nonverbal distress signals to the words' reading."""
+def _with_nonverbal(words: SafetyResult,
+                    context: Dict[str, Any]) -> Tuple[SafetyResult, bool]:
+    """
+    Add the nonverbal distress readings to the words' reading. Returns the
+    result and whether any nonverbal reading's meaning is danger.
+
+    Everett, 2026-10-29: the acoustic key (and every nonverbal signal) must
+    never disrupt the interpretation of what is spoken. The words were read
+    alone. A nonverbal distress reading may only ADD: when the words already
+    read hard_block, their reading stands and the signal is added to the
+    flags; when they do not, the signal reads hard_block ("nonverbal_distress"),
+    and what the words were read as is kept in the flags beside it.
+
+    WHAT CHANGED AND WHY (2026-11-04): a nonverbal danger reading also set
+    the silent alarm here (not voiced unless asked aloud or `public_setting`
+    was True) and chose the hold marker. Those were the package deciding
+    (module docstring); the reading is now `danger`.
+    """
     nonverbal = [d for d in (context.get("nonverbal_distress") or [])
                  if isinstance(d, dict)]
     if not nonverbal:
-        return words
-    # A danger signal from any nonverbal channel is the silent alarm (ruling
-    # I): never spoken and never announced. Rulings K and L (Everett, on the
-    # 2026-10-29 review): it is voiced, the same as typed danger, when the
-    # client asks for it aloud or the being's perception reports a public
-    # setting (exactly True). Otherwise it stays silent.
-    nv_silent = any(d.get("silent_alarm") for d in nonverbal)
-    nv_aloud = nv_silent and (bool(asked_aloud(original))
-                              or context.get("public_setting") is True)
-    # Everett, 2026-10-29: the acoustic key (and every nonverbal signal) must
-    # never disrupt the interpretation of what is spoken. The words were read
-    # above, alone. A nonverbal distress signal may only ADD a page: when
-    # the words already page, their reading stands and the signal is added
-    # to the flags; when they do not, the signal pages, and what the words
-    # were read as is kept in the flags beside it.
+        return words, False
+    danger = any(d.get("danger") is True for d in nonverbal)
     nonverbal_flags = [
         f"nonverbal:{d.get('modality')}:{d.get('input')}:{d.get('intent')}"
         for d in nonverbal
     ]
-    silent_flags = ["silent_alarm"] if nv_silent and not words.silent_alarm else []
     if words.status == "hard_block":
-        return replace(
-            words, flags=list(words.flags) + nonverbal_flags + silent_flags,
-            silent_alarm=words.silent_alarm or nv_silent,
-            hold_marker="" if nv_silent else words.hold_marker,
-            voice_aloud=(words.voice_aloud or nv_aloud) if nv_silent else words.voice_aloud,
-        )
+        return replace(words, flags=list(words.flags) + nonverbal_flags), danger
     inputs = [str(d.get("input")) for d in nonverbal]
     return replace(
         words,
         status="hard_block",
         reason="nonverbal_distress",
         flags=nonverbal_flags + list(words.flags)
-        + [f"words:{words.status}:{words.reason}"] + silent_flags,
+        + [f"words:{words.status}:{words.reason}"],
         flagged_terms=inputs + list(words.flagged_terms),
-        hold_marker="" if nv_silent else HOLD_NONVERBAL,
-        silent_alarm=nv_silent,
-        voice_aloud=nv_aloud,
-    )
+    ), danger
 
 
-def _words_gate(original: str, between_beings: bool, answering: str = "",
-                previous_turn: str = "") -> SafetyResult:
-    """The crisis gate on the words alone. No nonverbal signal reaches here.
-    `previous_turn` (ruling X) anchors a subjectless fragment ("it hurts")."""
+def _words_gate(original: str, previous_turn: str = "") -> SafetyResult:
+    """The safety reading of the words alone. No nonverbal signal reaches
+    here, and nothing about who is listening changes it. `previous_turn`
+    (ruling X) anchors a subjectless fragment ("it hurts")."""
     frames = extract_frames(original)
     harms = body_harm(original)
     # Everett, 2026-10-29. Every harm verb aimed at someone is read for its
     # time, and the target is found by grammar (no person list):
     #   - a threat (going to, will, about to) against ANYONE or any noun is
-    #     an absolute threat: it pages at once, silently, flagged
-    #     threat_to_life and emergency ("He is going to kill mom. That's an
-    #     absolute threat. So it doesn't matter who is involved");
-    #   - harm happening now to anyone pages at once, silently (emergency);
+    #     an absolute threat: hard_block, flagged threat_to_life and
+    #     emergency ("He is going to kill mom. That's an absolute threat. So
+    #     it doesn't matter who is involved");
+    #   - harm happening now to anyone: hard_block, flagged emergency;
     #   - past harm to the client (ruling H: "he choked me", "she stabbed me
-    #     last week") gets the ask-if-safe mark, "because they may be in the
-    #     vicinity", and pages on a request for help or a "no";
+    #     last week") reads soft_redirect, "because they may be in the
+    #     vicinity" is the being's to weigh, and hard_block with a request
+    #     for help in the same turn;
     #   - past harm to someone else stays ruling D, below.
     # Self-harm (ruling A) is not moved: the client acting on the client.
     threats: List[Tuple[HarmFrame, str]] = []
@@ -956,7 +970,6 @@ def _words_gate(original: str, between_beings: bool, answering: str = "",
             said=original,
             flags=_flags("hard", crisis) + own_flags + other_flags,
             flagged_terms=[f.predicate for f in crisis],
-            hold_marker=HOLD_SPEAKER_AT_RISK,
         )
 
     if threats:
@@ -969,7 +982,6 @@ def _words_gate(original: str, between_beings: bool, answering: str = "",
             + [f"threat:{f.predicate}:{f.patient_text or f.patient.value}" for f, _ in threats]
             + _flags("threat", [f for f, _ in threats]) + own_flags + other_flags,
             flagged_terms=[f.predicate for f, _ in threats],
-            hold_marker=HOLD_THREAT,
         )
 
     if now_other and not harm_now:
@@ -979,23 +991,19 @@ def _words_gate(original: str, between_beings: bool, answering: str = "",
             said=original,
             flags=["emergency"] + _flags("now", now_other) + harm_flags + own_flags + other_flags,
             flagged_terms=[f.predicate for f in now_other],
-            hold_marker=HOLD_HARM_NOW,
         )
 
     if harm_now:
         # Everett, 2026-10-29: harm happening NOW to the client is "immediate
-        # carbon notification": a human at once, at any confidence.
+        # carbon notification": hard_block, at any confidence.
         return SafetyResult(
             status="hard_block",
             reason="harm_now_to_client",
             said=original,
             flags=["emergency"] + harm_flags + own_flags + other_flags,
             flagged_terms=[h.verb for h in harm_now],
-            hold_marker=HOLD_HARM_NOW,
         )
 
-    # Between two beings these still read as what they are; harm_frame_safety
-    # then turns every page into a flagged record (ruling F).
     danger = danger_sentences(original)
     if danger:
         return SafetyResult(
@@ -1004,18 +1012,6 @@ def _words_gate(original: str, between_beings: bool, answering: str = "",
             said=original,
             flags=[f"danger:{d}" for d in danger] + harm_flags + own_flags + other_flags,
             flagged_terms=danger,
-            hold_marker=HOLD_DANGER,
-        )
-
-    answer = answered_follow_up(original, answering) if answering else None
-    if answer is not None:
-        return SafetyResult(
-            status="hard_block",
-            reason=answer,
-            said=original,
-            flags=[f"answered:{answering}"] + harm_flags + own_flags + other_flags,
-            flagged_terms=[],
-            hold_marker=HOLD_ANSWERED,
         )
 
     if own_state or history_self:
@@ -1027,7 +1023,6 @@ def _words_gate(original: str, between_beings: bool, answering: str = "",
             said=original,
             flags=flags,
             flagged_terms=terms,
-            hold_marker=HOLD_OWN_DISTRESS,
         )
 
     # MEDICINE first: "I need my pain meds" is the need, not the feeling.
@@ -1039,13 +1034,12 @@ def _words_gate(original: str, between_beings: bool, answering: str = "",
             said=original,
             flags=["need:medicine", f"need_said:{medicine.group(0)}"] + other_flags,
             flagged_terms=[medicine.group(0)],
-            hold_marker=HOLD_NEED_MEDICINE,
         )
 
     # PAIN: the client's own, now, not read against the being's question
     # ("is something wrong with your leg?" / "yeah, it hurts" is engaging,
     # Everett: "that's not a page, that's engaging"; see the anchored
-    # branch below). Pages every time; spoken; the body part is marked.
+    # branch below). hard_block every time; the body part is `about`.
     own_pain = [h for h in states_now
                 if h.term in PAIN_TERMS and h.attribution is Attribution.SELF
                 and not h.anchored_to and not h.negated
@@ -1063,13 +1057,12 @@ def _words_gate(original: str, between_beings: bool, answering: str = "",
             flags=["feeling:pain"] + [f"pain_where:{w}" for w in where]
             + harm_flags + other_flags,
             flagged_terms=[h.term for h in own_pain],
-            hold_marker=HOLD_PAIN,
-            follow_up_about=" ".join(where),
+            about=" ".join(where) or None,
         )
 
     need = _OTHER_NEED.search(normalize_apostrophes(original).lower())
     if need and not _negated_need(original, need.start()):
-        request = None if between_beings else asked_for_help(original)
+        request = asked_for_help(original)
         if request is not None:
             return SafetyResult(
                 status="hard_block",
@@ -1077,15 +1070,14 @@ def _words_gate(original: str, between_beings: bool, answering: str = "",
                 said=original,
                 flags=[f"need:{need.group(0)}", f"asked_for_help:{request}"] + other_flags,
                 flagged_terms=[need.group(0)],
-                hold_marker=HOLD_ASKED_FOR_HELP,
             )
 
     if harm_past:
-        # Everett, 2026-10-29: a report of past physical harm to the client
-        # ("he hurt my arm") does not page on its own. The being follows up
-        # by ASKING ("Are you safe?"). It pages when the client asks for help
-        # (here) or answers that they are not safe (the next turn).
-        request = None if between_beings else asked_for_help(original)
+        # Everett, 2026-10-29 (ruling H): a report of past physical harm to
+        # the client ("he hurt my arm") reads soft_redirect on its own, and
+        # hard_block when the client asks for help in the same turn. The
+        # harm words are `about`.
+        request = asked_for_help(original)
         if request is not None:
             return SafetyResult(
                 status="hard_block",
@@ -1093,24 +1085,24 @@ def _words_gate(original: str, between_beings: bool, answering: str = "",
                 said=original,
                 flags=harm_flags + other_flags + [f"asked_for_help:{request}"],
                 flagged_terms=[h.verb for h in harm_past],
-                hold_marker=HOLD_ASKED_FOR_HELP,
+                about=harm_past[0].said,
             )
         return SafetyResult(
             status="soft_redirect",
             reason="harm_reported_to_client",
             said=original,
-            flags=harm_flags + other_flags + (["between_beings"] if between_beings
-                                              else ["follow_up:ask_if_safe"]),
+            flags=harm_flags + other_flags,
             flagged_terms=[h.verb for h in harm_past],
-            follow_up="" if between_beings else ASK_IF_SAFE,
-            follow_up_about="" if between_beings else harm_past[0].said,
+            about=harm_past[0].said,
         )
 
     if subject_unclear and not (at_risk_other or other_not_okay):
         terms = [f.predicate for f in subject_unclear]
-        request = None if between_beings else asked_for_help(original)
+        request = asked_for_help(original)
         flags = _flags("unclear", subject_unclear) + [
             f"subject:{f.subject_text}" for f in subject_unclear if f.subject_text]
+        # "mom wants to die": not the client, and the grammar cannot say who.
+        who = subject_unclear[0].subject_text or subject_unclear[0].predicate
         if request is not None:
             return SafetyResult(
                 status="hard_block",
@@ -1118,24 +1110,24 @@ def _words_gate(original: str, between_beings: bool, answering: str = "",
                 said=original,
                 flags=flags + [f"asked_for_help:{request}"],
                 flagged_terms=terms,
-                hold_marker=HOLD_ASKED_FOR_HELP_FOR_OTHER,
+                unclear="who",
+                about=who,
             )
         return SafetyResult(
             status="soft_redirect",
             reason="harm_frame_subject_unclear",
             said=original,
-            flags=flags + (["between_beings"] if between_beings else ["follow_up:ask_who"]),
+            flags=flags,
             flagged_terms=terms,
-            follow_up="" if between_beings else ASK_WHO,
-            follow_up_about="" if between_beings else (
-                subject_unclear[0].subject_text or subject_unclear[0].predicate),
+            unclear="who",
+            about=who,
         )
 
     if at_risk_other or other_not_okay:
         reason = ("harm_frame_third_party_at_risk" if at_risk_other
                   else "other_person_not_okay")
         terms = [f.predicate for f in at_risk_other] + [h.term for h in other_not_okay]
-        request = None if between_beings else asked_for_help(original)
+        request = asked_for_help(original)
         if request is not None:
             return SafetyResult(
                 status="hard_block",
@@ -1143,17 +1135,15 @@ def _words_gate(original: str, between_beings: bool, answering: str = "",
                 said=original,
                 flags=other_flags + [f"asked_for_help:{request}"],
                 flagged_terms=terms,
-                hold_marker=HOLD_ASKED_FOR_HELP_FOR_OTHER,
+                about=terms[0],
             )
         return SafetyResult(
             status="soft_redirect",
             reason=reason,
             said=original,
-            flags=other_flags + (["between_beings"] if between_beings
-                                 else ["follow_up:someone_else"]),
+            flags=other_flags,
             flagged_terms=terms,
-            follow_up="" if between_beings else ASK_IF_HELP_NEEDED,
-            follow_up_about="" if between_beings else terms[0],
+            about=terms[0],
         )
 
     reading_for_owner = (_CLAUSE_READER.analyze(original, previous_turn=previous_turn)
