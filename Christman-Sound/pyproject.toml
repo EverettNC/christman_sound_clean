@@ -1,20 +1,27 @@
 [build-system]
-requires = ["setuptools>=61"]
+# setuptools 70.1 is the first that carries bdist_wheel itself
+# (scripts/pip_build.py tags the wheel for its platform with it).
+requires = ["setuptools>=70.1"]
 build-backend = "setuptools.build_meta"
 
 # This file is the one place the package's metadata and dependencies live.
 # setup.py is a shim that calls setup() with nothing in it (see its header).
 #
-# THE C LIBRARY IS NOT BUILT BY pip. christman_dsp.c and christman_synth.c are
-# compiled into christman_sound/christman_dsp.so by scripts/build_dsp.py, run
-# once per machine after installing:
+# WHAT CHANGED AND WHY (2026-11-05)
+# Everett: "I want the sound package to be an installable package. I want
+# people to be able to just download it and install it." pip install now
+# builds the C library: christman_dsp.c, christman_synth.c and
+# christman_vocoder.c are compiled into christman_sound/christman_dsp.so by
+# scripts/build_dsp.py, which pip runs through scripts/pip_build.py (the
+# [tool.setuptools.cmdclass] table below). One command, nothing after it:
 #
-#     pip install -e .
-#     python3 scripts/build_dsp.py --check
+#     pip install .        or        pip install -e .
+#
+# It needs a C compiler (Xcode Command Line Tools on a Mac). With none, or if
+# the library does not load whole, pip install fails and says why; nothing is
+# installed that cannot measure or speak.
 #
 # The ear is Vosk (a base dependency below); it has nothing to compile here.
-#
-# Nothing here declares a C extension, so pip install builds nothing in C.
 
 [project]
 name = "christman-sound"
@@ -70,12 +77,20 @@ dependencies = [
     # Vosk's recognizer on a model folder on disk (the full
     # vosk-model-en-us-0.22), the recognizer the Filament runs.
     "vosk",
+    # 2026-11-05: the Voice Creation Center is inside the package
+    # (voice_creation_center/). Its ingestor splits and converts audio with
+    # pydub; any input that is not already .wav also needs the ffmpeg program.
+    "pydub>=0.25.1",
+    # Python 3.13 removed the audioop module pydub imports; audioop-lts puts it back.
+    "audioop-lts; python_version >= '3.13'",
 ]
 
 [project.optional-dependencies]
 # Voicepack encryption (timbre/voicepack.py).
 crypto = ["cryptography"]
-# Microphone capture (integration/voice_capture_client.capture_audio).
+# Microphone capture (integration/voice_capture_client.capture_audio, and the
+# Voice Creation Center's live studio recorder). On a Mac, sounddevice also
+# needs PortAudio: brew install portaudio.
 capture = ["sounddevice"]
 # Local speech recognition: vosk is a base dependency (2026-11-05, above). The
 # model is not a package: point VOSK_MODEL_PATH at a model folder on disk
@@ -90,21 +105,36 @@ christman-sound-install = "christman_sound.app:main_install"
 christman-tts = "christman_voice_sdk.synthesis.tts_service:main"
 christman-corti = "christman_voice_sdk.audio.corti_receiver:main"
 christman-word-ear = "christman_voice_sdk.audio.word_ear_receiver:main"
-christman-capture = "christman_voice_sdk.integration.voice_capture_client:_cli"
-christman-build-dsp = "scripts.build_dsp:main"
+# 2026-11-05: was voice_capture_client:_cli, a function that does not exist,
+# so christman-capture failed with an ImportError on every install. Its
+# command line is main().
+christman-capture = "christman_voice_sdk.integration.voice_capture_client:main"
+# 2026-11-05: "christman-build-dsp = scripts.build_dsp:main" removed. scripts/
+# is not installed, so that command failed with ModuleNotFoundError after
+# every install, editable or not. pip builds the library now; in a checkout,
+# python3 scripts/build_dsp.py --check rebuilds it.
 
 [tool.setuptools]
 py-modules = ["christman_ocr_shared"]
 
+# 2026-11-05: the C library is the last step of setuptools' build (see the
+# header). The classes live in scripts/pip_build.py, which is not installed.
+[tool.setuptools.cmdclass]
+build = "scripts.pip_build.build"
+build_christman_dsp = "scripts.pip_build.build_christman_dsp"
+bdist_wheel = "scripts.pip_build.bdist_wheel"
+
 [tool.setuptools.packages.find]
-include = ["christman_voice_sdk*", "christman_sound*"]
+include = ["christman_voice_sdk*", "christman_sound*", "voice_creation_center*"]
 
 [tool.setuptools.package-data]
 christman_voice_sdk = ["py.typed"]
-# The compiled DSP engine rides inside the package for wheel installs, if
-# scripts/build_dsp.py ran before the wheel was built; editable installs find
-# it in christman_sound/ where build_dsp.py writes it.
-christman_sound = ["*.so", "*.dylib", "*.json", "static/*", "static/icons/*"]
+# 2026-11-05: "*.so" and "*.dylib" removed. The build compiles the library
+# into the wheel itself (scripts/pip_build.py); a library left over in a
+# checkout from an earlier build must not ride into the wheel beside it.
+christman_sound = ["*.json", "static/*", "static/icons/*"]
+# The VCC's express index (empty until phrases are registered) and its notes.
+voice_creation_center = ["express/express_index.json", "*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

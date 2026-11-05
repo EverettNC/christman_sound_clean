@@ -779,7 +779,10 @@ def test_8_the_package_ear_is_vosk_and_the_held_ear_is_not_installed():
     held = ROOT / "held" / "claude-ear-2026-10-28"
     assert (held / "ear" / "decoder.py").is_file() and (held / "WHY.txt").is_file()
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    assert 'include = ["christman_voice_sdk*", "christman_sound*"]' in pyproject   # held/ is not a package
+    import tomllib
+    include = tomllib.loads(pyproject)["tool"]["setuptools"]["packages"]["find"]["include"]
+    assert "christman_sound*" in include and "christman_voice_sdk*" in include
+    assert not any(pat.startswith("held") for pat in include), include   # held/ is not a package
     assert '"vosk"' in pyproject
 
 

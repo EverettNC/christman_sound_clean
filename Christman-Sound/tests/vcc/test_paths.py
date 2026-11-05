@@ -1,0 +1,156 @@
+"""
+One base directory for the whole VCC.
+
+Every module that reads or writes must use the same base: the base_dir passed
+in, else $VCC_HOME, else this repo. Before, three modules at the repo root
+wrote to the folder above the repo while the rest used the repo, so the loader
+could never see what the registry wrote.
+"""
+
+import json
+from pathlib import Path
+
+import pytest
+
+import voice_creation_center
+from voice_creation_center import vcc_paths
+from voice_creation_center.vcc_paths import VCCPaths
+
+#: The VCC's folder, its default base directory (2026-11-05: inside Christman-Sound).
+ROOT = Path(voice_creation_center.__file__).resolve().parent
+
+
+def _files_under(folder: Path) -> set:
+    return {p for p in folder.rglob("*") if p.is_file()}
+
+
+def test_default_base_is_the_repo_not_the_folder_above(monkeypatch, tmp_path):
+    """In a checkout the default base is this folder; installed, the per-user folder.
+
+    WHAT CHANGED AND WHY (2026-11-05): installed from a download (not
+    editable), the VCC's folder is inside site-packages, and the default base
+    is $CHRISTMAN_AI_HOME/voice_creation_center instead (vcc_paths says why).
+    This test runs against whichever copy is imported and asserts the rule
+    for that copy."""
+    monkeypatch.delenv(vcc_paths.HOME_ENV, raising=False)
+    monkeypatch.setenv(vcc_paths.AI_HOME_ENV, str(tmp_path / "ai_home"))
+    if vcc_paths.is_source_checkout(ROOT):
+        expected = ROOT
+    else:
+        expected = (tmp_path / "ai_home" / "voice_creation_center").resolve()
+    assert VCCPaths().base == expected
+    assert VCCPaths().express_index == expected / "express" / "express_index.json"
+    assert expected != ROOT.parent
+
+
+def _fake_copy(where: Path, checkout: bool) -> Path:
+    """A voice_creation_center folder laid out as a checkout or as installed."""
+    package = where / "voice_creation_center"
+    package.mkdir(parents=True)
+    if checkout:
+        (where / "pyproject.toml").write_text("[project]\nname = \"christman-sound\"\n")
+        (where / "christman_dsp.c").write_text("/* the C engine */\n")
+    return package
+
+
+def test_a_checkout_keeps_its_own_folder_as_the_base(tmp_path):
+    package = _fake_copy(tmp_path / "Christman-Sound", checkout=True)
+    assert vcc_paths.is_source_checkout(package)
+    assert vcc_paths.default_base(package) == package
+
+
+def test_an_installed_copy_writes_to_the_per_user_folder_not_site_packages(monkeypatch, tmp_path):
+    package = _fake_copy(tmp_path / "site-packages", checkout=False)
+    assert not vcc_paths.is_source_checkout(package)
+
+    monkeypatch.setenv(vcc_paths.AI_HOME_ENV, str(tmp_path / "ai_home"))
+    assert vcc_paths.default_base(package) == tmp_path / "ai_home" / "voice_creation_center"
+
+    monkeypatch.delenv(vcc_paths.AI_HOME_ENV)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    assert vcc_paths.default_base(package) == tmp_path / "home" / ".christman_ai" / "voice_creation_center"
+    assert tmp_path / "site-packages" not in vcc_paths.default_base(package).parents
+
+
+def test_vcc_home_and_base_dir_still_win_over_the_installed_default(monkeypatch, tmp_path):
+    package = _fake_copy(tmp_path / "site-packages", checkout=False)
+    monkeypatch.setattr(vcc_paths, "default_base", lambda package_dir=package: vcc_paths.installed_default_base())
+    monkeypatch.setenv(vcc_paths.AI_HOME_ENV, str(tmp_path / "ai_home"))
+    monkeypatch.delenv(vcc_paths.HOME_ENV, raising=False)
+    assert VCCPaths().base == (tmp_path / "ai_home" / "voice_creation_center").resolve()
+    monkeypatch.setenv(vcc_paths.HOME_ENV, str(tmp_path / "vcc_home"))
+    assert VCCPaths().base == (tmp_path / "vcc_home").resolve()
+    assert VCCPaths(tmp_path / "given").base == (tmp_path / "given").resolve()
+
+
+def test_vcc_home_moves_everything(monkeypatch, tmp_path):
+    monkeypatch.setenv(vcc_paths.HOME_ENV, str(tmp_path))
+    p = VCCPaths()
+    assert p.base == tmp_path.resolve()
+    for folder in (p.packs, p.inventory, p.express, p.incoming, p.logs, p.studio_raw):
+        assert tmp_path.resolve() in folder.parents
+
+
+def test_passed_base_dir_wins_over_vcc_home(monkeypatch, tmp_path):
+    monkeypatch.setenv(vcc_paths.HOME_ENV, str(tmp_path / "home"))
+    assert VCCPaths(tmp_path / "given").base == (tmp_path / "given").resolve()
+
+
+def test_registry_and_loader_meet_in_one_base(tmp_path):
+    """What the registry writes, the loader reads: both under the same base."""
+    from voice_creation_center.Voice_registry import VoiceRegistry, VoicePackRecord
+    from voice_creation_center.engines import voice_loader
+
+    reg = VoiceRegistry(base_dir=str(tmp_path))
+    reg.load()
+    reg.register_pack(VoicePackRecord(pack_id="pack_one", being_name="being one", language="en-US"))
+
+    assert (tmp_path / "inventory" / "__index__.json").exists()
+    listed = voice_loader.list_packs(base_dir=str(tmp_path))
+    assert [p["pack_id"] for p in listed] == ["pack_one"]
+
+
+def test_every_writer_stays_inside_its_base(tmp_path):
+    """Registry, express, logger and studio write under the base and nowhere else nearby."""
+    from voice_creation_center.Voice_registry import VoiceRegistry
+    from voice_creation_center.voice_express import VoiceExpress
+    from voice_creation_center.engines import voice_logger
+    from voice_creation_center.studio import live_studio
+
+    base = tmp_path / "base"
+    outside_before = _files_under(tmp_path)
+
+    VoiceRegistry(base_dir=str(base)).load()
+    VoiceExpress(base_dir=str(base)).load()
+    voice_logger.log_safety_event("test", "pack_one", "being one", "path test", base_dir=str(base))
+    live_studio.LiveStudio(export_dir=base / "exports", base_dir=base)
+
+    written = _files_under(tmp_path) - outside_before
+    assert written, "the writers wrote nothing"
+    for f in written:
+        assert base.resolve() in f.resolve().parents, f"{f} is outside the base {base}"
+    assert (base / "inventory" / "__index__.json").exists()
+    assert (base / "express" / "express_index.json").exists()
+    assert (base / "logs" / "voice_safety.jsonl").exists()
+    assert (base / "studio" / "raw").is_dir()
+    events = voice_logger.get_recent_safety_events(base_dir=str(base))
+    assert events and events[-1]["reason"] == "path test"
+
+
+def test_ingestor_writes_under_its_base(tmp_path):
+    pytest.importorskip("pydub", reason="NOT RUN: pydub is not installed (pip install -e . in Christman-Sound)")
+    from voice_creation_center import voice_ingestor
+    from signals_for_tests import write_voiced_wav
+
+    base = tmp_path / "base"
+    paths = VCCPaths(base)
+    paths.incoming.mkdir(parents=True)
+    wav = write_voiced_wav(paths.incoming / "take.wav")
+
+    report = voice_ingestor.ingest_file(wav, being_name="being one", phrase_map=["hello"], base_dir=str(base))
+    assert report["success"], report
+    assert (paths.processed / "take.wav").exists()
+    index = json.loads(paths.express_index.read_text())
+    assert index["phrases"]
+    for entry in index["phrases"]:
+        assert base.resolve() in Path(entry["audio_path"]).resolve().parents

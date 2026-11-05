@@ -8,11 +8,24 @@ Build the Christman Bare-Metal Audio Engine (christman_dsp.c, and the
 sovereign synthesizer christman_synth.c) into the one shared library that
 christman_sound.dsp loads.
 
-    python3 scripts/build_dsp.py            # -> christman_sound/christman_dsp.so
-    python3 scripts/build_dsp.py --check    # build, then run the smoke test
+    python3 scripts/build_dsp.py              # -> christman_sound/christman_dsp.so
+    python3 scripts/build_dsp.py --check      # build, then run the smoke test
+    python3 scripts/build_dsp.py --check-only # smoke-test the library already built
 
 No shell string is ever constructed; the compiler is invoked with an argument
 list. The compiler comes from $CC, else `cc`.
+
+WHAT CHANGED AND WHY (2026-11-05)
+Everett: "I want the sound package to be an installable package. I want
+people to be able to just download it and install it." pip install now builds
+the library: scripts/pip_build.py is a step of setuptools' build that calls
+build() below, then load_check() on what it built. This file is still the one
+place the compile line is written. load_check() needs nothing but the
+standard library, because pip builds in a clean environment that has no
+numpy; it binds every symbol christman_sound.dsp binds and measures a sine
+(RMS and YIN) through the C code. --check-only runs the full smoke test on a
+library that is already built (install.sh uses it after pip install, so what
+pip built is what is proven, not a second build).
 
 WHAT CHANGED AND WHY (2026-10-28)
 christman_vocoder.c, the port of Codec War's frame mouth (vocoder.ts), is
@@ -74,6 +87,50 @@ def build(output: Path = OUTPUT) -> Path:
         subprocess.run(cmd, check=True)
     print(f"built {output} ({output.stat().st_size} bytes)")
     return output
+
+
+def load_check(library: Path) -> str:
+    """
+    Prove the library just built loads and measures, with the standard
+    library only (pip builds where numpy is not installed). Every group
+    christman_sound.dsp binds must bind: the measurements and playback, the
+    synthesizer, its clear renderer and the frame vocoder. Then a 220 Hz sine
+    at 16 kHz is measured through the C code. Raises RuntimeError with the
+    loader's own reason on any failure; returns a one-line summary.
+    """
+    import array
+    import importlib.util
+    import math
+
+    # christman_sound/dsp.py is loaded by its path, not through the package:
+    # the check must reach the loader whatever is (or is not) installed.
+    spec = importlib.util.spec_from_file_location("_christman_dsp_loader", ROOT / "christman_sound" / "dsp.py")
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load {ROOT / 'christman_sound' / 'dsp.py'}")
+    loader = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(loader)
+
+    dsp = loader.ChristmanDSP(Path(library))
+    groups = (
+        ("measurement and playback", dsp.available, dsp.error),
+        ("synthesizer", dsp.synth_available, dsp.synth_error),
+        ("clear renderer", dsp.synth_clear_available, dsp.synth_clear_error),
+        ("frame vocoder", dsp.vocoder_available, dsp.vocoder_error),
+    )
+    missing = [f"{name}: {why}" for name, ok, why in groups if not ok]
+    if missing:
+        raise RuntimeError(f"{library} was built but does not load whole: " + "; ".join(missing))
+
+    sr = 16000
+    sine = array.array("f", (0.5 * math.sin(2 * math.pi * 220.0 * i / sr) for i in range(sr // 2)))
+    rms = dsp.rms(sine)
+    expected_rms = 0.5 / math.sqrt(2)
+    if abs(rms - expected_rms) >= 1e-3:
+        raise RuntimeError(f"{library}: rms of a 0.5 sine measured {rms}, expected {expected_rms:.4f}")
+    f0 = dsp.yin(sine[:2048], sr)
+    if abs(f0 - 220.0) >= 3.0:
+        raise RuntimeError(f"{library}: yin of a 220 Hz sine measured {f0} Hz")
+    return f"load check passed: {library} binds every group; rms={rms:.4f} f0={f0:.1f}Hz"
 
 
 def smoke_test(library: Path) -> None:
@@ -140,7 +197,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--output", type=Path, default=OUTPUT)
     parser.add_argument("--check", action="store_true", help="run the smoke test after building")
+    parser.add_argument("--check-only", action="store_true",
+                        help="run the smoke test on the library already at --output; compile nothing")
     args = parser.parse_args()
+    if args.check_only:
+        if not args.output.is_file():
+            sys.exit(f"{args.output} does not exist: nothing to check. pip install builds it; "
+                     "so does python3 scripts/build_dsp.py")
+        smoke_test(args.output)
+        return
     lib = build(args.output)
     if args.check:
         smoke_test(lib)

@@ -1,0 +1,11 @@
+# WHAT CHANGED AND WHY (2026-11-05)
+# A source archive (sdist) of the package must build on its own: pip compiles
+# the C library from it (scripts/pip_build.py -> scripts/build_dsp.py). These
+# are the files that build needs beyond the Python packages, which setuptools
+# adds by itself. No compiled library rides in the archive; it is built on the
+# machine that installs it. held/ is kept to be looked at, never installed.
+include christman_dsp.c christman_synth.c christman_vocoder.c
+include scripts/build_dsp.py scripts/pip_build.py
+include VERSION.txt install.sh
+prune held
+global-exclude *.so *.dylib *.py[cod]

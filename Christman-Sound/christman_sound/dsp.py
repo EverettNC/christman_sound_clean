@@ -24,12 +24,21 @@ raises `DSPUnavailable`. There is no default value, no fallback constant, and
 no silent zero. A caller that cannot get a measurement reports that it has no
 measurement.
 
-Build the library once per machine (the .so is a build artefact, not source):
+The library is a build artefact, not source. pip install builds it
+(2026-11-05, below); in a checkout it can be rebuilt by hand:
 
     python3 scripts/build_dsp.py
 
-pip install does not build it. setup.py declares no extension. Run
-scripts/build_dsp.py after installing.
+WHAT CHANGED AND WHY (2026-11-05)
+pip install compiles the library (scripts/pip_build.py runs
+scripts/build_dsp.py): into the installed christman_sound/ for a plain
+install, into the checkout's christman_sound/ for an editable one. Both are
+_PACKAGE_DIR here, the first place searched after $CHRISTMAN_DSP_LIB.
+BUILD_COMMAND, the remedy every DSPUnavailable names, used to point at
+scripts/build_dsp.py beside the package whatever the install; an installed
+copy has no scripts/ folder, so it named a file that does not exist. Now it
+names that script only where it exists, and otherwise says to reinstall from
+the source folder.
 
 (2026-10-13) OUTPUT SIDE. `christman_play` and `christman_play_backend`
 bind here alongside the four measurements. `play()` is blocking and
@@ -92,9 +101,17 @@ _PACKAGE_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _PACKAGE_DIR.parent
 _SOURCE = _REPO_ROOT / "christman_dsp.c"
 
+_BUILD_SCRIPT = _REPO_ROOT / "scripts" / "build_dsp.py"
+
 #: The exact command that produces the library. Printed in every
-#: `DSPUnavailable` so nobody has to guess.
-BUILD_COMMAND = f"python3 {_REPO_ROOT / 'scripts' / 'build_dsp.py'}"
+#: `DSPUnavailable` so nobody has to guess. In a checkout (editable or not
+#: installed) it is the build script; an installed copy has no C sources, so
+#: the library comes back only by installing again (2026-11-05).
+BUILD_COMMAND = (
+    f"python3 {_BUILD_SCRIPT}" if _BUILD_SCRIPT.is_file() else
+    "pip install --force-reinstall --no-deps <the Christman-Sound source folder> "
+    "(pip compiles the library; it needs a C compiler)"
+)
 
 
 class DSPUnavailable(RuntimeError):

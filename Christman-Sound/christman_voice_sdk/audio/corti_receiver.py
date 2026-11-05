@@ -367,7 +367,19 @@ def start_in_thread(
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    del argv
+    # WHAT CHANGED AND WHY (2026-11-05): main() threw its arguments away, so
+    # `christman-corti --help` (the console script an installed copy gets)
+    # did not print help: it started the receiver and listened. Now the
+    # arguments are read; there are none besides --help, and anything else is
+    # refused by name instead of ignored. The port is CHRISTMAN_SOUND_PORT or
+    # 5486, as before.
+    import argparse
+
+    argparse.ArgumentParser(
+        description=(f"Corti receiver (127.0.0.1 only): seats a posted card under Hearing. Port: "
+                     f"CHRISTMAN_SOUND_PORT, else {DEFAULT_PORT}. Run on its own, no being is "
+                     "attached, so every acoustic key is refused with 503."),
+    ).parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     server, receiver = create_receiver()
     host, port = server.server_address[0], server.server_address[1]
