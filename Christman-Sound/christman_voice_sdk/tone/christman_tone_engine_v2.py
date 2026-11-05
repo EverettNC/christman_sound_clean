@@ -2,7 +2,8 @@
 CHRISTMAN EMOTION & TONESCORE ENGINE v2
 "Nothing Vital Lives Below Root"
 
-Raw audio -> physiological intensity + classifier emotion -> routing state.
+Raw audio -> physiological intensity + classifier emotion. Readings only:
+what to do with them is the being's decision (see 6 below).
 
 Sovereign implementation: scipy + numpy, no librosa.
 
@@ -39,9 +40,10 @@ WHAT CHANGED AND WHY
    Phase 2 lists this.
 
 3. `intensity_norm = np.clip(rms_energy * 400, 0, 1)` (:65) — the 400 is
-   uncalibrated and unexplained, and it is the ONLY surviving trigger for
-   HOLD_SPACE. It is retained because removing it would leave no route at all,
-   but it is now named an uncalibrated chosen value and exposed in the result.
+   uncalibrated and unexplained, and it was the ONLY surviving trigger for
+   HOLD_SPACE. It is named an uncalibrated chosen value and exposed in the
+   result. Since 2026-11-04 it triggers nothing: it scales the `intensity`
+   reading and that is all (see 6).
 
 4. `except Exception: return None` (:104) swallowed every failure into a bare
    None. A caller could not tell a missing file from a corrupt model. Failures
@@ -50,6 +52,22 @@ WHAT CHANGED AND WHY
 5. The cadence fingerprint hashed raw audio bytes — a stable identifier derived
    from a person's voice. Retained, but off unless asked for, and documented as
    biometric-adjacent.
+
+WHAT CHANGED AND WHY (2026-11-04)
+---------------------------------
+
+6. THE ENGINE NO LONGER ROUTES. Everett's ruling, 2026-11-04: "we can have
+   this knowledge in the sound package, but it can't be making those
+   decisions. It's up to the being to make those decisions, not something
+   that just creates a voice."
+
+   `action_state` (NORMAL / HOLD_SPACE / UNKNOWN), `_route`,
+   `HOLD_SPACE_STATES` and `INTENSITY_HOLD_THRESHOLD` are gone, and so is the
+   startup error that existed only to say no emotion could reach HOLD_SPACE.
+   The result carries the readings: `intensity` (was `physical_intensity`),
+   `dominant_state` and `raw_scores`. "We could not read the emotion" is still
+   distinguishable from "read and found neutral": `raw_scores` is None and
+   `emotions_available` is False, with the reason in `notes`.
 """
 
 from __future__ import annotations
@@ -75,35 +93,29 @@ from .emotion_labels import (
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
-#: States this engine would route on if a model could produce them.
+#: States this engine would report if a model could produce them.
 DESIRED_STATES: List[str] = [
     "neutral", "happy", "proud", "teasing", "annoyed", "sarcastic",
     "sweetheart", "laugh", "tremble", "emphasis", "last_breath",
 ]
-
-#: Emotion states that route to HOLD_SPACE, IF the model emits them.
-HOLD_SPACE_STATES = frozenset({"tremble", "last_breath", "sad", "fearful"})
 
 #: RMS -> 0-1 intensity. A chosen starting value (reason: carried over from the
 #: original engine; it is uncalibrated and there is no measurement behind it).
 #: Held until client data replaces it.
 INTENSITY_SCALE = 400.0
 
-#: Intensity above this routes to HOLD_SPACE regardless of emotion. A fixed
-#: threshold, chosen (reason: carried over from the original engine; there is
-#: no measurement behind it). Held until client data replaces it.
-INTENSITY_HOLD_THRESHOLD = 0.85
-
 
 @dataclass(frozen=True)
 class ToneEngineResult:
-    """One analysis. Optional fields are None when unmeasured."""
+    """
+    One analysis: readings only. Optional fields are None when unmeasured.
+    What to do with a reading is the being's decision (Everett, 2026-11-04).
+    """
 
     status: str                       # ok | unavailable | error
     modality: str = "audio"
     dominant_state: Optional[str] = None
-    action_state: str = "UNKNOWN"     # NORMAL | HOLD_SPACE | UNKNOWN
-    physical_intensity: Optional[float] = None
+    intensity: Optional[float] = None  # RMS * INTENSITY_SCALE, clipped 0-1; uncalibrated
     raw_scores: Optional[Dict[str, float]] = None
     cadence_fingerprint: Optional[str] = None
     label_set: Optional[Dict[str, Any]] = None
@@ -115,9 +127,8 @@ class ToneEngineResult:
             "status": self.status,
             "modality": self.modality,
             "dominant_state": self.dominant_state,
-            "action_state": self.action_state,
-            "physical_intensity": self.physical_intensity,
-            "physical_intensity_is_uncalibrated": True,
+            "intensity": self.intensity,
+            "intensity_is_uncalibrated": True,
             "intensity_scale": INTENSITY_SCALE,
             "raw_scores": self.raw_scores,
             "emotions_available": self.raw_scores is not None,
@@ -130,11 +141,11 @@ class ToneEngineResult:
 
 class ChristmanToneEngine:
     """
-    Physiological intensity plus paralinguistic emotion, with honest routing.
+    Physiological intensity plus paralinguistic emotion, reported as readings.
 
-    `action_state` is one of NORMAL, HOLD_SPACE, or UNKNOWN. UNKNOWN exists
-    because "we could not measure this person" is not NORMAL, and the original
-    had no way to say it.
+    The engine routes nothing and decides nothing (Everett, 2026-11-04): the
+    being reads `intensity`, `dominant_state` and `raw_scores` and decides.
+    "We could not read the emotion" is `raw_scores` None, never a neutral.
     """
 
     def __init__(
@@ -188,17 +199,10 @@ class ChristmanToneEngine:
             self.unavailable_states = unavailable_classes(self.labels, DESIRED_STATES)
             if self.unavailable_states:
                 logger.warning(
-                    "%s cannot produce %d of %d desired states: %s. Any routing "
-                    "that depends on them will never fire.",
+                    "%s cannot produce %d of %d desired states: %s. They will "
+                    "never appear in dominant_state or raw_scores.",
                     model_name, len(self.unavailable_states), len(DESIRED_STATES),
                     self.unavailable_states,
-                )
-            reachable_hold = HOLD_SPACE_STATES & set(self.labels.canonical)
-            if not reachable_hold:
-                logger.error(
-                    "NO emotion-based HOLD_SPACE route exists with this model. "
-                    "Only the intensity threshold (%.2f) can trigger it.",
-                    INTENSITY_HOLD_THRESHOLD,
                 )
         except (Exception, LabelResolutionError) as exc:
             self.processor = self.model = self.labels = None
@@ -250,18 +254,16 @@ class ChristmanToneEngine:
             notes.append(emo_note)
 
         dom = dominant(scores) if scores else None
-        action = self._route(dom, intensity, scores is not None)
 
         if scores is None:
             notes.append(
-                "emotion unavailable — action_state routed on intensity alone"
+                "emotion unavailable — only intensity was measured"
             )
 
         return ToneEngineResult(
             status="ok",
             dominant_state=dom,
-            action_state=action,
-            physical_intensity=intensity,
+            intensity=intensity,
             raw_scores=scores,
             cadence_fingerprint=(
                 hashlib.sha1(y.tobytes()).hexdigest()[:16]
@@ -293,28 +295,8 @@ class ChristmanToneEngine:
             logger.error("Classification failed: %s", exc)
             return None, f"classification failed: {exc}"
 
-    @staticmethod
-    def _route(
-        dominant_state: Optional[str], intensity: float, emotions_ok: bool
-    ) -> str:
-        """
-        Decide the routing state.
-
-        UNKNOWN when emotions could not be read AND intensity is unremarkable.
-        The original had only NORMAL and HOLD_SPACE, so a completely unread
-        person was routed NORMAL — indistinguishable from a person who was
-        read and found to be fine.
-        """
-        if intensity > INTENSITY_HOLD_THRESHOLD:
-            return "HOLD_SPACE"
-        if dominant_state is not None and dominant_state in HOLD_SPACE_STATES:
-            return "HOLD_SPACE"
-        if not emotions_ok:
-            return "UNKNOWN"
-        return "NORMAL"
-
 
 __all__ = [
     "ChristmanToneEngine", "ToneEngineResult", "DESIRED_STATES",
-    "HOLD_SPACE_STATES", "INTENSITY_SCALE", "INTENSITY_HOLD_THRESHOLD",
+    "INTENSITY_SCALE",
 ]

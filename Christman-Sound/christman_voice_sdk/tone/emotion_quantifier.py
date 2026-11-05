@@ -56,6 +56,36 @@ WHAT CHANGED AND WHY
    `frustration` was checked before `fear`, so "frustrated and terrified"
    returned FRUSTRATED. Markers are now scored and the strongest wins, with
    every match returned so the choice is inspectable.
+
+WHAT CHANGED AND WHY (2026-11-04)
+---------------------------------
+
+6. GESTURE NO LONGER OVERWRITES WHAT THE CLIENT SAID. Everett's ruling,
+   2026-11-04: "we can have this knowledge in the sound package, but it
+   can't be making those decisions. It's up to the being to make those
+   decisions, not something that just creates a voice."
+
+   `analyze_combined_state` replaced the text reading when the gesture
+   reading disagreed: a FRUSTRATED gesture rewrote `emotional_tone` to
+   FRUSTRATED, added a fixed 0.05 to `stress_level` and took 0.05 off
+   `grounding_score`; a CONFIDENT gesture rewrote a CALM tone to CONFIDENT
+   and added 0.05 to `grounding_score`. Those 0.05s were not measured, and
+   the overwrite chose one signal over the other for the being. Now the text
+   reading stays exactly as read and `gesture_emotion` sits beside it as its
+   own field. Weighing the two is the being's.
+
+   `needs_grounding` and `needs_breathing` keep their names. Each is a level
+   compared to a stated threshold (GROUNDING_BELOW, BREATHING_RISE): a
+   reading, not a prescription. Nothing here offers or starts anything.
+
+   NOT FIXED, REPORTED (it changes how a person is read; Everett sees that
+   diff first): the negation window reaches past a new subject. "I can't
+   breathe I'm panicking" reads "panicking" as negated by "can't" three words
+   back (stress 0.15, not 0.30), and "I can't stop panicking" reads stress
+   0.0, tone unknown. The first needs a subject boundary that knows
+   contractions ("i'm"); the second is inability-to-stop, not negation. The
+   shared clause reader (structural_affect._negator) already stops at a
+   subject (ruling U); this file's `_negated_at` does not.
 """
 
 from __future__ import annotations
@@ -96,8 +126,17 @@ _CLAUSE_PUNCT = re.compile(r"[,.;:!?]+")
 #: How far back a negation reaches, in tokens.
 NEGATION_WINDOW = 4
 
-#: Rise above baseline that calls for breathing support.
+#: Rise above baseline at or past which `needs_breathing` reads True. A level
+#: compared to a stated threshold: a reading, not a prescription; what to do
+#: with it is the being's. A fixed threshold, chosen (reason: carried over;
+#: no client data behind it yet). Held until client data replaces it.
 BREATHING_RISE = 0.10
+
+#: Grounding score below which `needs_grounding` reads True. Same standing as
+#: BREATHING_RISE: a stated threshold, a reading, the being decides. A fixed
+#: threshold, chosen (reason: carried over from the original `< 0.5`; no
+#: client data behind it yet). Held until client data replaces it.
+GROUNDING_BELOW = 0.50
 
 #: Rise above baseline that reads as distress / anxiety.
 DISTRESS_RISE = 0.12
@@ -134,6 +173,13 @@ class EmotionalMetrics:
     `stress_level` is the measured RISE above baseline, not baseline plus rise.
     `crisis_negation_present` says a crisis phrase appeared inside a negation —
     the flag still fires, and a reviewer can see why.
+
+    `needs_grounding` is `grounding_score < GROUNDING_BELOW`, and
+    `needs_breathing` is `stress_level >= BREATHING_RISE`: levels compared to
+    stated thresholds. Readings, not prescriptions; the being decides.
+
+    `gesture_emotion` is the gesture reading, kept as its own field. It never
+    changes the text reading (2026-11-04).
     """
 
     stress_level: float = 0.0
@@ -298,7 +344,7 @@ class EmotionAnalysisService:
             crisis_detected=crisis,
             crisis_phrases_found=crisis_hits,
             crisis_negation_present=crisis_negated,
-            needs_grounding=grounding < 0.5,
+            needs_grounding=grounding < GROUNDING_BELOW,
             needs_breathing=stress_rise >= BREATHING_RISE,
             gesture_emotion=EmotionalTone.NEUTRAL,
             tone_matches=matches,
@@ -394,7 +440,8 @@ class EmotionAnalysisService:
 
         Negation does NOT suppress the flag. A missed crisis and a reviewed
         false alarm are not symmetric costs. The negation is reported instead,
-        so a human sees the context rather than guessing at it.
+        so whoever reads the result (the being, a reviewer) sees the context
+        rather than guessing at it. A reading: nothing here acts on it.
         """
         live, negated = _find_markers(tokens, self.crisis_phrases, self.words)
         hits = sorted(set(live) | set(negated))
@@ -485,28 +532,16 @@ class EmotionAnalysisService:
     def analyze_combined_state(
         self, text: str, user_data: Optional[Dict[str, Any]] = None
     ) -> EmotionalMetrics:
-        """Fold gesture evidence into a text reading."""
+        """
+        The text reading and the gesture reading, side by side.
+
+        The text reading (emotional_tone, stress_level, grounding_score,
+        needs_grounding, needs_breathing) is exactly what analyze_text_input
+        read. The gesture reading goes in `gesture_emotion` and changes none
+        of it. Weighing one against the other is the being's (2026-11-04).
+        """
         metrics = self.analyze_text_input(text)
-        gesture = self.analyze_gesture_input(user_data or {})
-        metrics.gesture_emotion = gesture
-
-        if gesture is EmotionalTone.FRUSTRATED and metrics.stress_level >= 0.05:
-            metrics.emotional_tone = EmotionalTone.FRUSTRATED
-            metrics.stress_level = round(min(1.0, metrics.stress_level + 0.05), 4)
-            metrics.grounding_score = round(max(0.0, metrics.grounding_score - 0.05), 4)
-
-        # Gesture confidence may only upgrade a reading that is already calm.
-        # It must never overwrite UNKNOWN, which means "we could not tell".
-        if (
-            gesture is EmotionalTone.CONFIDENT
-            and metrics.coherence_score >= 0.8
-            and metrics.emotional_tone is EmotionalTone.CALM
-        ):
-            metrics.emotional_tone = EmotionalTone.CONFIDENT
-            metrics.grounding_score = round(min(1.0, metrics.grounding_score + 0.05), 4)
-
-        metrics.needs_grounding = metrics.grounding_score < 0.5
-        metrics.needs_breathing = metrics.stress_level >= BREATHING_RISE
+        metrics.gesture_emotion = self.analyze_gesture_input(user_data or {})
         self._replace_latest(metrics)
         return metrics
 
@@ -574,7 +609,7 @@ emotion_analysis_service = EmotionAnalysisService()
 __all__ = [
     "EmotionalTone", "CoherenceLevel", "EmotionalMetrics",
     "EmotionAnalysisService", "emotion_analysis_service",
-    "BREATHING_RISE", "DISTRESS_RISE", "ANXIOUS_RISE",
+    "BREATHING_RISE", "GROUNDING_BELOW", "DISTRESS_RISE", "ANXIOUS_RISE",
 ]
 
 # ==============================================================================

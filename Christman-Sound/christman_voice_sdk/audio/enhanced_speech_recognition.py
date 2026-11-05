@@ -80,6 +80,22 @@ WHAT CHANGED AND WHY
    computed from it.
 
 8. The module-level singleton had no lock.
+
+WHAT CHANGED AND WHY (2026-11-04) — THE BEING DECIDES
+-----------------------------------------------------
+Everett, 2026-11-04: "we can have this knowledge in the sound package, but it
+can't be making those decisions. It's up to the being to make those
+decisions, not something that just creates a voice."
+
+The listening loop stopped itself when the sound service raised
+EscalationNotDelivered (a help request no human was confirmed to receive):
+it set `fatal_error`, told an optional `fatal_callback`, and dropped
+`is_listening`, and the classifier let that one exception through. The sound
+service no longer pages anyone and that exception no longer exists, so the
+stop path, `fatal_error`, `fatal_callback` and the status key `fatal_error`
+are gone. A help reading reaches the sound pattern callbacks like every
+other, as a classification whose category is "danger", and the being
+decides. The loop keeps listening.
 """
 
 from __future__ import annotations
@@ -92,7 +108,6 @@ import uuid
 from typing import Any, Callable, Dict, List, Optional, Protocol, runtime_checkable
 
 from .recognition_result import RecognitionResult, RecognitionStatus
-from .sound_recognition_service import EscalationNotDelivered
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
@@ -172,15 +187,6 @@ class EnhancedSpeechRecognition:
 
         self._thread: Optional[threading.Thread] = None
         self._audio_cache_dir: Optional[str] = None  # created lazily, if ever
-
-        #: Set when the listening loop stopped because a help request could
-        #: not reach a human. 2026-10-11, measured: the loop's `except
-        #: Exception` caught the re-raised EscalationNotDelivered, logged it,
-        #: and kept polling — the request was consumed and lost. Now the loop
-        #: stops, this is set, `get_recognition_status()` reports it, and the
-        #: optional `fatal_callback` is told.
-        self.fatal_error: Optional[BaseException] = None
-        self.fatal_callback: Optional[Callable[[BaseException], None]] = None
 
         if recognizer is None:
             self.logger.warning(
@@ -376,7 +382,6 @@ class EnhancedSpeechRecognition:
                 )
                 return False
 
-        self.fatal_error = None
         self.is_listening = True
         self._thread = threading.Thread(
             target=self._listening_loop, name="speech_listener", daemon=True
@@ -448,26 +453,6 @@ class EnhancedSpeechRecognition:
                     if detection is not None:
                         self._process_sound_pattern(detection)
                 consecutive_errors = 0
-            except EscalationNotDelivered as exc:
-                # A help request that reached nobody. This is not an error to
-                # ride through; the loop stops so the state is visibly dead
-                # and the failure is reported, not absorbed.
-                self.fatal_error = exc
-                self.logger.critical(
-                    "LISTENING STOPPED: a help request could not be delivered "
-                    "to a human. %s", exc, exc_info=True,
-                )
-                if self.fatal_callback is not None:
-                    try:
-                        self.fatal_callback(exc)
-                    except Exception as cb_exc:
-                        self.logger.error(
-                            "fatal_callback raised: %s", cb_exc, exc_info=True
-                        )
-                # Last, so anyone watching is_listening sees the callback
-                # already delivered when the flag drops.
-                self.is_listening = False
-                break
             except Exception as exc:
                 consecutive_errors += 1
                 # Log the first few in full, then stop flooding. A traceback
@@ -499,10 +484,9 @@ class EnhancedSpeechRecognition:
             try:
                 classification = self.sound_service.classify_sound_intent(detection)
             except Exception as exc:
-                # Escalation failures propagate — a help request that could not
-                # be delivered must not be swallowed by a coordinator.
-                if type(exc).__name__ == "EscalationNotDelivered":
-                    raise
+                # Logged with its traceback, and the raw detection still
+                # reaches the callbacks: a failed classification does not
+                # cost the being the reading.
                 self.logger.error(
                     "Error classifying sound intent: %s", exc, exc_info=True
                 )
@@ -621,7 +605,6 @@ class EnhancedSpeechRecognition:
                 "has_recognizer": self.recognizer is not None,
                 "has_sound_service": self.sound_service is not None,
                 "generates_placeholder_text": False,
-                "fatal_error": None if self.fatal_error is None else repr(self.fatal_error),
                 "context": {
                     "recent_phrases_count": len(
                         self.recognition_context["recent_phrases"]

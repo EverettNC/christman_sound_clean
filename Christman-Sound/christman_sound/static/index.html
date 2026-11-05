@@ -301,14 +301,24 @@
           <h2>Greenwood Cochlea, SpeakerSeat &amp; Nonverbal Grunt Physics</h2>
           <label>Frequency (Hz)</label>
           <input id="cortiHz" type="number" value="265" />
+          <label>Speaker lock, measured (optional; sent only when Measured F0 is filled in)</label>
+          <div class="slider-grid">
+            <div><label>Measured F0 Hz</label><input id="lockF0" type="number" placeholder="from a measurement" /></div>
+            <div><label>Peak RMS</label><input id="lockRms" type="number" step="0.001" placeholder="from a measurement" /></div>
+            <div><label>F1 Hz</label><input id="lockF1" type="number" placeholder="from a measurement" /></div>
+            <div><label>F2 Hz</label><input id="lockF2" type="number" placeholder="from a measurement" /></div>
+          </div>
           <button class="action" onclick="runCortiCanal()">Evaluate Cochlea &amp; Grunt Physics</button>
           <pre id="cortiOut"></pre>
         </div>
         <div class="card">
-          <h2>Hearing, Structural Affect &amp; Harm Frame</h2>
+          <h2>Hearing, Structural Affect &amp; Harm Frame — Readings for the Being</h2>
           <label>Utterance Text</label>
           <input id="hearText" value="I'm in pain and I need my medicine" />
-          <button class="action" onclick="runHear()">Run Hearing Gate</button>
+          <label>Question the being asked, in its own words (optional; echoed as answering)</label>
+          <input id="hearAnswering" value="" placeholder="e.g. Are you safe right now?" />
+          <button class="action" onclick="runHear()">Read the Words</button>
+          <pre id="hearSummary"></pre>
           <pre id="hearOut"></pre>
         </div>
       </div>
@@ -531,31 +541,81 @@
       document.getElementById('wavOut').textContent = JSON.stringify(d, null, 2);
     }
 
+    // A number the operator typed into a box, or null when the box is empty.
+    function enteredNumber(id) {
+      const raw = document.getElementById(id).value.trim();
+      if (raw === '') return null;
+      const n = Number(raw);
+      return Number.isFinite(n) ? n : null;
+    }
+
     async function runCortiCanal() {
-      const hz = Number(document.getElementById('cortiHz').value) || 265;
-      const d = await postJson('/api/corti-canal', {
-        hz,
-        observe_lock: {f0: hz, peak_rms: 0.14, f1: 520, f2: 1480},
-        record_canal_frame: {t_ms: Date.now(), rms: 0.14, zcr: 0.06, f0: hz, f1: 520, f2: 1480}
-      });
+      const hz = enteredNumber('cortiHz');
+      if (hz === null) {
+        document.getElementById('cortiOut').textContent = 'Enter a frequency in Hz.';
+        return;
+      }
+      const body = {hz};
+      // Only what the operator entered is sent. No lock is sent without a
+      // measured F0; empty boxes stay out of the request.
+      const f0 = enteredNumber('lockF0');
+      if (f0 !== null) {
+        const lock = {f0};
+        const rms = enteredNumber('lockRms');
+        const f1 = enteredNumber('lockF1');
+        const f2 = enteredNumber('lockF2');
+        if (rms !== null) lock.peak_rms = rms;
+        if (f1 !== null) lock.f1 = f1;
+        if (f2 !== null) lock.f2 = f2;
+        body.observe_lock = lock;
+      }
+      const d = await postJson('/api/corti-canal', body);
       document.getElementById('cortiOut').textContent = JSON.stringify(d, null, 2);
     }
 
+    // The readings the being decides on, shown first; the full response below.
+    function hearSummary(d) {
+      if (d.status !== 'ok') return 'Not read: ' + (d.reason || d.error || JSON.stringify(d));
+      const lines = [];
+      lines.push('Human reached: ' + (d.human_reached ? 'yes' : 'no') +
+                 (d.human_reached_reason ? ' (' + d.human_reached_reason + ')' : ''));
+      const c = d.crisis_reading;
+      if (!c) {
+        lines.push('Crisis reading: none (no words and no nonverbal signal to read)');
+      } else {
+        lines.push('Crisis reading: ' + c.status + ' / ' + c.reason);
+        if (c.flags && c.flags.length) lines.push('  flags: ' + c.flags.join(', '));
+        if (c.flagged_terms && c.flagged_terms.length) lines.push('  flagged terms: ' + c.flagged_terms.join(', '));
+        if (c.danger) lines.push('  danger: yes' + (c.danger_sentences && c.danger_sentences.length
+          ? ' — ' + c.danger_sentences.map(s => JSON.stringify(s)).join(' ') : ''));
+        if (c.unclear) lines.push('  unclear: ' + c.unclear + (c.about ? ' (about ' + JSON.stringify(c.about) + ')' : ''));
+        else if (c.about) lines.push('  about: ' + JSON.stringify(c.about));
+        if (c.asked_aloud) lines.push('  asked aloud: ' + JSON.stringify(c.asked_aloud));
+        if (c.asked_for_help) lines.push('  asked for help: ' + JSON.stringify(c.asked_for_help));
+        if (c.short_answer) lines.push('  short answer: ' + c.short_answer);
+        if (c.answering) lines.push('  answering: ' + JSON.stringify(c.answering));
+        if (c.between_beings) lines.push('  between beings: yes');
+        if (c.degraded) lines.push('  degraded: ' + (c.degraded_reason || 'yes'));
+      }
+      lines.push('Measured stress rise: ' + (d.measured_stress_rise === null || d.measured_stress_rise === undefined
+        ? 'not measured' + (d.stress_error ? ' (' + d.stress_error + ')' : '')
+        : d.measured_stress_rise));
+      return lines.join('\n');
+    }
+
     async function runHear() {
-      const d = await postJson('/api/hear', {
-        text: document.getElementById('hearText').value
-      });
+      const body = {text: document.getElementById('hearText').value};
+      const answering = document.getElementById('hearAnswering').value;
+      if (answering.trim() !== '') body.answering = answering;
+      const d = await postJson('/api/hear', body);
+      document.getElementById('hearSummary').textContent = hearSummary(d);
       document.getElementById('hearOut').textContent = JSON.stringify(d, null, 2);
     }
 
     async function runLucent() {
+      // No body frames are sent: none were measured on this page.
       const d = await postJson('/api/lucent', {
-        preset: document.getElementById('lucentPreset').value,
-        body_frames: [
-          {t_ms: 0, breath_freq: 0.25, eye_jitter: 0.02, stare_lock: 0.1},
-          {t_ms: 1000, breath_freq: 0.28, eye_jitter: 0.03, stare_lock: 0.2},
-          {t_ms: 2000, breath_freq: 0.31, eye_jitter: 0.04, stare_lock: 0.3}
-        ]
+        preset: document.getElementById('lucentPreset').value
       });
       document.getElementById('lucentOut').textContent = JSON.stringify(d, null, 2);
     }

@@ -22,9 +22,10 @@ What this is:
     exactly what the Corti client's postAcousticKey sends after its router
     measured grunt_distress / grunt_acknowledge / grunt_frustration /
     vocal_stimming. Point the client's acoustic URL setting here.
-    The key is looked up (acoustic_live); a distress key goes to the crisis
-    gate and a human. 2026-10-29: before this, the key had no receiver in
-    this package at all.
+    The key is looked up (acoustic_live) and heard; a distress key is read
+    by the crisis gate, and the turn carries that reading to the being,
+    which decides what to do with it. 2026-10-29: before this, the key had
+    no receiver in this package at all.
 
 What this is not:
   - Not a SoundDetectorBackend. The ear measures; nothing here classifies.
@@ -42,6 +43,22 @@ Failure behaviour (Rule 6):
 
 Nothing is constructed at import. Build a receiver with `create_receiver`
 or run `python3 -m christman_voice_sdk.audio.corti_receiver`.
+
+WHAT CHANGED AND WHY (2026-11-04) — THE BEING DECIDES
+-----------------------------------------------------
+Everett, 2026-11-04: "we can have this knowledge in the sound package, but it
+can't be making those decisions. It's up to the being to make those
+decisions, not something that just creates a voice."
+
+Before this, a distress key made Hearing try to page a human. When no human
+was confirmed, CrisisNotDelivered left take_key before the turn was rung,
+before on_turn ran and before the key was counted, and the device got a
+503: the being never received the reading and /health showed nothing.
+Under the silent alarm the reply was cut to {"received": true}, so the
+reply's shape itself changed with the reading. Now every key is counted,
+rung and handed to on_turn, and every key gets the same reply, the full
+turn. Nothing here pages anyone; the reading is in the turn and the being
+decides. The CrisisNotDelivered catch, the 503 and the cut reply are gone.
 """
 
 from __future__ import annotations
@@ -55,7 +72,6 @@ from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
-from .fusion_engine import CrisisNotDelivered
 from .hearing import Hearing, HearingTurn
 
 logger = logging.getLogger(__name__)
@@ -136,7 +152,12 @@ class CortiReceiver:
         return turn
 
     def take_key(self, key: str) -> HearingTurn:
-        """One acoustic key in, one turn out. A distress key pages a human."""
+        """
+        One acoustic key in, one turn out. Every key is counted, rung and
+        handed to on_turn, whatever it was read as. A distress key's gate
+        reading is in the turn; nothing here pages anyone, and the being
+        decides what the reading calls for.
+        """
         turn = self.hearing.hear(acoustic_key=key)
         with self.state.lock:
             self.state.keys_received += 1
@@ -252,23 +273,10 @@ def _make_handler(receiver: CortiReceiver) -> type:
                 if not isinstance(key, str) or not key.strip() or len(key) > MAX_KEY_CHARS:
                     self._reject(400, 'body must be {"key": "<acoustic key>"}')
                     return
-                try:
-                    turn = receiver.take_key(key)
-                except CrisisNotDelivered as err:
-                    # Distress was read and no human was reached. That is a
-                    # 503 with the reason, never a 200.
-                    logger.error("acoustic key %r: crisis not delivered: %s", key, err)
-                    self._send_json(503, {"error": "crisis_not_delivered",
-                                          "detail": str(err), "key": key})
-                    return
-                if turn.decision is not None and turn.decision.safety.silent_alarm:
-                    # THE SILENT ALARM (Everett, 2026-10-29, ruling I): the
-                    # danger went to a human. The answer to the device that
-                    # sent the key says nothing about it, so nothing on that
-                    # device announces it. The page itself is in the turn the
-                    # receiver keeps (ring, on_turn), not in this reply.
-                    self._send_json(200, {"received": True})
-                    return
+                # One reply shape for every key: the full turn, whatever it
+                # was read as. What the device that sent the key shows is the
+                # being's decision, not this receiver's (2026-11-04).
+                turn = receiver.take_key(key)
                 self._send_json(200, turn.to_dict())
                 return
 

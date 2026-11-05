@@ -4,12 +4,15 @@ No license — express or implied — is granted without prior written permissio
 
 — Grounder.
 
-Short, repeatable, safe grounding techniques the voice surface can offer when
-emotional metrics indicate the client is escalating or dissociating.
+A library of short, repeatable grounding techniques. The being calls a
+technique by name, or looks one up with `get_grounding_for_state`; nothing in
+the package chooses or delivers one on the being's behalf.
 
 This module is *content-only*. It returns scripted prompts; it does NOT
-auto-deliver them and does NOT constitute clinical care. Callers must respect
-the `allow_silence` and `no_rush` flags returned in each script.
+auto-deliver them and does NOT constitute clinical care. Each script carries
+`guidance`: a description of how the script is written (its pace, whether it
+leaves room for silence, whether it hurries the client). How to deliver it is
+the being's decision.
 
 WHAT CHANGED AND WHY
 --------------------
@@ -55,6 +58,31 @@ WHAT CHANGED AND WHY
 4. `format_script_for_voice` joined every line including the empty separators,
    producing runs of blank lines in what gets spoken. Separators are now
    dropped for the voice path and preserved for display.
+
+WHAT CHANGED AND WHY (2026-11-04)
+---------------------------------
+
+5. THE LIBRARY DESCRIBES; IT DOES NOT ORDER. Everett's ruling, 2026-11-04:
+   "we can have this knowledge in the sound package, but it can't be making
+   those decisions. It's up to the being to make those decisions, not
+   something that just creates a voice."
+
+   - `breathing_first` carried orders: "priority": "critical",
+     "no_additional_questions": True, "repetitions": "until_stable". They
+     are now descriptions of the script: it asks no question
+     ("asks_questions": False), it is written to be said again
+     ("repeatable": True), and it asks nothing but breathing
+     ("cognitive_load": "none"). When to use it, and how many times, is the
+     being's.
+   - `companion_grounding_response` named a "next_action" (maintain,
+     gentle_grounding, comfort_object ...) for the being to take next. Gone.
+   - The docstring above said "Callers must respect" the guidance flags. It
+     now says what they are: a description of the script.
+   - `get_grounding_for_state` stays as a lookup the being may call.
+   - `memory_anchor` turned an unknown memory type into the "calm" prompt
+     without a word. It raises ValueError naming the type now.
+   - `breath_pacing_guide` labelled every pattern's pace "slow", box
+     breathing included. The label is the pace actually used now.
 """
 
 from __future__ import annotations
@@ -76,14 +104,15 @@ except ImportError:
     _BREATHING_RISE = 0.10
     _THRESHOLD_SOURCE = "local fallback (emotion_quantifier unavailable)"
 
-#: Stress RISE above baseline at which breathing is offered before anything
-#: else. Imported, not hardcoded — see note 1 in the module docstring.
+#: Stress RISE above baseline at or past which `get_grounding_for_state` looks
+#: up `breathing_first`. Imported, not hardcoded — see note 1 in the module
+#: docstring. A lookup threshold; the being decides what is offered.
 BREATHING_FIRST_THRESHOLD = _BREATHING_RISE
 
-#: Thresholds for choosing a technique: two grounding-score cutoffs and one
-#: stress-rise cutoff. Fixed thresholds, chosen not derived (reason: carried
-#: over from the original grounder; no client data behind them yet). Held
-#: until client data replaces them.
+#: Thresholds the `get_grounding_for_state` lookup reads: two grounding-score
+#: cutoffs and one stress-rise cutoff. Fixed thresholds, chosen not derived
+#: (reason: carried over from the original grounder; no client data behind
+#: them yet). Held until client data replaces them.
 FEET_FIRST_GROUNDING = 0.30
 COMPANION_GROUNDING = 0.50
 SENSORY_STRESS_RISE = 0.04
@@ -120,10 +149,13 @@ class Grounder:
     # -- Breathing ------------------------------------------------------------
 
     def breathing_first(self) -> Dict[str, Any]:
-        """Breathing before any additional cognitive load."""
+        """
+        A breathing script that asks nothing else of the client: no question,
+        no choice, nothing to think through. `guidance` describes the script;
+        when to use it, and how many times, is the being's (2026-11-04).
+        """
         return {
             "type": "breathing",
-            "priority": "critical",
             "script": [
                 "Let's slow things down together.",
                 "",
@@ -133,8 +165,9 @@ class Grounder:
             ],
             "guidance": {
                 "pace": "slow",
-                "repetitions": "until_stable",
-                "no_additional_questions": True,
+                "cognitive_load": "none",     # breathing only
+                "asks_questions": False,      # the script asks the client nothing
+                "repeatable": True,           # written to be said again
                 "allow_silence": True,
                 "no_rush": True,
             },
@@ -156,6 +189,7 @@ class Grounder:
         requested = pace
         pattern = patterns.get(pace)
         fell_back = pattern is None
+        used = "slow" if fell_back else pace
         if fell_back:
             logger.error("Unknown pace %r; using 'slow'.", requested)
             pattern = patterns["slow"]
@@ -174,7 +208,9 @@ class Grounder:
                 "",
                 "Again, in your own time.",
             ],
-            "guidance": {"pace": "slow", "allow_silence": True, "no_rush": True},
+            # The pace actually used. This said "slow" for every pattern,
+            # box breathing included (2026-11-04).
+            "guidance": {"pace": used, "allow_silence": True, "no_rush": True},
         }
 
     # -- Sensory --------------------------------------------------------------
@@ -223,7 +259,8 @@ class Grounder:
         """
         Optional externalization. Returns None when no companion is configured.
 
-        The caller MUST NOT invent a companion the client has not consented to.
+        The package invents no companion: the only name used is the one given
+        to __init__, which is to be one the client has consented to.
         """
         if not self.companion_name:
             return None
@@ -243,7 +280,9 @@ class Grounder:
         self, state: CompanionState
     ) -> Optional[Dict[str, Any]]:
         """
-        Continue the companion externalization.
+        Continue the companion externalization: the script for the state the
+        client chose. What the being does next is the being's; no next action
+        is named here (2026-11-04).
 
         Raises:
             KeyError: for a state with no script. The predecessor defaulted to
@@ -260,35 +299,29 @@ class Grounder:
             CompanionState.CALM: {
                 "script": [f"{name} sounds steady right now.",
                            "Let's keep that calm going."],
-                "next_action": "maintain",
             },
             CompanionState.WORRIED: {
                 "script": [f"Okay. {name} is worried.", "Let's help settle.", "",
                            f"If {name} could find one safe thing right now,",
                            "what would it be?"],
-                "next_action": "gentle_grounding",
             },
             CompanionState.PACING: {
                 "script": [f"Okay. If {name} is pacing, let's slow things down together.",
                            "",
                            f"Can you name one thing you can see that {name} would notice first?"],
-                "next_action": "sensory_grounding",
             },
             CompanionState.FRIGHTENED: {
                 "script": [f"{name} sounds really scared right now.",
                            "Let's help find something solid.", "",
                            f"What would {name} want to be close to right now to feel safe?"],
-                "next_action": "comfort_object",
             },
             CompanionState.ALERT: {
                 "script": [f"{name} is on alert.", "Let's check what's being picked up on.",
                            "", f"What does {name} hear or sense right now?"],
-                "next_action": "environment_scan",
             },
             CompanionState.TIRED: {
                 "script": [f"{name} sounds tired.", "Maybe it's time to rest.", "",
                            "Is there a comfortable spot nearby?"],
-                "next_action": "rest_guidance",
             },
         }
         response = responses.get(state)
@@ -307,6 +340,12 @@ class Grounder:
 
         Returns a generic recall prompt. It does NOT fabricate or supply a
         memory — connect to the memory bridge when that wiring exists.
+
+        Raises:
+            ValueError: for a memory type with no prompt, naming the type. This
+                returned the "calm" prompt for any unknown type, so a typo got
+                a different exercise than the one asked for, silently
+                (2026-11-04).
         """
         prompts = {
             "calm": "Think of a time when you felt calm. Where were you?",
@@ -314,13 +353,18 @@ class Grounder:
             "happy": "Picture a moment that made you smile. What do you remember?",
             "connected": "Think of someone who makes you feel less alone. Picture them.",
         }
+        if memory_type not in prompts:
+            raise ValueError(
+                f"No memory-anchor prompt for type {memory_type!r}. "
+                f"Known: {sorted(prompts)}."
+            )
         return {
             "type": "memory_anchored",
             "memory_backed": False,
             "script": [
                 "Let's find a good memory to hold onto.",
                 "",
-                prompts.get(memory_type, prompts["calm"]),
+                prompts[memory_type],
                 "",
                 "Take your time. Just notice what comes up.",
             ],
@@ -368,7 +412,11 @@ class Grounder:
         companion_mode: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """
-        Pick a technique from the client's current metrics.
+        Look up the technique this table pairs with the given levels.
+
+        A lookup the being may call. Nothing in the package calls it on the
+        being's behalf, and what it returns is a technique the being may use
+        or not (2026-11-04).
 
         Args:
             stress_level: RISE above baseline, from

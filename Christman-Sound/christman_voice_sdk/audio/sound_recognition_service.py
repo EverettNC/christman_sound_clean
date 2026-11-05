@@ -46,6 +46,23 @@ No detector, no detection. When no backend is attached, `detect_sound_pattern`
 returns None forever and says so once at startup. It does not degrade into
 simulation, because a fabricated signal is worse than no signal — no signal is
 visibly absent, and a fabricated one is invisibly wrong.
+
+WHAT CHANGED AND WHY (2026-11-04) — THE BEING DECIDES
+-----------------------------------------------------
+Everett, 2026-11-04: "we can have this knowledge in the sound package, but it
+can't be making those decisions. It's up to the being to make those
+decisions, not something that just creates a voice."
+
+Before this, the `help` intent was an ESCALATING_INTENT: classify_sound_intent
+handed it to an `escalation_callback` that had to report a human reached, and
+raised EscalationNotDelivered when none was configured or it did not return
+True. The service was deciding who gets paged. Gone: escalation_callback,
+ESCALATING_INTENTS, _escalate, EscalationNotDelivered, and the
+requires_escalation / escalated fields. Every intent now carries a category
+label (INTENT_CATEGORY: `help` is "danger", the rest "other"), and the being
+decides what a category calls for. Recognized speech also keeps the client's
+transcript and the words that matched (`transcript`, `matched_tokens` in the
+detection's metadata), so the being can read why a pattern was given.
 """
 
 from __future__ import annotations
@@ -54,7 +71,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Protocol, runtime_checkable
+from typing import Any, Dict, List, Optional, Protocol, Tuple, runtime_checkable
 
 from .recognition_result import RecognitionResult
 
@@ -88,8 +105,19 @@ INTENT_MAP: Dict[str, str] = {
     "speech": "communicate",
 }
 
-#: Intents that must reach a human. Not advisory.
-ESCALATING_INTENTS = frozenset({"help"})
+#: Intent -> category label: "danger" or "other". A label the being reads,
+#: never an action taken here. `help` is "danger" because the nonverbal map
+#: files the same intent there (nonverbal_engine's danger intents include
+#: "help"); a word list written by people, not a measurement. Every intent in
+#: INTENT_MAP has a category; a gap raises, it is never defaulted.
+INTENT_CATEGORY: Dict[str, str] = {
+    "thinking": "other",
+    "select": "other",
+    "help": "danger",
+    "unsure": "other",
+    "excited": "other",
+    "communicate": "other",
+}
 
 
 # -----------------------------------------------------------------------------
@@ -102,8 +130,8 @@ class SoundDetectorBackend(Protocol):
     """
     What a real sound-pattern detector must provide.
 
-    Implementations analyze audio. This service does not — it coordinates,
-    classifies intent, and escalates. Keeping the two apart is what makes it
+    Implementations analyze audio. This service does not — it coordinates
+    and classifies intent. Keeping the two apart is what makes it
     impossible for the coordination layer to quietly become the detector, which
     is precisely what happened before.
     """
@@ -163,35 +191,26 @@ class IntentClassification:
     through unchanged. There is no separate "intent confidence", because no
     model measures one — INTENT_MAP is a fixed table written by people. Putting
     a number on it would be inventing a measurement.
+
+    `category` is the intent's label from INTENT_CATEGORY ("danger" or
+    "other"). It is a reading for the being; nothing here acts on it.
     """
 
     intent: str
     pattern: str
     detection_confidence: Optional[float]
-    requires_escalation: bool
-    escalated: bool = False
+    category: str
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "intent": self.intent,
             "pattern": self.pattern,
+            "category": self.category,
             "detection_confidence": self.detection_confidence,
             "detection_confidence_known": self.detection_confidence is not None,
-            "requires_escalation": self.requires_escalation,
-            "escalated": self.escalated,
             "metadata": dict(self.metadata),
         }
-
-
-class EscalationNotDelivered(RuntimeError):
-    """
-    Raised when an escalating intent could not be handed to a human.
-
-    Loud by design. A help request that reaches nobody is the failure this
-    whole module is built around, so it terminates the call rather than being
-    logged and stepped over.
-    """
 
 
 # -----------------------------------------------------------------------------
@@ -217,25 +236,21 @@ class SoundRecognitionService:
         self,
         backend: Optional[SoundDetectorBackend] = None,
         speech_engine: Optional[Any] = None,
-        escalation_callback: Optional[Callable[[IntentClassification], bool]] = None,
         detection_ttl_seconds: float = 2.0,
     ) -> None:
         """
         Args:
             backend: Real detector. Without it, nothing is ever detected.
             speech_engine: Optional recognizer. When present, recognized speech
-                is folded in as a `speech` pattern.
-            escalation_callback: Receives escalating intents (currently `help`).
-                MUST return True only when a human has actually been notified.
-                Returning True without delivering is the one failure this design
-                cannot detect — see the module note in the delivery report.
+                is folded in as a pattern read from its words (see
+                _pattern_from_text), with the transcript kept.
             detection_ttl_seconds: How long a detection stays fresh. Older ones
-                are dropped rather than replayed as current.
+                are dropped rather than replayed as current, except distress
+                (see _take_pending).
         """
         self._lock = threading.Lock()
         self.backend = backend
         self.speech_engine = speech_engine
-        self.escalation_callback = escalation_callback
         self.detection_ttl_seconds = float(detection_ttl_seconds)
 
         #: Queue, not a slot. 2026-10-11: a single `_pending` slot meant a
@@ -266,15 +281,6 @@ class SoundRecognitionService:
                 "SoundRecognitionService ready. backend=%s speech_engine=%s",
                 type(backend).__name__ if backend else None,
                 type(speech_engine).__name__ if speech_engine else None,
-            )
-
-        if escalation_callback is None:
-            logger.warning(
-                "No escalation_callback configured. Intents in %s will be "
-                "detected but CANNOT be delivered to a human, and "
-                "detect_sound_pattern will raise EscalationNotDelivered rather "
-                "than silently dropping them.",
-                sorted(ESCALATING_INTENTS),
             )
 
     # -- Detection ------------------------------------------------------------
@@ -398,7 +404,9 @@ class SoundRecognitionService:
         self, detection: Optional[SoundDetection]
     ) -> Optional[IntentClassification]:
         """
-        Map a detection to an intent, escalating when required.
+        Map a detection to an intent and its category label. Reads only:
+        nothing is sent anywhere, and nothing here acts on the category. The
+        being decides what a "danger" intent calls for.
 
         No randomness anywhere. The detection's measured confidence is carried
         through unchanged; nothing is added, jittered, or defaulted.
@@ -410,9 +418,8 @@ class SoundRecognitionService:
             IntentClassification, or None when given None.
 
         Raises:
-            EscalationNotDelivered: when the intent requires a human and one
-                could not be reached. Raised rather than logged, because a help
-                request that goes nowhere must stop the pipeline.
+            ValueError: when KNOWN_PATTERNS, INTENT_MAP and INTENT_CATEGORY
+                have drifted apart. A gap is never defaulted.
         """
         if detection is None:
             return None
@@ -426,72 +433,28 @@ class SoundRecognitionService:
                 f"Pattern {detection.pattern!r} is in KNOWN_PATTERNS but absent "
                 "from INTENT_MAP. The two have drifted apart."
             )
+        category = INTENT_CATEGORY.get(intent)
+        if category is None:
+            raise ValueError(
+                f"Intent {intent!r} is in INTENT_MAP but absent from "
+                "INTENT_CATEGORY. The two have drifted apart."
+            )
 
-        requires_escalation = intent in ESCALATING_INTENTS
         classification = IntentClassification(
             intent=intent,
             pattern=detection.pattern,
             detection_confidence=detection.confidence,
-            requires_escalation=requires_escalation,
-            escalated=False,
+            category=category,
             metadata={
                 "source": detection.source,
                 "timestamp": detection.timestamp,
                 **detection.metadata,
             },
         )
-
-        if not requires_escalation:
-            logger.debug(
-                "Classified %s as %s.", detection.pattern, intent
-            )
-            return classification
-
-        return self._escalate(classification)
-
-    def _escalate(self, classification: IntentClassification) -> IntentClassification:
-        """
-        Hand an escalating intent to a human. Raises if that cannot be done.
-        """
-        logger.warning(
-            "ESCALATING INTENT: %s from pattern %s (confidence: %s)",
-            classification.intent,
-            classification.pattern,
-            "unmeasured" if classification.detection_confidence is None
-            else f"{classification.detection_confidence:.2f}",
+        logger.debug(
+            "Classified %s as %s (category %s).", detection.pattern, intent, category
         )
-
-        if self.escalation_callback is None:
-            raise EscalationNotDelivered(
-                f"Intent {classification.intent!r} requires a human and no "
-                "escalation_callback is configured. The detection is real and "
-                "there is nowhere to send it."
-            )
-
-        try:
-            delivered = self.escalation_callback(classification)
-        except Exception as exc:
-            raise EscalationNotDelivered(
-                f"escalation_callback raised while delivering "
-                f"{classification.intent!r}: {exc}"
-            ) from exc
-
-        if delivered is not True:
-            raise EscalationNotDelivered(
-                f"escalation_callback returned {delivered!r} for "
-                f"{classification.intent!r}. Only True is accepted as proof a "
-                "human was reached."
-            )
-
-        logger.info("Escalation delivered for intent %s.", classification.intent)
-        return IntentClassification(
-            intent=classification.intent,
-            pattern=classification.pattern,
-            detection_confidence=classification.detection_confidence,
-            requires_escalation=True,
-            escalated=True,
-            metadata=classification.metadata,
-        )
+        return classification
 
     # -- Lifecycle ------------------------------------------------------------
 
@@ -576,22 +539,32 @@ class SoundRecognitionService:
             logger.debug("Ignoring non-speech result: %s", result.status.value)
             return
 
-        pattern = self._pattern_from_text(result.text)
+        pattern, matched = self._pattern_from_text(result.text)
 
         detection = SoundDetection(
             pattern=pattern,
             confidence=result.confidence,   # measured or None, carried as-is
             timestamp=time.time(),
             source=f"speech:{result.source}",
-            metadata={"matched_from_text": True},
+            # The client's words and the words that set the pattern, so the
+            # being reads why it was given (2026-11-04).
+            metadata={
+                "matched_from_text": True,
+                "transcript": result.text,
+                "matched_tokens": matched,
+            },
         )
 
         self._queue_pending(detection)
 
     @staticmethod
-    def _pattern_from_text(text: str) -> str:
+    def _pattern_from_text(text: str) -> Tuple[str, List[str]]:
         """
         Map recognized words to a sound pattern.
+
+        Returns (pattern, matched_tokens): the pattern, and the client's words
+        that set it, in the order said, each once. matched_tokens is empty
+        for plain `speech`, which no word list set.
 
         Two defects in the original are fixed here.
 
@@ -614,28 +587,36 @@ class SoundRecognitionService:
         - DISTRESS is tuned to avoid false negatives. A missed help request from
           someone who cannot repeat it is the worst outcome available here, so
           "need" stays in the set even though it will catch "I need a blanket."
-          That over-escalates, and escalation now requires a human to
-          acknowledge it, so the cost is a person's attention rather than a
-          person's safety.
+          That labels a blanket request distress. The label is a reading, not
+          an action: the detection carries the transcript and the word that
+          matched, and the being reads them and decides what the words call
+          for (2026-11-04).
 
         That asymmetry is a judgment about harm, not a measurement. It is
         written here so it can be argued with rather than discovered later.
         """
-        tokens = {
-            token.strip(".,!?;:\"'").lower()
-            for token in text.split()
-        }
+        said: List[str] = []
+        for token in text.split():
+            word = token.strip(".,!?;:\"'").lower()
+            if word and word not in said:
+                said.append(word)
 
-        # Recall-weighted: better to escalate a blanket request than to miss a
-        # real one.
-        if tokens & {"help", "need", "urgent", "emergency", "hurt", "pain", "stop"}:
-            return "distress"
+        def matching(words: frozenset) -> List[str]:
+            return [w for w in said if w in words]
+
+        # Recall-weighted: better to label a blanket request distress, with
+        # the word that matched, than to miss a real one.
+        found = matching(frozenset({"help", "need", "urgent", "emergency", "hurt", "pain", "stop"}))
+        if found:
+            return "distress", found
         # Precision-weighted: unambiguous action verbs only. No demonstratives.
-        if tokens & {"select", "click", "choose", "pick"}:
-            return "click"
-        if tokens & {"hmm", "hm", "um", "uh", "thinking"}:
-            return "hum"
-        return "speech"
+        found = matching(frozenset({"select", "click", "choose", "pick"}))
+        if found:
+            return "click", found
+        found = matching(frozenset({"hmm", "hm", "um", "uh", "thinking"}))
+        if found:
+            return "hum", found
+        return "speech", []
 
     # -- Status ---------------------------------------------------------------
 
@@ -653,7 +634,6 @@ class SoundRecognitionService:
             "is_listening": self._is_listening,
             "has_backend": self.backend is not None,
             "has_speech_engine": self.speech_engine is not None,
-            "has_escalation_callback": self.escalation_callback is not None,
             "has_pending_detection": pending_count > 0,
             "pending_detections": pending_count,
             "pending_distress": pending_distress,
@@ -669,10 +649,9 @@ __all__ = [
     "SoundDetectorBackend",
     "SoundDetection",
     "IntentClassification",
-    "EscalationNotDelivered",
     "KNOWN_PATTERNS",
     "INTENT_MAP",
-    "ESCALATING_INTENTS",
+    "INTENT_CATEGORY",
 ]
 
 # ==============================================================================

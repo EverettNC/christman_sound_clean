@@ -76,6 +76,21 @@ WHAT CHANGED AND WHY
    ones in voice_measure.py (this file's copies are gone; same arithmetic).
    A caller of this class gets Layer 4 hypotheses that see YIN's pitch, not
    Praat's.
+
+WHAT CHANGED AND WHY (2026-11-04)
+---------------------------------
+
+8. NO RESPONSE MODE. Everett's ruling, 2026-11-04: "we can have this
+   knowledge in the sound package, but it can't be making those decisions.
+   It's up to the being to make those decisions, not something that just
+   creates a voice."
+
+   `ToneScoreCalculator.get_response_mode` turned the composite into a
+   posture with adjustments for the being (hold-space: slower, deeper,
+   softer; gentle-lift: warmer, shorter sentences, micro-affirmations). That
+   is a decision about how the being responds. It is gone, and so is the
+   `response_mode` key in `layer_5_tonescore`. Layer 5 reports the score,
+   its inputs and its chosen weights; the being decides.
 """
 
 from __future__ import annotations
@@ -254,24 +269,6 @@ class ToneScoreCalculator:
         return round(min(100.0, max(0.0,
             w["arousal"] * arousal + w["valence"] * valence
             + w["intensity"] * intensity)), 2)
-
-    @staticmethod
-    def get_response_mode(tone_score: Optional[float]) -> Dict[str, Any]:
-        if tone_score is None:
-            return {"mode": "unknown",
-                    "description": "Tone was not measured. Do not infer a state.",
-                    # Ruling M: no confirm-before-acting.
-                    "assert_nothing": True}
-        if tone_score > 75:
-            return {"mode": "hold-space", "description": "High composite",
-                    "adjustments": {"cadence": "slower", "pitch": "deeper",
-                                    "pauses": "longer", "volume": "softer"}}
-        if tone_score < 35:
-            return {"mode": "gentle-lift", "description": "Low composite",
-                    "adjustments": {"timbre": "warmer", "affirmations": "micro",
-                                    "sentences": "shorter", "energy": "gentle_boost"}}
-        return {"mode": "standard", "description": "Mid composite",
-                "adjustments": {"monitoring": "continuous", "adaptive": True}}
 
 
 class PraatToneAnalyzer:
@@ -491,7 +488,6 @@ class PraatToneAnalyzer:
                 "arousal": arousal, "valence": valence, "intensity": intensity,
                 "composite_weights_are_chosen": True,
                 "composite_weights": ToneScoreCalculator.WEIGHTS,
-                "response_mode": ToneScoreCalculator.get_response_mode(tone_score),
             },
             "meta": {"audio_path": audio_path, "analysis_version": "2.0",
                      "pitch_tracker": "christman_yin (christman_sound.dsp)",

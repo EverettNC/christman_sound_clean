@@ -14,7 +14,7 @@ without stubs or outside engines:
   - Codec War bare table verification (render_codecwar_table)
   - Multi-canal Dispersion & War bench (christman_sound.dispersion)
   - Silico-Stasis equilibrium, 2 Hz shaker & psychoacoustic units (christman_sound.being)
-  - Hearing, structural affect, harm frame, crisis gate & nonverbal (Hearing)
+  - Hearing, structural affect, harm frame, crisis reading & nonverbal (Hearing)
   - Corti Greenwood cochlea, cycle DSP quality, SpeakerSeat, Grunt Physics Router &
     20 Hz CanalRecorder (christman_voice_sdk.audio.corti_canal)
   - Lucent Gullstrand cornea optics, 5-part RhythmTracker & BodySignalFrame
@@ -471,20 +471,19 @@ class ChristmanSoundApp:
         lexicon_inline = data.get("lexicon_text")
         sample_rate = data.get("sample_rate")
         play_aloud = bool(data.get("play_aloud", False))
-        being_reply = bool(data.get("being_reply", False))
-        silent_alarm = bool(data.get("silent_alarm", False))
-
-        if being_reply and text:
-            try:
-                from christman_voice_sdk.synthesis.reply_guard import ForbiddenReply, check_being_reply
-                check_being_reply(text, silent_alarm=silent_alarm)
-            except ForbiddenReply as exc:
-                return _json_resp({
-                    "available": False,
-                    "status": "forbidden_reply",
-                    "kind": "ForbiddenReply",
-                    "reason": str(exc),
-                }, 422)
+        # The studio renders what was asked. When the caller says the text is
+        # a being's own reply, the reply guard's lines are read on it and
+        # returned beside the audio; the being decides what to do with them.
+        # `danger` is the being's own reading (SafetyResult.danger) passed
+        # back in: with it, the announcement lines are read too. The guard
+        # is never read on a client's words, so without being_reply, or when
+        # phones (not the text) are rendered, forbidden_lines is None.
+        being_reply = data.get("being_reply") is True
+        danger = data.get("danger") is True
+        forbidden: Optional[List[str]] = None
+        if being_reply and isinstance(text, str) and phones_raw is None:
+            from christman_voice_sdk.synthesis.reply_guard import forbidden_lines
+            forbidden = forbidden_lines(text, danger=danger)
 
         tmp_files: List[Path] = []
         try:
@@ -566,6 +565,7 @@ class ChristmanSoundApp:
                 "phones": [{"id": p.id, "start": round(p.start, 4), "dur": round(p.dur, 4), "word": p.word} for p in res.phones],
                 "applied": res.applied,
                 "selection": res.selection,
+                "forbidden_lines": forbidden,
             }, 200)
         except (NoVoice, VoiceProfileError, FrameVoiceUnavailable, LexiconUnavailable, LexiconFormatError, DSPUnavailable, SynthUnavailable) as exc:
             return _json_resp({
@@ -663,56 +663,63 @@ class ChristmanSoundApp:
             for tf in tmp_files:
                 tf.unlink(missing_ok=True)
 
+    # -------------------------------------------------------------------------
+    # WHAT CHANGED AND WHY (2026-11-04). Everett's ruling: "we can have this
+    # knowledge in the sound package, but it can't be making those decisions.
+    # It's up to the being to make those decisions, not something that just
+    # creates a voice." /api/hear hears and reads, and returns what it read:
+    # the turn, the crisis reading (the turn's SafetyResult: status, reason,
+    # flags and the rest), the measured stress rise, the porch and the grunt
+    # route. The studio pages no one, so human_reached is always false. It
+    # picks no grounding script and feeds no reading back in as the client's
+    # key. stress_level and grounding_level come back exactly as the caller
+    # sent them. The being decides what to do with every reading.
+    # -------------------------------------------------------------------------
     def _handle_hear(self, data: Dict[str, Any]) -> AppResponse:
         from christman_voice_sdk.audio.corti_canal import analyze_grunt_physics
         from christman_voice_sdk.audio.hearing import Hearing
         from christman_voice_sdk.tone.emotion_quantifier import EmotionAnalysisService
-        from christman_voice_sdk.utils.grounder import Grounder
         from christman_voice_sdk.utils.presence_guide import PresenceGuide
 
         text = data.get("text")
         previous_turn = data.get("previous_turn") or None
         between_beings = bool(data.get("between_beings", False))
-        public_setting = bool(data.get("public_setting", False))
         acoustic_key = data.get("acoustic_key") or None
         nonverbal = data.get("nonverbal") or None
         corti_event = data.get("corti_event") or None
+        # The question the being says it asked, in its own words. Echoed into
+        # the reading; the studio asks nothing itself.
+        answering = data.get("answering")
+        if answering is not None and not isinstance(answering, str):
+            return _json_resp({
+                "status": "refused",
+                "kind": "AnsweringNotText",
+                "reason": f"answering is the question the being asked, as text; got {type(answering).__name__}",
+            }, 400)
+        answering = answering if (answering and answering.strip()) else None
         porch_result = None
 
         if isinstance(text, str) and text.strip():
             porch_layer = reconstruct_dialect(text)
             porch_result = porch_layer.to_dict()
 
+        # A reading of the Corti event's grunt physics, returned as is. It is
+        # never passed to hear() as the acoustic key: a being that wants that
+        # key read sends acoustic_key itself.
         grunt_route = None
         if isinstance(corti_event, dict) and not acoustic_key and not (text and str(text).strip()):
-            route_obj = analyze_grunt_physics(corti_event, seat=self.speaker_seat)
-            grunt_route = route_obj.to_dict()
-            if data.get("auto_route_grunt"):
-                acoustic_key = route_obj.key
+            grunt_route = analyze_grunt_physics(corti_event, seat=self.speaker_seat).to_dict()
 
-        paged: List[Dict[str, Any]] = []
-
-        def crisis_pager(safety_result, context) -> bool:
-            paged.append({
-                "status": safety_result.status,
-                "reason": safety_result.reason,
-                "said": safety_result.said,
-                "flags": list(safety_result.flags),
-                "silent_alarm": safety_result.silent_alarm,
-                "voice_aloud": safety_result.voice_aloud,
-            })
-            return True
-
-        hearing = Hearing(crisis_callback=crisis_pager)
-        turn = hearing.hear(
+        turn = Hearing().hear(
             text=text,
             corti_event=corti_event,
             nonverbal=nonverbal,
             acoustic_key=acoustic_key,
             previous_turn=previous_turn,
             between_beings=between_beings,
-            public_setting=public_setting if public_setting else None,
+            answering=answering,
         )
+        crisis_reading = None if turn.reading is None else turn.reading.safety.to_dict()
 
         presence = None
         measured_stress: Optional[float] = None
@@ -721,44 +728,30 @@ class ChristmanSoundApp:
             try:
                 presence = PresenceGuide().assess(text).to_dict()
             except Exception as exc:
-                presence = {"error": str(exc)}
+                # Not swallowed: the error goes back in the response.
+                presence = {"error": f"{type(exc).__name__}: {exc}"}
             try:
-                measured_stress = float(EmotionAnalysisService().analyze_emotional_tone(text).stress_level)
+                # emotion_quantifier's text reading: stress_level is the rise
+                # above baseline, scored from a word list with chosen weights.
+                measured_stress = float(EmotionAnalysisService().analyze_text_input(text).stress_level)
             except Exception as exc:
                 # Not swallowed: the reason goes back in the response.
                 measured_stress = None
                 stress_error = f"{type(exc).__name__}: {exc}"
-
-        # WHAT CHANGED AND WHY (2026-10-30): this called Grounder().select_script,
-        # which does not exist, with a stress score of 0.75 nobody measured, and
-        # swallowed the error, so grounding never worked and read as "none
-        # needed". It now uses Grounder.get_grounding_for_state with the stress
-        # and grounding levels the caller measured (emotion_quantifier's
-        # stress_level rise, a 0-1 grounding level); with neither it says so.
-        grounding = None
-        if turn.decision and turn.decision.delivery.get("needs_grounding"):
-            def _level(key):
-                v = data.get(key)
-                return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
-
-            stress_level = measured_stress if measured_stress is not None else _level("stress_level")
-            technique = Grounder().get_grounding_for_state(
-                stress_level=stress_level, grounding_level=_level("grounding_level"))
-            grounding = technique if technique is not None else {
-                "available": False,
-                "reason": "grounding is needed, but no stress level was measured and no stress_level or grounding_level was sent"
-                          + (f" (stress measurement failed: {stress_error})" if stress_error else ""),
-            }
+        else:
+            stress_error = "no text was sent; the stress rise is read from words"
 
         return _json_resp({
             "status": "ok",
             "turn": turn.to_dict(),
-            "paged_human": len(paged) > 0,
-            "pager_events": paged,
+            "crisis_reading": crisis_reading,
+            "human_reached": False,
+            "human_reached_reason": "the studio pages no one",
             "presence_guide": presence,
             "measured_stress_rise": measured_stress,
             "stress_error": stress_error,
-            "grounding_script": grounding,
+            "stress_level": data.get("stress_level"),
+            "grounding_level": data.get("grounding_level"),
             "porch": porch_result,
             "grunt_route": grunt_route,
         }, 200)
