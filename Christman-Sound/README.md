@@ -6,7 +6,7 @@ Christman Sound is the sound package of The Christman AI Project. It holds:
 - **the voice synthesis path**: `christman_synth`, the vocoder, stitch and frame voices, driven from Python by `christman_sound`;
 - **ToneScore and voice measurement**: pitch, jitter, shimmer, HNR and the features ToneScore reads from raw audio;
 - **the hearing modules**: a measured utterance card in, affect and harm frame out, and local speech recognition;
-- **the ear** (`christman_sound.ear`): the package's own speech-to-text, in C;
+- **the ear** (`christman_sound.ear`): local speech-to-text through Vosk's recognizer, on a model folder on disk (2026-11-05: this said the package's own, in C; that decoder is held in `held/claude-ear-2026-10-28`, not installed);
 - **reading aloud** (`christman_ocr_shared.py`): printed text on a screen, an image or a PDF, read so it can be spoken in the caller's voice.
 
 The package holds no being's identity. A being passes its own voice profile or frame voice on every speaking call; with no voice given, nothing is spoken and the call raises a typed failure with the reason. No outside speech engine is ever substituted.
@@ -351,12 +351,6 @@ Client output (the being's own voice, from the profile the being passed)
 WHAT CHANGED AND WHY (2026-11-05): Everett asked that the sound package install from a download with one pip install. pip now compiles the C library itself; before, it built nothing in C and `scripts/build_dsp.py` had to be run by hand afterwards.
 
 One command, and nothing to run after it. pip compiles the C library (`christman_dsp.c`, `christman_synth.c` and `christman_vocoder.c`, through `scripts/build_dsp.py`) into `christman_sound/christman_dsp.so`, proves it loads, and installs `christman_sound`, `christman_voice_sdk`, `voice_creation_center`, `christman_ocr_shared` and the command-line tools.
-
-Straight from GitHub. The package is the `Christman-Sound` folder of the repository, so pip is pointed at it with `#subdirectory`:
-
-```bash
-pip install "git+https://github.com/EverettNC/christman_sound_clean.git#subdirectory=Christman-Sound"
-```
 
 From a download (a git clone, or the repository's archive unpacked), point pip at the `Christman-Sound` folder:
 

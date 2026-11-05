@@ -6,11 +6,12 @@ The sound package of The Christman AI Project, Christman Sound, is the `Christma
 
 WHAT CHANGED AND WHY (2026-11-05): Everett asked that the sound package install from a download with one pip install. pip now builds the package's C library itself; nothing is run after it.
 
-```bash
-pip install "git+https://github.com/EverettNC/christman_sound_clean.git#subdirectory=Christman-Sound"
-```
+Download this repository (a clone, or its archive unpacked), then point pip at the package's folder:
 
-From a clone or a downloaded archive of this repository, point pip at the folder instead: `pip install ./Christman-Sound` (or `pip install -e ./Christman-Sound` to edit it in place).
+```bash
+pip install ./Christman-Sound             # an installed copy
+pip install -e ./Christman-Sound          # editable: edits in the folder take effect at once
+```
 
 It needs Python 3.10 or later and a C compiler (Xcode Command Line Tools on a Mac, gcc or clang on Linux).
 
