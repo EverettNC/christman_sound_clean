@@ -401,19 +401,23 @@ class ChristmanSoundApp:
         lex_env = os.environ.get(LEXICON_ENV) or (str(disc_lex) if disc_lex else "")
         vosk_env = os.environ.get("VOSK_MODEL_PATH") or (str(disc_vosk) if disc_vosk else "")
 
+        # Rule 6: a list that could not be read says why, in the status below;
+        # it is never an empty list standing in for a failure.
         profiles: List[str] = []
+        profiles_error: Optional[str] = None
         try:
             from christman_voice_sdk.integration.voice_capture_client import list_profiles
             profiles = list_profiles()
-        except Exception:
-            profiles = []
+        except (ImportError, OSError) as exc:
+            profiles_error = f"{type(exc).__name__}: {exc}"
 
         phones: List[str] = []
+        phones_error: Optional[str] = None
         if dsp.available and dsp.synth_available:
             try:
                 phones = list(dsp.synth_phone_table().keys())
-            except Exception:
-                phones = []
+            except SynthUnavailable as exc:
+                phones_error = str(exc)
 
         return _json_resp({
             "status": "online",
@@ -427,6 +431,7 @@ class ChristmanSoundApp:
                 "synth_error": dsp.synth_error,
                 "play_backend": dsp.play_backend() if dsp.available else None,
                 "phones": phones,
+                "phones_error": phones_error,
             },
             "ear": {
                 "engine": "vosk",
@@ -459,6 +464,7 @@ class ChristmanSoundApp:
                 },
             },
             "profiles": profiles,
+            "profiles_error": profiles_error,
             "frame_controls": list(FRAME_CONTROLS),
             "sample_rates": [CODECWAR_SAMPLE_RATE, CHRISTMAN_SOUND_SAMPLE_RATE],
             "timestamp": datetime.now().isoformat(),
@@ -533,13 +539,22 @@ class ChristmanSoundApp:
                 tmp_files.append(tf)
                 voice_arg = str(tf)
             elif isinstance(voice_arg, str) and voice_arg and not Path(voice_arg).expanduser().exists():
+                # A voice given by name is looked up among the saved profiles.
+                # If the profiles cannot be read, the client is told why
+                # instead of the name going on to fail somewhere less plain.
                 try:
                     from christman_voice_sdk.integration.voice_capture_client import PROFILES_DIR
-                    cand = PROFILES_DIR / f"{voice_arg}.json"
-                    if cand.is_file():
-                        voice_arg = str(cand)
-                except Exception:
-                    pass
+                except ImportError as exc:
+                    return _json_resp({
+                        "available": False,
+                        "status": "unavailable",
+                        "kind": "ProfilesUnavailable",
+                        "reason": f"the voice {voice_arg!r} is not a file, and the saved profiles "
+                                  f"could not be read to look it up: {exc}",
+                    }, 503)
+                cand = PROFILES_DIR / f"{voice_arg}.json"
+                if cand.is_file():
+                    voice_arg = str(cand)
 
             lex_obj: Optional[Lexicon] = None
             if lexicon_inline and isinstance(lexicon_inline, str) and lexicon_inline.strip():
