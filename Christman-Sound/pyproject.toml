@@ -113,6 +113,8 @@ christman_voice_sdk = ["py.typed"]
 # scripts/build_dsp.py ran before the wheel was built; editable installs find
 # it in christman_sound/ where build_dsp.py writes it.
 christman_sound = ["*.so", "*.dylib", "*.json", "static/*", "static/icons/*"]
+# The Filament's pages and its dialect map, with FROZEN.md (2026-11-05).
+"christman_sound.filament" = ["pages/*"]
 # The VCC's express index (empty until phrases are registered) and its notes.
 voice_creation_center = ["express/express_index.json", "*.md"]
 

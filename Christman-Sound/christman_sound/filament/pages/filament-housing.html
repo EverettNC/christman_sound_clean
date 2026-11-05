@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Filament — Housing v2</title>
+<style>
+  :root{ --ink:#04060a; --copper:#c87941; --tiff:#2ff7ee; --ado:#e8f4ff;
+         --dim:#4a5a6a; --paper:#dfe9f2; --shell:#8fa3b5; }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--ink);color:var(--paper);
+    font:14px/1.5 "IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;overflow:hidden}
+  canvas{display:block;width:100%;height:100%}
+  .hud{position:fixed;pointer-events:none;text-shadow:0 0 12px #000}
+  #title{top:22px;left:24px}
+  #title h1{margin:0;font:400 15px/1.3 inherit;letter-spacing:.16em;text-transform:uppercase;color:var(--tiff)}
+  #title p{margin:6px 0 0;color:var(--dim);max-width:40ch;font-size:12px}
+  #readout{bottom:22px;left:24px;font-size:12px;color:var(--dim)}
+  #readout b{color:var(--paper);font-weight:400}
+  #readout .n{color:var(--tiff);font-variant-numeric:tabular-nums}
+  #legend{bottom:22px;right:24px;text-align:right;font-size:11px;color:var(--dim)}
+  #legend span{display:inline-block;width:8px;height:8px;border-radius:9px;margin-right:6px;vertical-align:-1px}
+  #listen{pointer-events:auto;top:22px;right:24px}
+  #listen button{min-height:2.5rem;padding:0 1rem;border:1px solid var(--tiff);background:transparent;color:var(--tiff);font:12px inherit;letter-spacing:.14em;text-transform:uppercase;cursor:pointer}
+  #listen button:disabled{opacity:.35;cursor:not-allowed}
+  #listen .st{margin-top:8px;font-size:11px;color:var(--dim)}
+  #listen .st.on{color:var(--tiff)}
+
+  #listen{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+  #listen .views{display:flex;gap:12px;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+  #listen .views a{color:var(--dim);text-decoration:none}
+  #listen .views a[aria-current="page"]{color:var(--tiff)}
+  #train{min-height:2.5rem;padding:0 1rem;border:1px solid var(--dim);background:transparent;color:var(--paper);font:12px inherit;letter-spacing:.14em;text-transform:uppercase;cursor:pointer}
+  #train[aria-pressed="true"]{border-color:var(--tiff);color:var(--tiff)}
+
+  #as-said{position:fixed;left:24px;right:24px;bottom:86px;max-width:48rem;pointer-events:none;font-size:13px;color:var(--paper);text-shadow:0 0 12px #000}
+  #as-said .partial{color:var(--dim);font-style:italic}
+  html.embedded #title, html.embedded #readout, html.embedded #legend, html.embedded #listen{display:none!important}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="hud" id="title">
+  <h1>The Filament · Housing v2</h1>
+  <p>Open at both ends. Tilted forward. Full array, spinning. Sound goes straight
+     through the barrel and has to cross every fiber on the way.</p>
+</div>
+
+<div class="hud" id="readout">
+  <b>PORCH · super cochlea</b><br>
+  housing <span class="n">open / open</span> &nbsp;·&nbsp;
+  tilt <span class="n">14°</span> &nbsp;·&nbsp;
+  filaments <span class="n" id="fcount">—</span> &nbsp;·&nbsp;
+  caught <span class="n" id="scount">0</span> &nbsp;·&nbsp;
+  slipped <span class="n" id="miss">0</span> &nbsp;·&nbsp;
+  <span class="n" id="pct">—</span><br>
+  training <span class="n" id="region">—</span>
+</div>
+
+<div class="hud" id="legend">
+  <span style="background:#c87941"></span>copper<br>
+  <span style="background:#2ff7ee"></span>neon Tiffany blue<br>
+  <span style="background:#e8f4ff"></span>clear adodescent<br>
+  <span style="background:#8fa3b5"></span>housing — both ends open
+</div>
+
+<div class="hud" id="listen">
+  <nav class="views" aria-label="Filament view">
+    <a href="/housing" aria-current="page">Housing</a>
+    <a href="/bare">Field</a>
+    <a href="/live.html">Live</a>
+  </nav>
+  <button id="train" type="button" aria-pressed="false">Train</button>
+  <button id="btn" type="button" disabled>Hold</button>
+  <div class="st" id="st">probing ear</div>
+</div>
+
+<script src="/dialect-map.js"></script>
+<script>
+(function(){
+  const c=document.getElementById('c'), x=c.getContext('2d');
+  const fcountEl=document.getElementById('fcount'), scountEl=document.getElementById('scount');
+  const missEl=document.getElementById('miss'), pctEl=document.getElementById('pct');
+  let W,H,CX,CY,S,DPR=1;
+
+  const TILT = 14*Math.PI/180;
+  const FOCAL = 2.6;
+  const RH = 1.00;          // housing radius
+  const LH = 1.55;          // housing half-length (barrel axis = Z)
+  const FIL = 7200;         // full. it is not a disc, it packs the barrel.
+
+  // Everett's materials.
+  const MAT = [
+    {n:'copper', r:200, g:121, b:65},
+    {n:'tiff',   r: 47, g:247, b:238},
+    {n:'ado',    r:232, g:244, b:255}
+  ];
+
+  const regionEl=document.getElementById('region');
+  const fil=[], syl=[];
+  let caught=0, slipped=0, t=0, spin=0;
+  const MAX_SYL = 8;
+  const embedded = window !== window.top;
+  if (embedded) document.documentElement.classList.add('embedded');
+
+  function report(){
+    const total=caught+slipped;
+    const pct=total?Math.round(100*caught/total):0;
+    scountEl.textContent=caught.toLocaleString();
+    if(missEl) missEl.textContent=slipped.toLocaleString();
+    if(pctEl) pctEl.textContent=total?pct+'%':'—';
+    window.filamentStats={caught,slipped,pct,total,filaments:FIL};
+  }
+
+  function resize(){
+    DPR=Math.min(window.devicePixelRatio||1,2);
+    W=c.clientWidth; H=c.clientHeight;
+    c.width=W*DPR; c.height=H*DPR; x.setTransform(DPR,0,0,DPR,0,0);
+    const rail = embedded ? Math.min(W * 0.30, 320) : 0;
+    const hud = embedded ? 168 : 0;
+    const room = Math.max(240, W - rail - hud);
+    CX = rail + room / 2;
+    CY = H / 2;
+    S = Math.min(room, H) * 0.26;
+    build();
+  }
+
+  function proj(p){
+    const cy=Math.cos(TILT), sy=Math.sin(TILT);
+    const Y = p.y*cy - p.z*sy;
+    const Z = p.y*sy + p.z*cy;
+    const d = FOCAL/(FOCAL+Z);
+    return { X: CX + p.x*S*d, Y: CY + Y*S*d, d };
+  }
+
+  function build(){
+    fil.length=0;
+    for(let i=0;i<FIL;i++){
+      const a=Math.random()*Math.PI*2;
+      // pack the whole barrel length, not a single plane
+      const lat=(Math.random()*2-1)*0.92;
+      // reach nearly to the wall — this is what "full" means
+      const len=RH*(0.34+Math.pow(Math.random(),0.38)*0.66);
+      const m=MAT[(Math.random()*3)|0];
+      fil.push({a,lat,len,m,
+        curl:(Math.random()-0.5)*0.7,
+        w:0.20+Math.random()*0.30,
+        ph:Math.random()*6.28,
+        rate:0.5+Math.random()*1.7,
+        iri:Math.random()*6.28,          // adodescent shimmer offset
+        charge:0});
+    }
+    fcountEl.textContent=FIL.toLocaleString();
+  }
+
+  function ring(z,r,style,lw){
+    x.strokeStyle=style; x.lineWidth=lw;
+    x.beginPath();
+    for(let i=0;i<=80;i++){
+      const a=i/80*Math.PI*2;
+      const p=proj({x:Math.cos(a)*r, y:Math.sin(a)*r, z});
+      i?x.lineTo(p.X,p.Y):x.moveTo(p.X,p.Y);
+    }
+    x.stroke();
+  }
+
+  function shell(alphaFront){
+    for(let i=0;i<34;i++){
+      const a=i/34*Math.PI*2;
+      const p1=proj({x:Math.cos(a)*RH, y:Math.sin(a)*RH, z:-LH});
+      const p2=proj({x:Math.cos(a)*RH, y:Math.sin(a)*RH, z: LH});
+      const front = Math.sin(a) > 0;
+      x.strokeStyle=`rgba(143,163,181,${front?alphaFront:0.06})`;
+      x.lineWidth=front?0.7:0.5;
+      x.beginPath(); x.moveTo(p1.X,p1.Y); x.lineTo(p2.X,p2.Y); x.stroke();
+    }
+  }
+
+  function spawn(forced){
+    const tok = forced || (window.FILAMENT_NEXT_TOKEN && window.FILAMENT_NEXT_TOKEN()) || "y'all";
+    if (regionEl && window.filamentRegion) regionEl.textContent = window.filamentRegion;
+    const fromBack = Math.random()<0.6;
+    const glance = Math.random()<0.22;
+    const a=Math.random()*Math.PI*2, r=glance? RH*(1.05+Math.random()*0.35) : Math.random()*RH*0.88;
+    syl.push({x:Math.cos(a)*r, y:Math.sin(a)*r,
+      z: fromBack? -LH*1.7 : LH*1.7,
+      vx:0, vy:0,
+      vz:(fromBack?1:-1)*(0.10+Math.random()*0.10),
+      text:tok, held:false});
+    const lang = window.filamentLang || (window.FILAMENT_LANG_FOR && window.FILAMENT_LANG_FOR(tok)) || "en-US";
+    window.filamentNextAt = performance.now() + ((window.FILAMENT_GAP && window.FILAMENT_GAP()) || 1200);
+    if (window.filamentLive) return;
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage({ type: "filament-token", token: tok, region: window.filamentRegion, lang: lang }, "*");
+    } else if (window.FILAMENT_SPEAK) {
+      window.FILAMENT_SPEAK(tok, lang);
+    }
+  }
+
+  function tick(){
+    t+=0.016; spin+=0.0038;
+    x.fillStyle='rgba(4,6,10,0.34)'; x.fillRect(0,0,W,H);
+
+    ring(-LH, RH, 'rgba(143,163,181,0.30)', 1.1);
+    ring(-LH, RH*0.955, 'rgba(143,163,181,0.10)', 0.6);
+    shell(0.0);
+    drawSyl(z=>z<0);
+
+    // ---- the array ----
+    // While the mic is live, ScriptProcessor shares this thread.
+    // Stride the draw so the ear can actually post tape.
+    const stride = window.filamentLive ? 4 : 1;
+    for(let fi=0; fi<fil.length; fi+=stride){
+      const f = fil[fi];
+      const a=f.a+spin, tipA=a+f.curl;
+      const p1=proj({x:Math.cos(a)*RH*0.05, y:Math.sin(a)*RH*0.05, z:f.lat*0.10});
+      const p2=proj({x:Math.cos(tipA)*f.len, y:Math.sin(tipA)*f.len, z:f.lat});
+      const pulse=0.5+0.5*Math.sin(t*f.rate+f.ph);
+      const depth=0.42+0.58*p2.d;
+      let r,g,b,al;
+      if(f.m.n==='ado'){
+        const sh=Math.sin(t*0.7+f.iri);
+        r=232+18*sh; g=244-10*sh; b=255;
+        al=(0.030+0.085*pulse)*depth;
+      }else{
+        r=f.m.r; g=f.m.g; b=f.m.b;
+        al=(0.035+0.095*pulse)*depth;
+      }
+      x.lineWidth=f.w;
+      f.charge=0;
+      x.strokeStyle=`rgba(${r|0},${g|0},${b|0},${al})`;
+      x.beginPath(); x.moveTo(p1.X,p1.Y); x.lineTo(p2.X,p2.Y); x.stroke();
+    }
+
+    // ---- core ----
+    const cp=proj({x:0,y:0,z:0});
+    const g2=x.createRadialGradient(cp.X,cp.Y,0,cp.X,cp.Y,S*0.24);
+    g2.addColorStop(0,'rgba(255,246,225,0.42)');
+    g2.addColorStop(0.35,'rgba(47,247,238,0.13)');
+    g2.addColorStop(0.7,'rgba(200,121,65,0.07)');
+    g2.addColorStop(1,'rgba(47,247,238,0)');
+    x.fillStyle=g2; x.beginPath(); x.arc(cp.X,cp.Y,S*0.24,0,Math.PI*2); x.fill();
+
+    drawSyl(z=>z>=0);
+    shell(0.24);
+    ring(LH, RH, 'rgba(143,163,181,0.62)', 1.4);
+    ring(LH, RH*0.955, 'rgba(143,163,181,0.20)', 0.7);
+
+    if(!window.filamentLive && window.filamentTrain===true){
+      const gated = embedded
+        ? performance.now() < (window.filamentNextAt || 0)
+        : (window.FILAMENT_BUSY && window.FILAMENT_BUSY());
+      if(!gated && syl.length < MAX_SYL) spawn();
+    }
+    requestAnimationFrame(tick);
+  }
+
+  function drawSyl(test){
+    for(let i=syl.length-1;i>=0;i--){
+      const s=syl[i];
+      s.x += (s.vx||0)*0.13;
+      s.y += (s.vy||0)*0.13;
+      s.z += s.vz*0.13;
+      if(!test(s.z) && Math.abs(s.z)<LH*1.8) continue;
+      if(!test(s.z) && Math.abs(s.z)>=LH*1.8) {
+        if(Math.hypot(s.x,s.y)>RH*2.6 || Math.abs(s.z)>LH*2.2){
+          if(!s.held){
+            slipped++; report();
+            if (window.parent && window.parent !== window) {
+              window.parent.postMessage({ type: "filament-slipped", token: s.text, region: window.filamentLive ? "" : (window.filamentRegion || "") }, "*");
+            }
+          }
+          syl.splice(i,1);
+        }
+        continue;
+      }
+      const p=proj(s);
+      if(p.d<=0) continue;
+      const inBarrel = Math.hypot(s.x,s.y) < RH*0.96 && Math.abs(s.z) < LH*0.95;
+      if(inBarrel){
+        if(!s.held){
+          s.held=true; caught++; report();
+          if (window.parent && window.parent !== window) {
+            window.parent.postMessage({ type: "filament-caught", token: s.text, region: window.filamentLive ? "" : (window.filamentRegion || "") }, "*");
+          }
+        }
+      }
+      const rail = embedded ? Math.min(W * 0.30, 320) : 0;
+      if (p.X > rail + 12 && p.X < W - 160) {
+        const size = Math.max(11, 15*p.d);
+        x.font = size+'px ui-monospace,Menlo,monospace';
+        x.fillStyle=s.held?'rgba(248,255,42,0.95)':`rgba(223,233,242,${0.26+0.34*p.d})`;
+        x.fillText(s.text, p.X, p.Y);
+      }
+      if(Math.hypot(s.x,s.y)>RH*2.6 || Math.abs(s.z)>LH*2.2){
+        if(!s.held){
+          slipped++; report();
+          if (window.parent && window.parent !== window) {
+            window.parent.postMessage({ type: "filament-slipped", token: s.text, region: window.filamentLive ? "" : (window.filamentRegion || "") }, "*");
+          }
+        }
+        syl.splice(i,1);
+      }
+    }
+  }
+
+  window.addEventListener('resize',resize);
+  resize();
+  window.filamentQuiet = function(){
+    syl.length = 0;
+  };
+  window.filamentCatch = function(text){
+    if(!text) return;
+    const tok = String(text).trim();
+    if(!tok) return;
+    const a=Math.random()*Math.PI*2, r=Math.random()*RH*0.38;
+    syl.push({x:Math.cos(a)*r,y:Math.sin(a)*r,z:-LH*1.75,vx:0,vy:0,vz:0.22,text:tok,held:false});
+    syl.push({x:Math.cos(a+1.2)*r,y:Math.sin(a+1.2)*r,z:LH*1.75,vx:0,vy:0,vz:-0.22,text:tok,held:false});
+  };
+  tick();
+})();
+</script>
+<script>
+(function(){
+  if (window !== window.top) {
+    const hud = document.getElementById('listen');
+    if (hud) hud.style.display = 'none';
+    window.filamentTrain = window.filamentTrain === true;
+    return;
+  }
+  const EAR = location.port === '4850' ? '' : 'http://127.0.0.1:4850';
+  // One stream per open page: the door keeps this page's words apart from every other caller's.
+  const SESSION = 'filament-housing:' + (crypto && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + '-' + Math.floor(Math.random() * 2 ** 48).toString(36));
+  const LQ = (q) => (q ? q + '&' : '?') + 'session=' + SESSION;
+
+  window.filamentTrain = false;
+  const trainBtn=document.getElementById('train');
+  if(trainBtn){
+    trainBtn.addEventListener('click',()=>{
+      window.filamentTrain = window.filamentTrain===false ? true : false;
+      trainBtn.setAttribute('aria-pressed', window.filamentTrain ? 'true' : 'false');
+    });
+  }
+
+  const btn=document.getElementById('btn'), st=document.getElementById('st');
+  let listening=false, ctx, stream, proc, queue=Promise.resolve(), seen=0;
+  const said=document.getElementById('as-said');
+  function showSaid(text, partial){
+    if(!said) return;
+    const s = String(text||'').trim();
+    said.innerHTML = s ? (partial ? '<span class="partial">'+s+'</span>' : s) : '';
+  }
+  function emit(text){
+    const toks = String(text||'').trim().split(/\s+/).filter(Boolean);
+    if(toks.length <= seen) return;
+    for(let i=seen;i<toks.length;i++){
+      if(window.filamentCatch) window.filamentCatch(toks[i]);
+    }
+    seen = toks.length;
+    showSaid(toks.join(' '), true);
+  }
+  function downsample(input,inRate){
+    const ratio=inRate/16000, n=Math.max(1,Math.floor(input.length/ratio)), out=new Int16Array(n);
+    for(let i=0;i<n;i++){ const s=Math.max(-1,Math.min(1,input[Math.floor(i*ratio)]||0)); out[i]=s<0?s*0x8000:s*0x7fff; }
+    return out;
+  }
+  function post(pcm,q){
+    queue=queue.then(async()=>{
+      const bytes = pcm.buffer.slice(pcm.byteOffset, pcm.byteOffset + pcm.byteLength);
+      const res=await fetch(EAR+'/live'+LQ(q||''),{method:'POST',headers:{'content-type':'application/octet-stream'},body:bytes});
+      const body=await res.json();
+      if(!body.ok){ st.textContent=body.error||'ear failed'; return; }
+      if(body.final && body.text && body.text.trim()){
+        emit(body.text);
+        showSaid(body.text, false);
+        seen=0;
+      } else {
+        emit(body.partial||'');
+      }
+    });
+    return queue;
+  }
+  fetch(EAR+'/health').then(r=>r.json()).then(h=>{
+    if(h.seated){ st.textContent='seated · vosk · live'; st.classList.add('on'); btn.disabled=false; btn.textContent='Listen'; }
+    else { st.textContent='unseated'; }
+  }).catch(()=>{ st.textContent='unseated'; });
+  async function start(){
+    stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false,channelCount:1}});
+    ctx=new (window.AudioContext||window.webkitAudioContext)();
+    if(ctx.state==='suspended') await ctx.resume();
+    const source=ctx.createMediaStreamSource(stream);
+    proc=ctx.createScriptProcessor(4096,1,1);
+    let carry=new Int16Array(0);
+    listening=true; window.filamentLive=true; seen=0;
+    proc.onaudioprocess=ev=>{
+      if(!listening) return;
+      const next=downsample(ev.inputBuffer.getChannelData(0), ctx.sampleRate);
+      const merged=new Int16Array(carry.length+next.length); merged.set(carry); merged.set(next,carry.length);
+      let off=0; while(merged.length-off>=3200){ post(merged.slice(off,off+3200)); off+=3200; }
+      carry=merged.slice(off);
+    };
+    const mute=ctx.createGain(); mute.gain.value=0;
+    source.connect(proc); proc.connect(mute); mute.connect(ctx.destination);
+    await post(new Int16Array(0),'?reset=1');
+    btn.textContent='Stop'; st.textContent='hearing'; st.classList.add('on');
+  }
+  async function stop(){
+    listening=false; window.filamentLive=false;
+    proc&&proc.disconnect(); stream&&stream.getTracks().forEach(t=>t.stop()); ctx&&ctx.close();
+    proc=stream=ctx=null; await post(new Int16Array(0),'?end=1');
+    btn.textContent='Listen'; st.textContent='seated · vosk · live';
+  }
+  btn.addEventListener('click',()=>{ listening?stop().catch(()=>{}):start().catch(()=>{ st.textContent='mic denied'; }); });
+})();
+</script>
+</body>
+</html>
