@@ -479,80 +479,55 @@ int christman_synth_voiced(const int* phone_ids, const double* durs, size_t n_ph
 
 // Levels of the voicing source per kind of phone (a vowel is 1).
 #define CL_AV_VOWEL 1.0
-#define CL_AV_SONORANT 0.80   // W, Y, L, R: strong resonant continuation
-#define CL_AV_NASAL 0.65      // M, N, NG: nasal murmur strength
+#define CL_AV_SONORANT 0.75   // W, Y, L, R: a little under a vowel
+#define CL_AV_NASAL 0.6       // M, N, NG: the mouth is shut, the sound is softer
 #define CL_AV_VOICED_FRIC 0.45 // V, DH, Z, ZH, JH: voicing under the noise
-#define CL_VOICE_BAR 0.14     // B, D, G closure: low hum through closed vocal tract walls
-
+#define CL_VOICE_BAR 0.12     // B, D, G closure: the low hum of voicing behind closed lips
 // Aspiration (breath through the open glottis, shaped by the mouth).
-#define CL_ASP_HH 0.16        // HH, gentle breath shaped by the vowel after it
-#define CL_ASP_STOP 0.16      // after P, T, K are released
-#define CL_ASP_TAIL 0.28      // share of a P, T, K kept for its aspiration
-#define CL_VOICED_TRANS_TAIL 0.22 // share of B, D, G after burst where locus glides into vowel
-#define CL_VOT_S 0.026        // P, T, K: the next vowel's first 26 ms is breath + locus glide
-#define CL_ASP_BW1 550.0      // F1 bandwidth while breathing: open glottis damps F1 heavily
-#define CL_ASP_BW2 300.0      // F2 bandwidth widened during glottal aspiration
-
+#define CL_ASP_HH 0.2         // HH, shaped by the vowel after it
+#define CL_ASP_STOP 0.15      // after P, T, K are released
+#define CL_ASP_TAIL 0.25      // share of a P, T, K kept for its aspiration
+#define CL_VOT_S 0.030        // P, T, K: the next vowel's first 30 ms is breath, not voice
+#define CL_ASP_BW1 400.0      // F1 bandwidth while breathing: the open glottis damps F1
 // Frication.
-#define CL_FRIC_GAIN 0.72
-#define CL_BURST_GAIN 0.52
-#define CL_BURST_S 0.014      // a stop's release burst lasts 14 ms
-#define CL_FRIC_POST 0.16     // frication joins after the radiation step, at this weight
-
+#define CL_FRIC_GAIN 0.6
+#define CL_BURST_GAIN 0.4
+#define CL_BURST_S 0.012      // a stop's release burst lasts 12 ms
+#define CL_FRIC_POST 0.1      // frication joins after the radiation step, at this weight
 // Easing.
-#define CL_TAU_FORMANT 0.012  // 12 ms vowel/sonorant formant transition time constant
-#define CL_TAU_LOCUS 0.008    // 8 ms rapid consonant-release locus transition
-#define CL_TAU_LEVEL 0.005    // 5 ms voicing/frication envelope attack/decay
-#define CL_TAU_HH 0.024       // 24 ms gentle onset for HH so it never pops like P
-
+#define CL_TAU_FORMANT 0.015
+#define CL_TAU_LEVEL 0.006
 // The voicing pulse is open for this share of each period (synth.ts's pulse
 // fills the whole period; a closed part gives the harmonics their strength).
-#define CL_OPEN_QUOTIENT 0.65
-
+#define CL_OPEN_QUOTIENT 0.7
 // Two fixed higher formants above F3, so the cascade does not fall off a cliff
 // above it. A being's own recordings carry energy to 4-5 kHz.
-#define CL_F4 3550.0
-#define CL_BW4 220.0
-#define CL_F5 4550.0
-#define CL_BW5 280.0
+#define CL_F4 3600.0
+#define CL_BW4 250.0
+#define CL_F5 4600.0
+#define CL_BW5 300.0
 
 // Where each consonant's noise lives: centre and bandwidth in Hz, and its
-// level (S and SH are strong; F, TH, V, DH raised so MFCC bins detect them).
+// level (S and SH are strong; F, TH, V, DH are faint). Not in Codec War's table.
 typedef struct { const char* id; double fc, bw, level; } cl_band;
 static const cl_band CL_FRIC[] = {
-    {"S", 5600, 2200, 1.05},  {"Z", 5400, 2200, 0.60},
-    {"SH", 2750, 1300, 1.00}, {"ZH", 2750, 1300, 0.55},
-    {"CH", 2850, 1400, 1.00}, {"JH", 2850, 1400, 0.58},
-    {"F", 4200, 3600, 0.32},  {"V", 4000, 3400, 0.18},
-    {"TH", 4600, 3800, 0.28}, {"DH", 4200, 3400, 0.16},
+    {"S", 5500, 2500, 1.0},  {"Z", 5500, 2500, 0.5},
+    {"SH", 2800, 1400, 1.0}, {"ZH", 2800, 1400, 0.5},
+    {"CH", 2800, 1400, 1.0}, {"JH", 2800, 1400, 0.5},
+    {"F", 4500, 4000, 0.12}, {"V", 4500, 4000, 0.05},
+    {"TH", 4500, 4000, 0.10}, {"DH", 4500, 4000, 0.04},
 };
 // A stop's release burst: lips (P, B) low and spread, tongue tip (T, D)
-// high, tongue back (K, G) compact mid-band.
+// high, tongue back (K, G) in the middle.
 static const cl_band CL_BURST[] = {
-    {"P", 1150, 1800, 0.38}, {"B", 1100, 1600, 0.26},
-    {"T", 4300, 2400, 0.60}, {"D", 3900, 2200, 0.38},
-    {"K", 2100, 1100, 0.58}, {"G", 1950, 1100, 0.38},
-};
-
-// Default diphthong onset -> offglide targets when no measured glide row is given.
-typedef struct { const char* id; double on1, on2, on3, off1, off2, off3; } cl_diphthong;
-static const cl_diphthong CL_DIPHTHONGS[] = {
-    {"AY", 720, 1180, 2420, 320, 2150, 2850}, // /a/ -> /I/ (prevents "my" -> "made")
-    {"AW", 700, 1220, 2400, 360,  920, 2260}, // /a/ -> /U/
-    {"EY", 480, 1920, 2520, 310, 2220, 2880}, // /e/ -> /I/
-    {"OW", 500, 1040, 2320, 340,  860, 2240}, // /o/ -> /U/
-    {"OY", 540,  900, 2380, 320, 2120, 2820}, // /O/ -> /I/
+    {"P", 1200, 2000, 0.3}, {"B", 1200, 2000, 0.15},
+    {"T", 4200, 2500, 0.5}, {"D", 4200, 2500, 0.25},
+    {"K", 2000, 1000, 0.5}, {"G", 2000, 1000, 0.3},
 };
 
 static const cl_band* cl_find(const cl_band* t, size_t n, const char* id) {
     for (size_t i = 0; i < n; i++)
         if (strcmp(t[i].id, id) == 0) return &t[i];
-    return NULL;
-}
-
-static const cl_diphthong* cl_find_diph(const char* id) {
-    for (size_t i = 0; i < sizeof CL_DIPHTHONGS / sizeof CL_DIPHTHONGS[0]; i++)
-        if (strcmp(CL_DIPHTHONGS[i].id, id) == 0) return &CL_DIPHTHONGS[i];
     return NULL;
 }
 
@@ -613,10 +588,8 @@ int christman_synth_clear(const int* phone_ids, const double* durs, size_t n_pho
     if (out_len != n) { free(starts); free(scaled); return 7; }
 
     const double SR = (double)sample_rate;
-    const double kf_std = 1 - exp(-1 / (CL_TAU_FORMANT * SR));
-    const double kf_loc = 1 - exp(-1 / (CL_TAU_LOCUS * SR));
+    const double kf = 1 - exp(-1 / (CL_TAU_FORMANT * SR));
     const double ka = 1 - exp(-1 / (CL_TAU_LEVEL * SR));
-    const double ka_hh = 1 - exp(-1 / (CL_TAU_HH * SR));
     const cl_res r4 = cl_make(CL_F4, CL_BW4, sample_rate);
     const cl_res r5 = cl_make(CL_F5, CL_BW5, sample_rate);
 
@@ -626,208 +599,83 @@ int christman_synth_clear(const int* phone_ids, const double* durs, size_t n_pho
         : (j) == 2 ? CM_PHONES[phone_ids[k]].f3 : (j) == 3 ? CM_PHONES[phone_ids[k]].bw1 \
         : CM_PHONES[phone_ids[k]].bw2))
 
-    // Start formants at the first non-silent phone so sentence-initial words never
-    // sweep in from SIL's 200/900/2200 row.
-    size_t first_spoken = 0;
-    while (first_spoken + 1 < n_phones && CM_PHONES[phone_ids[first_spoken]].kind == K_SIL)
-        first_spoken++;
-
-    double f[3] = {CL_ROW(first_spoken, 0), CL_ROW(first_spoken, 1), CL_ROW(first_spoken, 2)};
-    double bw[2] = {CL_ROW(first_spoken, 3), CL_ROW(first_spoken, 4)};
-    double av = 0, ah = 0, af = 0, av_bar = 0;
-    double fc = 4000, fb = 3000;
+    double f[3] = {CL_ROW(0, 0), CL_ROW(0, 1), CL_ROW(0, 2)};
+    double bw[2] = {CL_ROW(0, 3), CL_ROW(0, 4)};
+    double av = 0, ah = 0, af = 0;
+    double fc = 4000, fb = 3000;          // the frication band before any consonant names one
     double y[5][2] = {{0}};
     double yf[2] = {0, 0};
-    double yf2[2] = {0, 0};
-    double rad = 0, lp = 0, vbar_lp = 0, nasal_lp = 0, phase = 0;
+    double rad = 0, lp = 0, phase = 0;
     size_t k = 0;
-
     for (size_t i = 0; i < n; i++) {
         double time = (double)i / SR;
         while (k + 1 < n_phones && time >= starts[k + 1]) k++;
         const cm_phone* ph = &CM_PHONES[phone_ids[k]];
         double local = (time - starts[k]) / scaled[k];
         int has_next = k + 1 < n_phones;
-        int has_prev = k > 0;
         double trow[5];
         for (int j = 0; j < 5; j++) trow[j] = CL_ROW(k, j);
-        double tav = 0, tah = 0, taf = 0, tav_bar = 0;
-        double kf_here = kf_std;
-        double ka_ah_here = ka;
+        double tav = 0, tah = 0, taf = 0;
         const cl_band* band = NULL;
 
         if (ph->kind == K_STOP) {
             double burst = CL_BURST_S / scaled[k];
-            if (burst > 0.35) burst = 0.35;
-            double tail = ph->voiced ? CL_VOICED_TRANS_TAIL : CL_ASP_TAIL;
-            double close = 1.0 - burst - tail;
-            if (close < 0.30) close = 0.30;
-
-            // Context-dependent velar locus: K and G adapt F2 to the following vowel
-            if ((strcmp(ph->id, "K") == 0 || strcmp(ph->id, "G") == 0) && has_next &&
-                CM_PHONES[phone_ids[k + 1]].kind != K_SIL) {
-                double next_f2 = CL_ROW(k + 1, 1);
-                trow[1] = (next_f2 > 1550.0) ? 1950.0 : 1250.0;
-            }
-
+            double close = 1 - burst - (ph->voiced ? 0 : CL_ASP_TAIL);
+            if (close < 0.3) close = 0.3;
             if (local < close) {
-                // Closure phase: vocal tract sealed. Voiced stops hum through neck walls only.
-                tav = 0;
-                tav_bar = ph->voiced ? CL_VOICE_BAR : 0;
-                kf_here = kf_loc;
+                tav = ph->voiced ? CL_VOICE_BAR : 0;
             } else if (local < close + burst) {
-                // Burst release
                 band = cl_find(CL_BURST, sizeof CL_BURST / sizeof CL_BURST[0], ph->id);
-                if (band) {
-                    taf = band->level * CL_BURST_GAIN;
-                    // Adapt velar burst center to front vs back vowel
-                    fc = band->fc;
-                    fb = band->bw;
-                    if (strcmp(ph->id, "K") == 0 || strcmp(ph->id, "G") == 0)
-                        fc = (trow[1] > 1600.0) ? 2500.0 : 1650.0;
-                }
-                tav_bar = ph->voiced ? CL_VOICE_BAR * 0.5 : 0;
-                tav = ph->voiced ? 0.30 : 0;
-                kf_here = kf_loc;
+                taf = band->level * CL_BURST_GAIN;
+                tav = ph->voiced ? CL_VOICE_BAR : 0;
             } else {
-                // Post-burst transition into the following phone
-                if (has_next && CM_PHONES[phone_ids[k + 1]].kind != K_SIL) {
-                    for (int j = 0; j < 5; j++) trow[j] = CL_ROW(k + 1, j);
-                }
-                kf_here = kf_loc;
-                if (ph->voiced) {
-                    // Voiced stop: rapid voicing onset along the locus-to-vowel trajectory
-                    tav = 0.78;
-                    tah = 0.03;
-                } else {
-                    tah = CL_ASP_STOP;
-                }
-            }
-        } else if (ph->kind == K_AFFRIC) {
-            // Affricate (CH, JH): first 38% is stop closure, then fricative release
-            band = cl_find(CL_FRIC, sizeof CL_FRIC / sizeof CL_FRIC[0], ph->id);
-            if (local < 0.38) {
-                tav = 0;
-                tav_bar = ph->voiced ? CL_VOICE_BAR : 0;
-                taf = 0;
-            } else {
-                double ramp = (local - 0.38) / 0.20;
-                if (ramp > 1.0) ramp = 1.0;
-                tav = ph->voiced ? CL_AV_VOICED_FRIC : 0;
-                taf = (band ? band->level : 0.8) * CL_FRIC_GAIN * ramp;
+                tah = CL_ASP_STOP;
+                if (has_next) for (int j = 0; j < 5; j++) trow[j] = CL_ROW(k + 1, j);
             }
         } else if (ph->kind == K_VOWEL) {
             tav = CL_AV_VOWEL;
-            // Coarticulation: in the first 20% of a vowel after a voiced stop/sonorant,
-            // use faster locus tracking so the consonant place cue is crisp
-            if (local < 0.20 && has_prev && CM_PHONES[phone_ids[k - 1]].kind != K_SIL)
-                kf_here = kf_loc;
         } else if (ph->kind == K_GLIDE || ph->kind == K_LIQ) {
             tav = CL_AV_SONORANT;
-            kf_here = kf_loc;
         } else if (ph->kind == K_NASAL) {
             tav = CL_AV_NASAL;
-            // Nasal coupling widens F1/F2 bandwidths (oral trap antiformant damping)
-            trow[3] = 220.0;
-            trow[4] = 260.0;
         } else if (strcmp(ph->id, "HH") == 0) {
-            tah = CL_ASP_HH * sin((local < 1.0 ? local : 1.0) * M_PI);
-            ka_ah_here = ka_hh; // Gentle 24 ms glottal onset so HH is never heard as P
-            if (has_next && CM_PHONES[phone_ids[k + 1]].kind != K_SIL) {
-                for (int j = 0; j < 5; j++) trow[j] = CL_ROW(k + 1, j);
-            }
-            trow[3] = CL_ASP_BW1;
-            trow[4] = CL_ASP_BW2;
-        } else if (ph->kind == K_FRIC) {
+            tah = CL_ASP_HH;                 // HH is breath shaped by the vowel after it
+            if (has_next) for (int j = 0; j < 5; j++) trow[j] = CL_ROW(k + 1, j);
+        } else if (ph->kind == K_FRIC || ph->kind == K_AFFRIC) {
             band = cl_find(CL_FRIC, sizeof CL_FRIC / sizeof CL_FRIC[0], ph->id);
             tav = ph->voiced ? CL_AV_VOICED_FRIC : 0;
-            // Smooth bell envelope on frication so sibilants don't click at edges
-            double fenv = 0.4 + 0.6 * sin((local < 1.0 ? local : 1.0) * M_PI);
-            taf = (band ? band->level : 0.5) * CL_FRIC_GAIN * fenv;
-            // Coarticulate vocal tract gently toward adjacent vowel during fricative
-            if (local > 0.5 && has_next && CM_PHONES[phone_ids[k + 1]].kind == K_VOWEL) {
-                for (int j = 0; j < 3; j++) trow[j] = 0.5 * trow[j] + 0.5 * CL_ROW(k + 1, j);
+            taf = band->level * CL_FRIC_GAIN;
+        }
+        if (glides && ph->kind == K_VOWEL) {
+            const double* g = glides + 8 * k;
+            if (g[7] > 0) {
+                double u = (local - g[6]) / (g[7] - g[6]);
+                if (u < 0) u = 0;
+                if (u > 1) u = 1;
+                for (int j = 0; j < 3; j++) trow[j] = g[j] + u * (g[3 + j] - g[j]);
             }
         }
-
-        // Vowel glides: use caller's measured glide row if present, else canonical diphthong trajectory
-        if (ph->kind == K_VOWEL) {
-            int applied_glide = 0;
-            if (glides) {
-                const double* g = glides + 8 * k;
-                if (g[7] > 0) {
-                    double u = (local - g[6]) / (g[7] - g[6]);
-                    if (u < 0) u = 0;
-                    if (u > 1) u = 1;
-                    for (int j = 0; j < 3; j++) trow[j] = g[j] + u * (g[3 + j] - g[j]);
-                    applied_glide = 1;
-                }
-            }
-            if (!applied_glide) {
-                const cl_diphthong* d = cl_find_diph(ph->id);
-                if (d) {
-                    double u = (local - 0.15) / 0.70;
-                    if (u < 0) u = 0;
-                    if (u > 1) u = 1;
-                    // Smooth cosine interpolation across the diphthong
-                    u = 0.5 - 0.5 * cos(M_PI * u);
-                    trow[0] = d->on1 + u * (d->off1 - d->on1);
-                    trow[1] = d->on2 + u * (d->off2 - d->on2);
-                    trow[2] = d->on3 + u * (d->off3 - d->on3);
-                }
-            }
-        }
-
-        // Voiceless stop VOT: first 26 ms of following sonorant/vowel is aspirated transition
         if (k > 0 && cl_is_voiceless_stop(phone_ids[k - 1]) &&
             (ph->kind == K_VOWEL || ph->kind == K_GLIDE || ph->kind == K_LIQ) &&
             time - starts[k] < CL_VOT_S) {
-            double vot_prog = (time - starts[k]) / CL_VOT_S;
-            tav = CL_AV_VOWEL * (vot_prog * vot_prog); // Smooth voicing onset, not hard cut
-            tah = CL_ASP_STOP * (1.0 - 0.6 * vot_prog);
-            kf_here = kf_loc;
+            tav = 0;
+            tah = CL_ASP_STOP;
         }
-
         if (ph->kind == K_SIL) {
-            // CRITICAL FIX: While voicing from the previous phone is still decaying
-            // (first 25 ms of SIL), hold current formants so "my" doesn't dive to F1=200 Hz
-            // and synthesize a phantom "/d/" ("made"). Once silent, pre-position for next phone.
-            if (time - starts[k] < 0.025 || av > 0.03) {
-                trow[0] = f[0]; trow[1] = f[1]; trow[2] = f[2];
-                trow[3] = bw[0]; trow[4] = bw[1];
-            } else if (has_next) {
-                for (int j = 0; j < 5; j++) trow[j] = CL_ROW(k + 1, j);
-                // If the next phone is a diphthong with no measured glide, pre-position to its onset!
-                if (CM_PHONES[phone_ids[k + 1]].kind == K_VOWEL) {
-                    int has_g = glides && glides[8 * (k + 1) + 7] > 0;
-                    if (has_g) {
-                        for (int j = 0; j < 3; j++) trow[j] = glides[8 * (k + 1) + j];
-                    } else {
-                        const cl_diphthong* d = cl_find_diph(CM_PHONES[phone_ids[k + 1]].id);
-                        if (d) { trow[0] = d->on1; trow[1] = d->on2; trow[2] = d->on3; }
-                    }
-                }
-            } else {
-                trow[0] = f[0]; trow[1] = f[1]; trow[2] = f[2];
-                trow[3] = bw[0]; trow[4] = bw[1];
-            }
+            // Silence: the formants go where the next phone needs them.
+            if (has_next) for (int j = 0; j < 5; j++) trow[j] = CL_ROW(k + 1, j);
+            else { trow[0] = f[0]; trow[1] = f[1]; trow[2] = f[2]; trow[3] = bw[0]; trow[4] = bw[1]; }
         }
+        if (band) { fc = band->fc; fb = band->bw; }
 
-        if (band && !(ph->kind == K_STOP && (strcmp(ph->id, "K") == 0 || strcmp(ph->id, "G") == 0))) {
-            fc = band->fc;
-            fb = band->bw;
-        }
         av += ka * (tav - av);
-        av_bar += ka * (tav_bar - av_bar);
-        ah += ka_ah_here * (tah - ah);
+        ah += ka * (tah - ah);
         af += ka * (taf - af);
-        for (int j = 0; j < 3; j++) f[j] += kf_here * (trow[j] - f[j]);
+        for (int j = 0; j < 3; j++) f[j] += kf * (trow[j] - f[j]);
         double tb1 = trow[3];
-        double tb2 = trow[4];
-        if (tah > 0.02 && tb1 < CL_ASP_BW1) tb1 = CL_ASP_BW1;
-        if (tah > 0.02 && tb2 < CL_ASP_BW2) tb2 = CL_ASP_BW2;
-        bw[0] += kf_here * (tb1 - bw[0]);
-        bw[1] += kf_here * (tb2 - bw[1]);
+        if (tah > 0 && tb1 < CL_ASP_BW1) tb1 = CL_ASP_BW1;
+        bw[0] += kf * (tb1 - bw[0]);
+        bw[1] += kf * (trow[4] - bw[1]);
 
         // Source: synth.ts's pulse, open for CL_OPEN_QUOTIENT of the period,
         // its mean taken out; synth.ts's vibrato and noise.
@@ -839,11 +687,8 @@ int christman_synth_clear(const int* phone_ids, const double* durs, size_t n_pho
         double pulse = ((phase < oq ? cm_glottal(phase / oq) : 0.0) - 0.563 * oq) / oq;
         double nz = cm_hash_noise((uint32_t)i, 7u);
         double nz2 = cm_hash_noise((uint32_t)i, 11u);
-        lp = 0.72 * lp + nz;
-        double src = av * pulse + ah * lp * 0.22;
-
-        // Low-frequency voice bar for B, D, G closure (neck wall radiation below 300 Hz)
-        vbar_lp = 0.94 * vbar_lp + 0.06 * (av_bar * pulse);
+        lp = 0.75 * lp + nz;                 // breath noise tilted down; the radiation step lifts it back
+        double src = av * pulse + ah * lp * 0.25;
 
         // Cascade: F1, F2, F3 (BW3 160, synth.ts:142), then F4, F5; each at
         // unity gain at 0 Hz.
@@ -857,27 +702,18 @@ int christman_synth_clear(const int* phone_ids, const double* durs, size_t n_pho
             y[j][0] = yy;
             x = yy;
         }
-
-        // Nasal anti-formant approximation: damp high-frequency oral radiation during M, N, NG
-        nasal_lp = 0.85 * nasal_lp + 0.15 * x;
-        double vocal_tract_out = (ph->kind == K_NASAL) ? (0.55 * x + 0.45 * nasal_lp) : x;
-
-        // Frication: two-stage bandpass resonator at the consonant's band so S, SH, F, TH
-        // have realistic spectral skirts instead of single-pole whistling.
+        // Frication: one resonator at the consonant's band, gain 1 at its centre.
         cl_res pf = cl_make(fc, fb, sample_rate);
         double th = 2 * M_PI * fc / SR;
         double re = 1 - pf.a * cos(th) - pf.b * cos(2 * th);
         double im = pf.a * sin(th) + pf.b * sin(2 * th);
         double peak = sqrt(re * re + im * im);
-        double yff1 = peak * af * nz2 + pf.a * yf[0] + pf.b * yf[1];
+        double yff = peak * af * nz2 + pf.a * yf[0] + pf.b * yf[1];
         yf[1] = yf[0];
-        yf[0] = yff1;
-        // High-pass difference on frication for crisp sibilant/burst edge
-        double yff = yff1 - 0.85 * yf2[0];
-        yf2[0] = yff1;
+        yf[0] = yff;
 
-        out[i] = (float)((vocal_tract_out - rad) + vbar_lp * 0.45 + yff * CL_FRIC_POST);
-        rad = vocal_tract_out;
+        out[i] = (float)((x - rad) + yff * CL_FRIC_POST);   // radiation: synth.ts:152 with a full step
+        rad = x;
     }
 #undef CL_ROW
 
