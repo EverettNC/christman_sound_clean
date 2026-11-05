@@ -64,8 +64,8 @@ WHAT CHANGED AND WHY
    this file: any argmax spoke, whatever its confidence. Over four gesture
    labels, an argmax can be as low as 0.25 and still said "I need help."
    for the person. A reading below `confidence_threshold`
-   (0.6, the same bar as nonverbal_engine) is now `below_threshold` and
-   carries no message.
+   (0.6, the same bar as nonverbal_engine) is now labelled
+   `below_threshold`. (Until 2026-11-04 it also lost its words; item 12.)
 
 8. IT PUT FEELINGS IN THE PERSON'S MOUTH. 2026-10-29. A face-emotion model
    reading "Neutral" spoke "I'm fine."; "Fear" spoke "I'm scared."; a head
@@ -73,38 +73,73 @@ WHAT CHANGED AND WHY
    A camera's guess about a face, an eye, or a tic is not the person's
    sentence. In the built-in map, the generic feelings (face, eye, tic) are
    reported as observations: the label and intent stay, `message` is None,
-   `reason` says why. Hand Up and the waves speak.
+   `reason` says why.
    The handoff then made every map entry speak only when it said
    `"speaks": true`. Everett, 2026-10-29 (ruling L), took that out: "Every
-   situation is conditional, to be either kept silent or vocal." Silent or
-   vocal is decided by the conditions (`_speaks`): danger is silent; a
-   meaning in the client's own map is learned for that client and spoken;
-   a built-in generic feeling is silent; every other meaning is spoken. An
-   older map with no such field works exactly as before for every meaning
-   that is not danger.
+   situation is conditional, to be either kept silent or vocal." A
+   `"speaks"` field in a map is still read by nothing. From 2026-10-29 to
+   2026-11-04 the conditions were decided here, in `_speaks`; since item 12
+   they are the being's to decide, and `_speaks` is gone. An older map with
+   no such field reads exactly as before.
 
 11. THE BUILT-IN MAP SPOKE FOR THE CLIENT. 2026-10-29 review, Everett's
    rulings J and I. The built-in map still said "Go back." for Wave Left,
    "Move forward." for Wave Right, and "I need help." for Hand Up. Ruling J:
-   the camera speaks only meanings learned for that client, so the built-in
-   map carries no wording at all; every built-in reading is reported (label,
-   intent, confidence) and says nothing. Ruling I: help and danger are the
-   silent alarm, so Hand Up ("Request attention") pages a human, silently,
-   and is never spoken, from the built-in map or from the client's own map.
-   A help or danger meaning never reaches `_speaks`.
+   the camera has words only for meanings learned for that client, so the
+   built-in map carries no wording at all; every built-in reading is
+   reported (label, intent, confidence) with no words. Ruling I grouped
+   help with danger; Hand Up ("Request attention") is help. Until
+   2026-11-04 this module acted on that itself (item 12); now it reports it.
 
 9. THE SYSTEM'S WORDS WERE GLUED TO THE PERSON'S. 2026-10-29.
    `enhanced_response` was "I see your gesture. I need help." — one string,
    so a voice reading it aloud spoke the system's sentence as the person's.
    It also imported a `conversation_engine` module that exists nowhere in
-   this package. Now `message` is the person's mapped words (or None) and
-   `system_note` is the system's own, kept apart. The outside import is gone.
+   this package. Now `message` is the person's mapped words (or None). The
+   outside import is gone. (The system's own sentence about what it saw was
+   kept apart from 2026-10-29; item 12 removed it.)
 
 10. RELATIVE PATHS. 2026-10-29. "lstm_models" and "config/language_map.json"
    were read from whatever directory the caller happened to run in. No
    default path now: with no model directory every modality is
    `unavailable` and says so; with no language-map path the built-in map is
    used and nothing is read from disk.
+
+12. WHAT CHANGED AND WHY (2026-11-04): THE ENGINE READS; THE BEING DECIDES.
+   Everett's ruling, in his words:
+
+       "we can have this knowledge in the sound package, but it can't be
+       making those decisions. It's up to the being to make those
+       decisions, not something that just creates a voice."
+       "it can't make decisions that counteract the being, because the
+       being is the one that has all of the work to make those decisions
+       properly."
+
+   Before this, the engine decided for the being. A reading under the bar
+   came back with message None. A help or danger reading (Hand Up's
+   "Request attention", the face model's "Worried", any entry whose words
+   speak of fear or attack) came back with message None, a `silent_alarm`
+   flag and a flag that sent it to a human, and one such reading anywhere
+   blanked the message and the system's sentence for the whole input.
+   `_speaks` decided, entry by entry, whether the client's mapped words
+   were returned. The system kept its own sentences ("I see your
+   gesture.") and returned one beside the client's words.
+
+   Now the engine reports what it read:
+     - The client's mapped words are always on the reading. Under the bar
+       the reading is labelled `below_threshold` and carries its
+       confidence, the threshold and its words.
+     - Every recognized reading carries `category` ("danger", "need" or
+       "other"), `danger` and `danger_term` (the intent or the word that
+       matched). Hand Up's "Request attention" is kept as knowledge in
+       TEMPORAL_HELP_INTENTS and reads "danger", the same as
+       nonverbal_engine's "help" intent; the face model's "Worried" is kept
+       in TEMPORAL_DANGER_INTENTS. The map no longer carries a field that
+       sends a reading anywhere.
+     - The multimodal result reports `danger_present` and
+       `distress_present`. Nothing is blanked because of them.
+     - The system's own sentences and the `system_note` key are deleted:
+       what to say about a reading is the being's.
 """
 
 from __future__ import annotations
@@ -117,18 +152,20 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from .nonverbal_engine import CATEGORY_DANGER, category_of, danger_term
+
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
-#: The built-in map. An entry carries its meaning, not a fixed speak/silent
-#: flag (Everett, 2026-10-29, ruling L), and NO WORDING (ruling J: the
-#: camera speaks only meanings learned for that client). Each built-in
-#: reading is reported by its label and intent and says nothing; a spoken
-#: meaning comes only from the client's own language map. `pages` marks a
-#: signal that goes to a human (Hand Up, ruling 5); Hand Up is help, so it is
-#: the silent alarm (ruling I).
+#: The built-in map. An entry carries its meaning, not a speak/silent flag
+#: (Everett, 2026-10-29, ruling L), and NO WORDING (ruling J: the camera has
+#: words only for meanings learned for that client). Each built-in reading is
+#: reported by its label and intent with no words; a meaning's words come
+#: only from the client's own language map. What a reading means for the
+#: client (Hand Up is a call for someone) is read from its intent
+#: (TEMPORAL_HELP_INTENTS), not from a field here.
 DEFAULT_LANGUAGE_MAP: Dict[str, Dict[str, Any]] = {
-    "Hand Up": {"intent": "Request attention", "pages": True},
+    "Hand Up": {"intent": "Request attention"},
     "Wave Left": {"intent": "Previous mode"},
     "Wave Right": {"intent": "Next mode"},
     "Head Jerk": {"intent": "Stress (tick)"},
@@ -143,60 +180,46 @@ DEFAULT_LANGUAGE_MAP: Dict[str, Dict[str, Any]] = {
 }
 
 #: Built-in readings of a generic feeling: a face, an eye movement, a tic.
-#: Not spoken (ruling J); the built-in map carries no wording for any of
-#: them. A meaning in the client's own language map is a meaning learned for
-#: that client, and is spoken unless it is help or danger.
+#: The built-in map carries no wording for any of them (ruling J). A meaning
+#: in the client's own language map is a meaning learned for that client,
+#: and its words are returned with the reading.
 GENERIC_FEELING_INTENTS = frozenset({
     "Stress (tick)", "Thinking", "Discomfort", "Calm", "Joy", "Unhappy",
     "Upset", "Worried", "Shocked",
 })
 
-#: Intents that page a human whatever the language map says. Everett,
-#: 2026-10-29: Hand Up ("Request attention") pages a human. Before this, the
-#: page hung on a `"pages": true` field in the map, so a language map read
-#: from disk (made before that field existed, or edited by hand) let a Hand
-#: Up through with no human reached. The intent is what Everett named, so
-#: the intent pages.
-PAGING_INTENTS = frozenset({"Request attention"})
-
+#: Help: Hand Up's "Request attention" (Everett, 2026-10-29, ruling 5). Ruling
+#: I groups help with danger, so it reads category "danger", the same as
+#: nonverbal_engine's "help" intent. It is read from the intent, not from a
+#: field in the map: a language map read from disk (made before any such
+#: field existed, or edited by hand) still reads a Hand Up as help.
+TEMPORAL_HELP_INTENTS = frozenset({"Request attention"})
 
 #: The face model's "Fear" label ("Worried") was danger by its old built-in
-#: wording, "I'm scared." (nonverbal_engine.DANGER_WORDS), so a Fear reading
-#: paged a human, silently. Ruling J took the wording out of the built-in
-#: map; this keeps the reading danger by its intent, so the page is not lost
-#: with the words (ruling I). Measured on this branch before this line: the
-#: built-in Fear reading no longer paged.
+#: wording, "I'm scared." (nonverbal_engine.DANGER_WORDS). Ruling J took the
+#: wording out of the built-in map; this keeps the reading danger by its
+#: intent, so the reading is not lost with the words.
 TEMPORAL_DANGER_INTENTS = frozenset({"Worried"})
 
 
-def _danger(entry: Dict[str, Any]) -> bool:
-    """A danger meaning: never spoken, always paged (ruling I, the silent alarm)."""
-    from .nonverbal_engine import is_danger
-    return (entry.get("intent") in TEMPORAL_DANGER_INTENTS
-            or is_danger(entry.get("intent"), entry.get("message")))
+def _words(entry: Dict[str, Any]) -> Optional[str]:
+    """The client's words in a map entry, exactly as written, or None."""
+    message = entry.get("message")
+    return message if isinstance(message, str) and message.strip() else None
 
 
-def _pages(entry: Dict[str, Any]) -> bool:
-    """This map entry goes to the crisis gate and a human."""
-    return (entry.get("pages") is True or entry.get("intent") in PAGING_INTENTS
-            or _danger(entry))
-
-
-def _silent_alarm(entry: Dict[str, Any]) -> bool:
+def _reading(entry: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
     """
-    Help or danger: paged silently, never spoken, never announced (Everett's
-    ruling I: help and danger are the silent alarm). Hand Up's "Request
-    attention" is help, from the built-in map or the client's own.
+    (category, danger_term) for a map entry. A reading only; nothing here
+    acts on it. Help and the face model's "Worried" read "danger" by their
+    intent; every other entry is read by nonverbal_engine's sets and words.
     """
-    return _danger(entry) or entry.get("intent") in PAGING_INTENTS
+    intent = entry.get("intent")
+    if intent in TEMPORAL_HELP_INTENTS or intent in TEMPORAL_DANGER_INTENTS:
+        return CATEGORY_DANGER, intent
+    words = _words(entry)
+    return category_of(intent, words), danger_term(intent, words)
 
-
-#: The system's own words about what it saw. Never joined to the person's.
-SYSTEM_NOTES: Dict[str, str] = {
-    "gesture": "I see your gesture.",
-    "eye": "I notice your eye movement.",
-    "emotion": "I notice your face.",
-}
 
 DEFAULT_LABELS: Dict[str, List[str]] = {
     "gesture": ["Hand Up", "Wave Left", "Wave Right", "Head Jerk"],
@@ -211,6 +234,10 @@ UNAVAILABLE_RESULT: Dict[str, Any] = {
     "confidence": None,
     "message": None,
     "status": "unavailable",
+    "below_threshold": False,
+    "category": None,
+    "danger": False,
+    "danger_term": None,
 }
 
 

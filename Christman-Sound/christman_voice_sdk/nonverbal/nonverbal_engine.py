@@ -589,6 +589,21 @@ def validate_map(name: str, table: Dict[str, Any], strict: bool = False) -> Dict
     return clean
 
 
+#: Two tallies closer than this are equal. 1e-9: a chosen value. Reason:
+#: weighted sums of the same priors can differ in the last float bits
+#: (0.8 x 0.9 against 0.72), and the smallest real difference the maps can
+#: make is far larger (priors move in steps of 0.05, weighted 0.8 at least).
+TIE_TOLERANCE = 1e-9
+
+
+def _leaders(tallies: Dict[str, float]) -> List[str]:
+    """Every key that shares the top tally, sorted. More than one is a tie."""
+    if not tallies:
+        return []
+    top = max(tallies.values())
+    return sorted(k for k, v in tallies.items() if abs(v - top) <= TIE_TOLERANCE)
+
+
 def _atomic_write_json(path: str, payload: Any) -> None:
     """
     Write JSON atomically.
@@ -868,11 +883,19 @@ class NonverbalEngine:
         symbol: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Combine modalities.
+        Combine modalities and report what the vote measured.
 
-        Only readings that PASSED the gate vote. A below-threshold or
-        unrecognized reading contributes nothing — the predecessor let a
-        fabricated 0.3 "unknown" vote alongside a real 0.9 gesture.
+        Only readings at or over the bar vote. A below-threshold or
+        unrecognized reading adds nothing to the tallies — the predecessor
+        let a fabricated 0.3 "unknown" vote alongside a real 0.9 gesture.
+        Every reading, under the bar or over it, is in `all_results` with its
+        words.
+
+        Nothing overrides the vote (2026-11-04). When two or more intents
+        share the top tally the status is "tie" and `tied_intents` names
+        them; the engine does not pick one. Distress anywhere in the input is
+        reported (`distress`, `distress_present`, `danger_present`), never
+        acted on.
 
         Returns a dict rather than an Interpretation because it carries the
         per-modality breakdown alongside the combined reading.
@@ -888,22 +911,32 @@ class NonverbalEngine:
                 parts.append(fn(value))  # type: ignore[operator]
 
         usable = [p for p in parts if p.status is Status.OK and p.confidence is not None]
+        distress = distress_readings(parts)
+        readings = {
+            "all_results": [p.to_dict() for p in parts],
+            # Recognized danger or need readings, under the bar or over it.
+            "distress": [p.to_dict() for p in distress],
+            "distress_present": bool(distress),
+            "danger_present": any(p.danger for p in parts),
+            "threshold": self.confidence_threshold,
+        }
 
         if not usable:
             return {
                 "status": "no_usable_reading",
                 "primary": None,
-                "silent_alarm": any(p.silent_alarm for p in parts),
-                "all_results": [p.to_dict() for p in parts],
-                # Below the speaking bar is not below the paging bar.
-                "distress": [p.to_dict() for p in distress_readings(parts)],
-                "speakable": False,
+                "intent": None,
+                "tied_intents": [],
+                "message": None,
+                "tallies": {},
+                "tier_tallies": {},
+                **readings,
                 "note": (
                     "No modality produced a reading at or above the confidence "
-                    "threshold. This is NOT a neutral or calm state — nothing "
-                    "was recognized."
+                    "threshold. This is NOT a neutral or calm state. A reading "
+                    "under the bar is in all_results, labelled below_threshold, "
+                    "with its words."
                 ),
-                "threshold": self.confidence_threshold,
             }
 
         # Eye input is weighted below the others; that weighting is a stated
@@ -911,66 +944,87 @@ class NonverbalEngine:
         # 0.8 for eye: a chosen starting value, held until client data
         # replaces it. Reason: a glance is more often unintended than a
         # pressed symbol, a gesture or a sound, so an eye reading must not tie
-        # one of those at equal confidence. 0.8 x 0.9 = 0.72 still clears the
-        # 0.6 floor, so a deliberate eye choice on its own is never silenced.
+        # one of those at equal confidence. The weight applies to the tally
+        # only; the bar is read on each reading's own confidence.
         # 1.0 for the others: no reason yet to rank them against each other.
         WEIGHT = {Modality.GESTURE: 1.0, Modality.SYMBOL: 1.0,
                   Modality.SOUND: 1.0, Modality.EYE: 0.8}
 
-        intent_votes: Dict[str, float] = {}
-        tier_votes: Dict[str, float] = {t: 0.0 for t in VALID_TIERS}
+        tallies: Dict[str, float] = {}
+        tier_tallies: Dict[str, float] = {t: 0.0 for t in VALID_TIERS}
         for p in usable:
             w = (p.confidence or 0.0) * WEIGHT.get(p.modality, 1.0)
-            intent_votes[p.intent or ""] = intent_votes.get(p.intent or "", 0.0) + w
+            tallies[p.intent or ""] = tallies.get(p.intent or "", 0.0) + w
             # Tier is guaranteed valid by validate_map — no KeyError path.
-            tier_votes[p.emotion_tier or "mild"] += w
+            tier_tallies[p.emotion_tier or "mild"] += w
 
-        # Distress is not outvoted. 2026-10-29, measured before: gesture
-        # "nod" + sound "grunt_distress" spoke "Yes, I agree." and nothing
-        # else. A person who needs help and also nodded needs help.
-        distress_votes = {k: v for k, v in intent_votes.items() if k in DISTRESS_INTENTS}
-        votes = distress_votes or intent_votes
-        best_intent = max(votes, key=lambda k: votes[k])
-        best_tier = max(tier_votes, key=lambda k: tier_votes[k])
-
-        # 2026-10-29: the message came from the single strongest reading
-        # overall, and was dropped whenever that reading had lost the vote.
-        # Measured before: gesture "wave" + eye "center" + sound "click" —
-        # "select" won the vote, "wave" was strongest, message None,
-        # speakable False. The person was understood and silenced. The
-        # message now comes from the strongest reading OF the winning intent.
-        silent = any(p.silent_alarm for p in parts)
-        agreeing = [p for p in usable if p.intent == best_intent]
-        # Ruling J left the camera's built-in readings with no wording. Of the
-        # readings that agree, one that carries words outranks one that does
-        # not (as engine_temporal does), so a clicked choice is still said
-        # when a wordless eye reading agreed with it.
-        speaking = [p for p in agreeing if p.message]
-        winner = max(speaking or agreeing, key=lambda p: p.confidence or 0.0)
+        # The measured winner, and nothing over it. Until 2026-11-04 any
+        # distress intent here overrode the vote (added 2026-10-29, when
+        # gesture "nod" + sound "grunt_distress" said "Yes, I agree." and
+        # nothing else). Measured on 2ad3ac0, before this change: nod +
+        # grunt_distress tie at 0.9 each; the override reported "help", and
+        # the tier vote, also tied, reported "moderate" by table order. Now a
+        # tie is reported as a tie, and the distress is reported beside it.
+        leaders = _leaders(tallies)
+        tier_leaders = _leaders(tier_tallies)
         strongest = max(usable, key=lambda p: p.confidence or 0.0)
-        combined_confidence = sum(p.confidence or 0.0 for p in agreeing) / len(agreeing)
 
         key = "+".join(sorted(p.input_data or "" for p in usable))
         self._record_raw(Modality.MULTIMODAL, key)
 
+        measured = {
+            "tallies": tallies,
+            "tier_tallies": tier_tallies,
+            "emotion_tier": tier_leaders[0] if len(tier_leaders) == 1 else None,
+            "tied_tiers": tier_leaders if len(tier_leaders) > 1 else [],
+            "strongest_overall": strongest.to_dict(),
+            "confidence_is_prior": True,
+            "modalities": [p.modality.value for p in usable],
+            **readings,
+        }
+
+        if len(leaders) > 1:
+            return {
+                "status": "tie",
+                "primary": None,
+                "intent": None,
+                "tied_intents": leaders,
+                "confidence": None,
+                "message": None,
+                **measured,
+                "note": (
+                    "The top tallies are equal; tied_intents names them. Each "
+                    "reading, with its words, is in all_results. The engine "
+                    "does not pick one."
+                ),
+            }
+
+        best_intent = leaders[0]
+        # 2026-10-29: the message came from the single strongest reading
+        # overall, and was dropped whenever that reading had lost the vote.
+        # Measured before: gesture "wave" + eye "center" + sound "click" —
+        # "select" won the vote, "wave" was strongest, message None. The
+        # person was understood and their words lost. The message now comes
+        # from the strongest reading OF the winning intent.
+        agreeing = [p for p in usable if p.intent == best_intent]
+        # Ruling J left the camera's built-in readings with no wording. Of the
+        # readings that agree, one that carries words outranks one that does
+        # not (as engine_temporal does), so a clicked choice keeps its words
+        # when a wordless eye reading agreed with it.
+        worded = [p for p in agreeing if p.message]
+        winner = max(worded or agreeing, key=lambda p: p.confidence or 0.0)
+        combined_confidence = sum(p.confidence or 0.0 for p in agreeing) / len(agreeing)
+
         return {
             "status": "ok",
             "primary": winner.to_dict(),
-            "strongest_overall": strongest.to_dict(),
             "intent": best_intent,
-            "emotion_tier": best_tier,
+            "tied_intents": [],
             "confidence": combined_confidence,
-            "confidence_is_prior": True,
-            "message": None if silent else winner.message,
-            "modalities": [p.modality.value for p in usable],
-            "all_results": [p.to_dict() for p in parts],
-            "distress": [p.to_dict() for p in distress_readings(parts)],
-            "speakable": bool(winner.message) and not silent,
-            # A danger reading anywhere in the input: the whole input is
-            # silent (ruling I). The danger still reaches a human through
-            # "distress".
-            "silent_alarm": silent,
-            "threshold": self.confidence_threshold,
+            # The winning reading's words, exactly as mapped, or None when
+            # that reading carries none. Never taken away.
+            "message": winner.message,
+            **measured,
         }
 
 
@@ -1157,7 +1211,8 @@ class NonverbalEngine:
                 "data_dir": self.data_dir,
                 "adds_random_noise": False,
                 "speaks_for_unrecognized_input": False,
-                "threshold_enforced": True,
+                # The bar labels readings; it never takes words away.
+                "threshold_withholds_words": False,
             }
 
 
@@ -1178,9 +1233,12 @@ __all__ = [
     "MapValidationError", "validate_map", "get_nonverbal_engine",
     "DEFAULT_GESTURES", "DEFAULT_SYMBOLS", "DEFAULT_EYE_REGIONS",
     "DEFAULT_SOUNDS", "EMOTIONAL_INDICATORS", "VALID_TIERS",
-    "MIN_CONFIRMED_SAMPLES", "CONFIDENCE_STEP",
-    "DISTRESS_INTENTS", "distress_readings", "DANGER_INTENTS", "NEED_PAGING_INTENTS",
-    "is_danger", "DANGER_WORDS", "GENERIC_FEELING_INTENTS",
+    "MIN_CONFIRMED_SAMPLES", "CONFIDENCE_STEP", "TIE_TOLERANCE",
+    "DISTRESS_INTENTS", "distress_readings",
+    "DANGER_CATEGORY_INTENTS", "NEED_CATEGORY_INTENTS",
+    "CATEGORY_DANGER", "CATEGORY_NEED", "CATEGORY_OTHER", "CATEGORIES",
+    "is_danger", "danger_term", "category_of", "DANGER_WORDS",
+    "GENERIC_FEELING_INTENTS", "NOT_LEARNED_REASON",
 ]
 
 # ==============================================================================

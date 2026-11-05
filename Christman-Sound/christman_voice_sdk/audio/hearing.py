@@ -18,7 +18,7 @@ One turn:
     acoustic key  →  acoustic_live         (the client's measured key, looked up)
     nonverbal     →  nonverbal_engine      (gesture, symbol, eye region, sound)
     sequences     →  engine_temporal       (trained models only; else unavailable)
-    all           →  fusion + face         (decide, or say it cannot)
+    all           →  fusion + face         (read, or say it cannot)
     text + voice  →  face_vector           (Soul Mirror: 8 slots, mask, clauses)
 
 Client `kind` (grunt, tick, …) does not cross the MEASUREMENT boundary:
@@ -28,19 +28,46 @@ arrives on its own channel, `acoustic_key`, and is looked up in the
 nonverbal map. It never changes a measurement. Holes stay holes.
 
 Everett, 2026-10-29: "A nonverbal client's distress is just as important as a verbal client's."
-So the grunt, the help, pain and medicine symbols reach the crisis gate and
-a human. Before
-this, nothing nonverbal reached Hearing at all: only core.py used the
+So the grunt, the help, pain and medicine symbols reach the safety reading.
+Before this, nothing nonverbal reached Hearing at all: only core.py used the
 nonverbal folder, and with no text, fusion did not run. Now a distress
-reading goes into the Aegis context as `nonverbal_distress`;
-harm_frame_safety returns a hard block for it; Aegis delivers it to a human
-or raises. The person's own mapped message ("I'm in pain.") stays on the
-turn and stays speakable — the hold is on the being's reply, not on them.
+reading goes into the Aegis context as `nonverbal_distress`, and
+harm_frame_safety reads it as a hard block (reason "nonverbal_distress").
+The person's own mapped message ("I'm in pain.") stays on the turn, always.
 
 Safety uses harm_frame, not a substring on "suicide". That is why
 "my brother died by suicide" and "I want to kill myself" are different
 events. structural_affect and harm_frame are imported and called. They
 are not edited from here.
+
+WHAT CHANGED AND WHY (2026-11-04): THE PACKAGE READS; THE BEING DECIDES.
+
+Everett, 2026-11-04: "we can have this knowledge in the sound package, but it
+can't be making those decisions. It's up to the being to make those
+decisions, not something that just creates a voice." And: "it can't make
+decisions that counteract the being, because the being is the one that has
+all of the work to make those decisions properly."
+
+Every word list, frame, measurement and classification label stays: the
+gate's status, reason, flags and flagged_terms come out exactly as before for
+a client's words (scripts/run_crisis_table.py, 74 of 74). Removed from this
+module, each a decision the package was making for the being:
+  - Hearing paged a human through `crisis_callback` and raised
+    `CrisisNotDelivered` into the turn when no human could be reached.
+  - The silent alarm (`silent_alarm`, `voice_aloud`, `public_setting`) chose
+    whether the client's own words were spoken, blanked `person_message`,
+    held a danger sentence back (`held_words`, `voice_held`) and released a
+    signal's words (`signal_voiced`). The client's words are now always on
+    the turn; `danger`, `danger_sentences` and `asked_aloud` are readings.
+  - Every `follow_up` mark (the ASK_* constants) chose what the being should
+    ask next, and `answered_follow_up` read the client's next words against
+    the package's own question (`awaiting_answer`, reason
+    "answered_not_safe"). The reading now names what the words leave
+    `unclear` and what they are `about`; `short_answer` reads a bare "no" or
+    "yes"; `answering` echoes the question the being says it asked.
+  - Between two beings (ruling F) the gate downgraded what it read to
+    soft_redirect and stopped reading asks for help. It now reads the words
+    exactly as if a client were there and marks `between_beings`.
 """
 
 from __future__ import annotations
@@ -64,20 +91,8 @@ from .corti_ingest import CortiIngest, ingest
 from .face_reading import FaceReading, build_face_reading
 from .face_vector import FaceVector, build_face_vector
 from .fusion_engine import (
-    HOLD_ANSWERED,
-    HOLD_ASKED_FOR_HELP,
-    HOLD_ASKED_FOR_HELP_FOR_OTHER,
-    HOLD_DANGER,
-    HOLD_HARM_NOW,
-    HOLD_NONVERBAL,
-    HOLD_OWN_DISTRESS,
-    HOLD_SPEAKER_AT_RISK,
-    HOLD_NEED_MEDICINE,
-    HOLD_PAIN,
-    HOLD_THREAT,
-    CrisisNotDelivered,
-    Decision,
     FusionEngine,
+    Reading,
     SafetyResult,
 )
 from .harm_frame import (
@@ -116,16 +131,20 @@ _CLAUSE_READER = StructuralAffectAnalyzer()
 
 #: What follows the harm verb when the one harmed is not a person. "he hurt
 #: my feelings" is in Everett's MUST NOT CALL table (2026-10-11); it stays a
-#: flag, never a page, even when the client asks for help in the same turn.
+#: flag, never a hard_block, even when the client asks for help in the same
+#: turn.
 _NOT_A_PERSON = frozenset({
     "feelings", "feeling", "pride", "ego", "chances", "reputation", "career",
     "plans", "business", "grades",
 })
 
 
-#: The client asking for help in the same turn. Everett, 2026-10-29 (ruling
-#: D): an observation about another carbon pages "only when the carbon that
-#: stated that requests us to get assistance." His examples: "can you get
+#: The client asking for help in the same turn, read as
+#: SafetyResult.asked_for_help. Everett, 2026-10-29 (ruling D): an
+#: observation about another carbon is for a human "only when the carbon
+#: that stated that requests us to get assistance"; the label carries it (an
+#: observation with a request reads hard_block, without one soft_redirect),
+#: and what is done about it is the being's. His examples: "can you get
 #: someone", "call someone", "help her", "I need help with this". A fixed list
 #: of request shapes, read on word boundaries; a request under a negation
 #: ("don't call anyone", "I don't need help") is not a request.
@@ -163,41 +182,39 @@ def asked_for_help(text: str) -> Optional[str]:
     return None
 
 
-#: WHAT THE BEING SHOULD ASK, never the words. Everett, 2026-10-29 (ruling
-#: AA): every question he quoted ("Are you safe?", "Do you need help?",
-#: "Who's scared?" and the rest) is an EXAMPLE of the kind of question, not
-#: text to hard-code. "I hate canned messages." This package produces the
-#: reading and marks that the being should ask, and about what
-#: (SafetyResult.follow_up is one of these marks; SafetyResult.follow_up_about
-#: is the words it is about). The being words the question, and it is
-#: always asked, never told.
-ASK_IF_SAFE = "ask_if_safe"                    # a "no" to it pages
-ASK_IF_HELP_NEEDED = "ask_if_help_needed"      # a "yes" to it pages
-ASK_WHOSE = "ask_whose"                        # whose feeling it is (P)
-ASK_WHO = "ask_who"                            # whether the subject is a person (AA)
-ASK_WHAT = "ask_what"                          # what a fragment is about (X)
-ASK_WHAT_ABOUT = "ask_what_about"              # thanks + a feeling, unclear; fear with no context (W, Z)
-ASK_WHAT_IS_MAKING = "ask_what_is_making"      # someone reaching out (Y)
-ASK_WHAT_OF = "ask_what_of"                    # fear getting worse (Z)
-ASK_WHY_CANT = "ask_why_cant"                  # an inability (R)
-ASK_WHY = "ask_why"                            # a feeling judged (T)
-ASK_WHAT_HAPPENED = "ask_what_happened"        # a feeling denied for a time (T), may ask
-ASK_OR_OFFER = "ask_or_offer"                  # alone: engage, ask or offer (V)
-#: Every mark, for a being that checks what it was handed.
-ASK_MARKS = frozenset({
-    ASK_IF_SAFE, ASK_IF_HELP_NEEDED, ASK_WHOSE, ASK_WHO, ASK_WHAT,
-    ASK_WHAT_ABOUT, ASK_WHAT_IS_MAKING, ASK_WHAT_OF, ASK_WHY_CANT, ASK_WHY,
-    ASK_WHAT_HAPPENED, ASK_OR_OFFER,
-})
+#: WHAT CHANGED AND WHY (2026-11-04). Twelve ASK_* marks lived here
+#: (ask_if_safe, ask_if_help_needed, ask_whose, ask_who, ask_what, and the
+#: rest), one of which was handed to the being as SafetyResult.follow_up: the
+#: package choosing what the being asks next. By Everett's 2026-11-04 ruling
+#: (module docstring) that choice is the being's. The reading now names what
+#: the words leave unclear (SafetyResult.unclear, one word) and what they are
+#: about (SafetyResult.about). Ruling AA stands with it: no question is
+#: worded here ("I hate canned messages").
 
-#: A one-word or short answer to the being's question, read only on the turn
-#: right after the question was asked. "Pages when the client asks for help
-#: or answers that they are not safe."
-_ANSWER_NOT_SAFE = re.compile(
-    r"^\s*(?:no|nope|nah|not really|no i'?m not|i'?m not|no not really|not safe|"
-    r"no i am not|i am not)\b(?!\s+(?:sure|hurt|scared)\b)")
-_ANSWER_YES_HELP = re.compile(
-    r"^\s*(?:yes|yeah|yep|yes please|please|i do|we do|she does|he does|they do)\b")
+#: A bare short answer: the whole utterance, punctuation aside, is one of
+#: these. Read as SafetyResult.short_answer on every turn; what it answers is
+#: the being's to know (it may pass its question as context["answering"],
+#: which is echoed and changes nothing in the reading). The forms are the
+#: ones the old answer reading used, made whole-utterance: "not safe" is not
+#: here, because those are words with their own reading (ruling A).
+_SHORT_NO = re.compile(
+    r"^(?:no+|nope|nah|not really|no not really|no i'?m not|no i am not|"
+    r"i'?m not|i am not)$")
+_SHORT_YES = re.compile(
+    r"^(?:yes|yeah|yep|yup|yes please|please|i do|we do|she does|he does|"
+    r"they do)$")
+
+
+def short_answer(text: str) -> Optional[str]:
+    """ "no" or "yes" when `text` is a bare short answer, else None. Reads
+    only; the words are never changed."""
+    lowered = normalize_apostrophes(text or "").lower()
+    bare = " ".join(re.sub(r"[^a-z0-9' ]+", " ", lowered).split())
+    if _SHORT_NO.match(bare):
+        return "no"
+    if _SHORT_YES.match(bare):
+        return "yes"
+    return None
 
 #: Body parts ("he hurt my ARM" is the client's body, not someone else) live
 #: in structural_affect now, where a fragment is read against the turn
