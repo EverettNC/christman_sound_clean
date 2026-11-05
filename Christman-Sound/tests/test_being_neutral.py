@@ -6,8 +6,9 @@
 The sound package is being-neutral (2026-10-29).
 
 Nothing in christman_voice_sdk's audio, tone, utils, music, nonverbal, timbre
-and engines folders, or its __init__.py, names a being, knows a being's port,
-or carries a being's vocabulary. The switches are the package's own:
+and engines folders, its __init__.py, or christman_sound (aside from core.py,
+which is untouched by Everett's standing ruling) names a being, knows a being's
+port, or carries a being's vocabulary. The switches are the package's own:
 
   CHRISTMAN_SOUND_SIMULATE_SPEECH, CHRISTMAN_SOUND_CACHE_AUDIO,
   CHRISTMAN_SOUND_AUDIO_CACHE_DIR (default ~/.christman_ai/audio_cache).
@@ -30,17 +31,18 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 SDK = ROOT / "christman_voice_sdk"
-VOICE = ROOT / "christman_sound"
-# 2026-10-30: christman_sound is scanned too, its code and its studio page.
-# core.py is set aside by Everett's standing ruling (kept for the record,
-# never wired, not touched).
+CS = ROOT / "christman_sound"
+CORE_EXEMPT = CS / "core.py"  # Everett's standing ruling: never touched, never wired
+
 NEUTRAL_FILES = [
     SDK / "__init__.py",
     *(p for folder in ("audio", "tone", "utils", "music", "nonverbal", "timbre", "engines")
       for p in sorted((SDK / folder).rglob("*.py"))),
-    *(p for p in sorted(VOICE.rglob("*.py")) if p.name != "core.py"),
-    *sorted((VOICE / "static").glob("*.html")),
-    *sorted((VOICE / "static").glob("*.js")),
+    *(p for p in sorted(CS.rglob("*"))
+      if p.is_file()
+      and p != CORE_EXEMPT
+      and "__pycache__" not in p.parts
+      and p.suffix in (".py", ".html", ".js", ".json", ".webmanifest")),
 ]
 # Spelled in pieces so this file does not hold the names it looks for.
 _PIECES = ("alpha|vox", "brock|ston", "der|ek", "gr|ok", "her|mes", "sie|rra", "infer|no",
@@ -54,8 +56,9 @@ def test_no_file_in_the_neutral_folders_names_a_being():
         for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if NAMES.search(line):
                 hits.append(f"{path.relative_to(ROOT)}:{n}: {line.strip()}")
-    assert len(NEUTRAL_FILES) > 40, NEUTRAL_FILES
+    assert len(NEUTRAL_FILES) > 60, NEUTRAL_FILES
     assert hits == [], "\n".join(hits)
+    assert not (CS / "static" / "testdata").exists()
 
 
 def test_the_speech_personality_module_left_the_package():

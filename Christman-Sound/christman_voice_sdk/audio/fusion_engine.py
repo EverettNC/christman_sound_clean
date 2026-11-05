@@ -3,12 +3,13 @@ Christman Fusion Engine
 =======================
 Carbon ↔ Silicon Symbiosis Core
 
-Combines lived signal (Carbon) with structured reasoning (Silicon) under a
-safety boundary (Aegis).
+Combines lived signal (Carbon) with structured reasoning (Silicon) and the
+safety reading (Aegis).
 
-This is the CSS decision core for the voice stack. It does not generate speech.
-It produces a fused Decision that downstream surfaces (Adaptive Response,
-CommunicationGateway, presence, grounding) must honor.
+This is the CSS reading core for the voice stack. It does not generate speech
+and it decides nothing. It produces a fused Reading: what was said, how it
+reads, how sure the reading is, and where each part came from. What to do with
+that reading is the being's.
 
 Patent Pending — The Christman AI Project / Luma Cognify AI
 Truth. Dignity. Protection. Transparency. No Erasure.
@@ -37,25 +38,21 @@ WHAT CHANGED IN THIS REWRITE
 
    Carbon now delegates to StructuralAffectAnalyzer: clauses, contrast
    resolution, negation scope, volition, experiencer attribution, tense. The
-   lexicon supplies raw material; structure decides.
+   lexicon supplies raw material; structure decides how the words read.
 
-2. THERE IS NOW A MODE FOR NOT KNOWING.
+2. THERE IS A READING FOR NOT KNOWING.
 
    Everett, 2026-08-15: "I don't know is I don't know. They've done the
    research and they don't know. They cannot give you a cumulative answer.
    It's fucking okay to not know something."
 
-   `MODE_UNKNOWN` is not `hold-space` with a shrug. hold-space is a decision —
-   stay with this person, this is heavy. unknown is the absence of one. Folding
-   them together would let a system that cannot read a situation act as though
-   it had read it and chosen to be gentle.
-
-   Unknown still carries care in `delivery`: slower pace, silence allowed, no
-   rush, assert nothing. Not knowing is a reason to move carefully, not a
-   reason to do nothing. (Until the 2026-10-29 review it also carried
-   `confirm_before_acting=True`. Everett's ruling M: no confirm-before-acting.
-   The being asks through the ask marks; the package never holds an action
-   for confirmation. The field is gone from every delivery.)
+   `Reading.resolved` is False, and `Reading.unresolved_reason` names what
+   produced it, when the safety gate was degraded, nothing was said, the
+   words and the voice disagree, the structure did not resolve, or the words
+   leave something unclear (whose feeling, whether a subject is a person, a
+   fragment with nothing before it, thanks and a feeling together, a fear
+   with no context, an inability). Not knowing is reported as not knowing;
+   it is never folded into a confident label.
 
 3. AEGIS NO LONGER REWRITES WHAT THE PERSON SAID.
 
@@ -70,17 +67,58 @@ WHAT CHANGED IN THIS REWRITE
    unmodified.
 
    Everett's ruling, 2026-10-29 (in the coordinator's words, not his): never
-   change the truth; nothing sanitizes what a person said. The field was named `sanitized_text`, and a hard block set it
-   to "" — the words were withheld from everything after the gate. The field
-   is now `said`, Aegis sets it to the exact words on every result (a
-   callback cannot change it), and a safety hold never withholds them.
+   change the truth; nothing sanitizes what a person said. The field was named
+   `sanitized_text`, and a hard block set it to "" — the words were withheld
+   from everything after the gate. The field is now `said`, Aegis sets it to
+   the exact words on every result (a safety callback cannot change it), and
+   nothing withholds them.
 
 4. PROSODY IS AN INPUT, AND IT NEVER DECIDES ALONE.
 
    The ear measures. It does not classify and it does not vote on valence.
    `fuse()` accepts an optional ProsodyReading; the engine reconciles it
-   against the structural reading and records the result. Disagreement produces
-   MODE_UNKNOWN, not a blended number.
+   against the structural reading and records the result. Disagreement leaves
+   the reading unresolved, not a blended number.
+
+5. WHAT CHANGED AND WHY (2026-11-04): THE PACKAGE READS; THE BEING DECIDES.
+
+   Everett, 2026-11-04: "we can have this knowledge in the sound package, but
+   it can't be making those decisions. It's up to the being to make those
+   decisions, not something that just creates a voice." And: "it can't make
+   decisions that counteract the being, because the being is the one that has
+   all of the work to make those decisions properly."
+
+   Removed from this module, each a decision the package was making for the
+   being:
+     - Aegis paged a human through `crisis_callback` on every hard block and
+       raised `CrisisNotDelivered` into the turn when no human could be
+       reached. Aegis now returns the classified SafetyResult and nothing
+       else. The callback, the exception and the "CRISIS DETECTED" log are
+       gone from Aegis, FusionEngine and get_fusion_engine.
+     - SafetyResult carried `delivered_to_human`, `hold_marker` (the HOLD_*
+       marks), `follow_up` (what the being should ask), `silent_alarm` and
+       `voice_aloud` (whether the client's words were spoken). In their place
+       are readings: `about`, `unclear`, `danger`, `danger_sentences`,
+       `asked_aloud`, `asked_for_help`, `between_beings`, `short_answer`,
+       `answering`.
+     - `Decision` picked a response mode (MODE_SAFETY_HOLD, MODE_UNKNOWN,
+       MODE_HOLD_SPACE, MODE_GENTLE_LIFT, MODE_STANDARD), a delivery (pace,
+       warmth, silence, no_rush, assert_nothing, needs_grounding,
+       page_sent_first), whether the client's words were `speakable` and
+       whether the being's own reply was held (`reply_held`). It is renamed
+       `Reading` and carries the safety reading, the affect reading,
+       `resolved`/`unresolved_reason` and `provenance`.
+     - Silicon turned a tone score into a mode and a distress intensity into
+       `needs_grounding` (GROUNDING_INTENSITY), with pace and warmth from the
+       mode. It now returns `self_distress`, `distress_intensity` and
+       `tone_score` as given.
+     - The engine's `shared_state` (last mode and the rest) is gone with the
+       mode it remembered.
+   Three questions written for Everett on 2026-10-29 ("HELD FOR EVERETT":
+   rounding the intensity before the grounding bar, a soft_redirect turning
+   the turn to hold-space, and pace/warmth following the mode) asked how the
+   package should route the client's distress. The package no longer routes
+   it, so those questions now belong to the being.
 """
 
 from __future__ import annotations
@@ -96,7 +134,7 @@ from .structural_affect import (
     ProsodyFeatures,
     StructuralAffectAnalyzer,
 )
-from .prosody import ProsodyReading, Reconciliation, reconcile
+from .prosody import Agreement, ProsodyReading, Reconciliation, reconcile
 
 try:
     from ..timbre.logger import get_logger
@@ -112,15 +150,6 @@ except ImportError:
             return lg
 
 logger = get_logger(__name__)
-
-
-MODE_SAFETY_HOLD = "safety-hold"
-MODE_UNKNOWN = "unknown"
-MODE_HOLD_SPACE = "hold-space"
-MODE_GENTLE_LIFT = "gentle-lift"
-MODE_STANDARD = "standard"
-
-VALID_LIVE_MODES = frozenset({MODE_HOLD_SPACE, MODE_GENTLE_LIFT, MODE_STANDARD})
 
 
 # ---------------------------------------------------------------------------
@@ -152,74 +181,70 @@ class Carbon:
 # Silicon
 # ---------------------------------------------------------------------------
 
+def _tone_score_problem(tone_score: Any) -> str:
+    """Why `tone_score` cannot be read as a 0..100 score, or "" when it can."""
+    try:
+        ts = float(tone_score)
+    except (TypeError, ValueError) as exc:
+        return f"not a number ({exc})"
+    if not (0.0 <= ts <= 100.0):
+        return f"out of range 0..100: {ts}"
+    return ""
+
+
 class Silicon:
     """
-    Structured / logical layer.
+    Structured / logical layer. Reads; decides nothing.
 
-    Live system state is preferred. There is no built-in steering table
-    (Everett's ruling N, 2026-10-29 review): the fixed DOMAIN_PRIORS table
-    (safety, voice, memory, grounding, distress, connection, each a fixed
-    word list) that picked a "dominant domain" for every turn is removed,
-    with the domain scores, the dominant domain, `Decision.coherence` (the
-    dominant domain's score) and `last_domain`, which all came from it.
-    Which category a client's words belong to is the being's to learn with
-    that client. How affect words are read is unchanged.
+    There is no built-in steering table (Everett's ruling N, 2026-10-29
+    review): the fixed DOMAIN_PRIORS table (safety, voice, memory, grounding,
+    distress, connection, each a fixed word list) that picked a "dominant
+    domain" for every turn is removed, with the domain scores, the dominant
+    domain, `coherence` (the dominant domain's score) and `last_domain`,
+    which all came from it. Which category a client's words belong to is the
+    being's to learn with that client. How affect words are read is
+    unchanged.
+
+    WHAT CHANGED AND WHY (2026-11-04): `retrieve` used to turn a tone score
+    into a response mode and the client's distress intensity into
+    `needs_grounding` against a fixed bar, with pace and warmth from the
+    mode. Those are the being's decisions (see the module docstring). It now
+    returns the readings as given.
     """
-
-    #: Distress intensity that calls for grounding. A threshold, not a
-    #: measurement — named so it can be argued with.
-    #: Chosen starting value, held until client data replaces it. Reason:
-    #: just above the middle of the 0..1 scale.
-    GROUNDING_INTENSITY = 0.55
 
     def retrieve(
         self,
         affect: AffectReading,
         live_state: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Structural constraints. Live state wins over priors."""
+        """
+        The structural readings, as given:
+
+          self_distress       the affect reading is measured, the speaker's
+                              own, and negative (AffectReading.is_self_distress)
+          distress_intensity  the reading's intensity when it is the speaker's
+                              own distress, else None
+          tone_score          live_state["tone_score"] exactly as the being
+                              passed it, or None
+          live_state_rejected what in live_state could not be read as what it
+                              claims to be (a tone score that is not a number
+                              in 0..100), each with the reason. Nothing is
+                              dropped or replaced because of it.
+        """
         live_state = live_state or {}
-
-        response_mode = live_state.get("response_mode")
         tone_score = live_state.get("tone_score")
-        needs_grounding = bool(live_state.get("needs_grounding", False))
-        crisis_flag = bool(live_state.get("crisis_detected", False))
-        nonverbal_active = bool(live_state.get("nonverbal_active", False))
-        allow_silence = bool(live_state.get("allow_silence", True))
 
-        # 2026-10-11: an invalid live state was logged and then became
-        # `standard` with nothing on the result saying so. Measured:
-        # tone_score="garbage" -> mode=standard, knows=True. Rejections are
-        # now carried on the constraints and into delivery.
+        # 2026-10-11: an invalid live state was logged and then became a
+        # default with nothing on the result saying so. Measured:
+        # tone_score="garbage" -> mode=standard, knows=True. A tone score
+        # that cannot be read is named on the result.
         rejected: List[str] = []
-        source = "none"
-
-        if response_mode is not None and response_mode not in VALID_LIVE_MODES:
-            rejected.append(f"response_mode={response_mode!r} is not a live mode")
-            logger.error("Unknown response_mode %r; inferring instead.", response_mode)
-            response_mode = None
-        elif response_mode is not None:
-            source = "live"
-
-        if response_mode is None and tone_score is not None:
-            try:
-                ts = float(tone_score)
-                if not (0.0 <= ts <= 100.0):
-                    raise ValueError(f"tone_score out of range: {ts}")
-                response_mode = (
-                    MODE_HOLD_SPACE if ts > 75
-                    else MODE_GENTLE_LIFT if ts < 35
-                    else MODE_STANDARD
-                )
-                source = "tone_score"
-            except (TypeError, ValueError) as exc:
-                rejected.append(f"tone_score={tone_score!r}: {exc}")
-                logger.error("Invalid tone_score %r: %s", tone_score, exc)
-                response_mode = None
-
-        if response_mode is None:
-            response_mode = MODE_STANDARD
-            source = "none"
+        if tone_score is not None:
+            problem = _tone_score_problem(tone_score)
+            if problem:
+                rejected.append(f"tone_score={tone_score!r}: {problem}")
+                logger.error("tone_score %r cannot be read as a score: %s",
+                             tone_score, problem)
 
         # NO DOMAIN STEERING. Everett, 2026-10-29 (ruling N): the handoff
         # added a fixed list of plain words that steered the domain, and it
@@ -230,36 +255,12 @@ class Silicon:
         # main's own fixed DOMAIN_PRIORS table still steering every turn; by
         # ruling N it is removed too. Nothing here picks a domain.
 
-        # Grounding is gated on a MEASURED, self-attributed, negative reading.
-        # An ambiguous reading does not qualify — an unresolved structure is not
-        # evidence of distress.
-        distressed = (
-            affect.is_self_distress
-            and affect.intensity is not None
-            # HELD FOR EVERETT (2026-10-29): the handoff rounded the intensity
-            # to 4 places before this comparison, so a reading of 0.54999…
-            # would meet the bar. That moves where the client's own distress
-            # is routed, so the comparison is main's (e35fe46), unrounded.
-            and affect.intensity >= self.GROUNDING_INTENSITY
-        )
-
+        self_distress = affect.is_self_distress
         return {
-            "response_mode": response_mode,
-            #: "live" | "tone_score" | "none" — where the mode came from. A
-            #: mode with source "none" is a default, not a reading.
-            "response_mode_source": source,
+            "self_distress": self_distress,
+            "distress_intensity": affect.intensity if self_distress else None,
+            "tone_score": tone_score,
             "live_state_rejected": rejected,
-            "needs_grounding": needs_grounding or distressed,
-            "crisis_flag": crisis_flag,
-            "nonverbal_active": nonverbal_active,
-            "allow_silence": allow_silence,
-            "pace": "slower" if response_mode in {MODE_HOLD_SPACE, MODE_GENTLE_LIFT}
-                    else "normal",
-            "warmth": (
-                "high" if response_mode == MODE_GENTLE_LIFT
-                else "steady" if response_mode == MODE_HOLD_SPACE
-                else "balanced"
-            ),
         }
 
 
@@ -267,34 +268,16 @@ class Silicon:
 # Aegis
 # ---------------------------------------------------------------------------
 
-#: What a hold is, as a mark (SafetyResult.hold_marker), never as words.
-#: Everett's ruling AA (2026-10-29): no canned messages in the package. The
-#: hold used to carry fixed text ("[SAFETY HOLD — danger]") that a screen
-#: could show; it now carries one of these marks, and whatever shows or says
-#: anything about the hold words it itself. A silent alarm carries "".
-HOLD_CRISIS_LANGUAGE = "hold_crisis_language"          # the substring floor
-HOLD_SPEAKER_AT_RISK = "hold_speaker_at_risk"          # harm with the client as patient
-HOLD_HARM_NOW = "hold_harm_now"                        # harm happening now, to anyone
-HOLD_THREAT = "hold_threat"                            # a threat of harm, to anyone
-HOLD_PAIN = "hold_pain"                                # the client's own pain (a feeling)
-HOLD_NEED_MEDICINE = "hold_need_medicine"              # the client needs their medicine
-HOLD_DANGER = "hold_danger"                            # danger in the client's words
-HOLD_ANSWERED = "hold_answered"                        # the client's answer to the being's ask
-HOLD_OWN_DISTRESS = "hold_own_distress"                # the client's own distress
-HOLD_ASKED_FOR_HELP = "hold_asked_for_help"            # the client asked for help
-HOLD_ASKED_FOR_HELP_FOR_OTHER = "hold_asked_for_help_for_other"
-HOLD_NONVERBAL = "hold_nonverbal_distress"             # the signal is in flagged_terms
-HOLD_MARKS = frozenset({
-    HOLD_CRISIS_LANGUAGE, HOLD_SPEAKER_AT_RISK, HOLD_HARM_NOW, HOLD_THREAT, HOLD_DANGER,
-    HOLD_ANSWERED, HOLD_OWN_DISTRESS, HOLD_ASKED_FOR_HELP,
-    HOLD_ASKED_FOR_HELP_FOR_OTHER, HOLD_NONVERBAL, HOLD_PAIN, HOLD_NEED_MEDICINE,
-})
-
-
 @dataclass
 class SafetyResult:
     """
-    Outcome of a safety check.
+    The safety reading of one utterance.
+
+    `status` ("clear" | "soft_redirect" | "hard_block") and `reason` are the
+    classification labels; `flags` and `flagged_terms` say what was seen.
+    They are a reading. The package acts on none of them: whether anyone is
+    reached, whether anything is said aloud, and what the being says or asks
+    are the being's.
 
     `said` is the person's OWN words, exactly as said, every letter. Aegis
     sets it from the input on every result. Nothing is cleaned, softened,
@@ -306,50 +289,58 @@ class SafetyResult:
     said: str = ""
     flags: List[str] = field(default_factory=list)
     flagged_terms: List[str] = field(default_factory=list)
-    hold_marker: str = ""
-    delivered_to_human: bool = False
     #: True when the configured safety gate failed and this result came from
     #: the substring floor instead. 2026-10-11: a raising callback fell back
     #: to the floor silently, so "I want to die" came back {'status':
     #: 'clear'} with nothing on it saying the real gate never ran.
     degraded: bool = False
     degraded_reason: str = ""
-    #: What the being should ask next, as a mark (hearing.ASK_*), or "".
-    #: Everett, 2026-10-29: when something is recorded and flagged instead
-    #: of paged, the being follows up by ASKING. It never tells, and never
-    #: says "you're not okay" or "calm down". Ruling AA: the package does
-    #: not word the question ("I hate canned messages"); the being does.
-    #: The client's answer is read on the next turn against this mark.
-    follow_up: str = ""
-    #: The words the question is about ("scared", "your leg", "since
-    #: monday"), or "".
-    follow_up_about: str = ""
-    #: THE SILENT ALARM (Everett, 2026-10-29, rulings I and K). A danger
-    #: signal or a danger sentence goes to a human silently: it is not voiced
-    #: and nothing announces that help is coming. Saying it out loud can get
-    #: the client hurt worse and the device taken. The words are not changed
-    #: or lost: `said` holds them, and the human gets them.
-    silent_alarm: bool = False
-    #: Ruling K: a danger sentence the client typed or said IS voiced when the
-    #: client asked for it to be said aloud, or when the being's own
-    #: perception reports a public setting (live_state["public_setting"] is
-    #: True). Absent or unknown: silent. It pages either way.
-    voice_aloud: bool = False
+    #: The words a reading is about: the body part in pain ("leg"), the
+    #: subject that is unclear ("my teacher"), the feeling ("scared"), the
+    #: time named ("monday"). None when the reading is about nothing in
+    #: particular.
+    about: Optional[str] = None
+    #: What the words leave unclear, as one word: "owner" (whose feeling),
+    #: "person" (whether "my ___" is a person), "who" (who the subject is),
+    #: "fragment" (what a fragment with nothing before it is about), "what"
+    #: (thanks and a feeling together), "cause" (what a feeling is about or
+    #: from), "inability" (an inability over a good feeling),
+    #: "what_happened" (a feeling denied since a time the client named).
+    #: None when nothing is unclear.
+    unclear: Optional[str] = None
+    #: Danger is in the reading: harm now or a threat, to the client or to
+    #: anyone; the client at risk from themselves (now or their own history);
+    #: the client's own "not safe"; a danger sentence; or a nonverbal reading
+    #: whose meaning is danger. Reported, never acted on here.
+    danger: bool = False
+    #: The client's danger sentences ("I'm scared for my safety"), exactly as
+    #: said.
+    danger_sentences: List[str] = field(default_factory=list)
+    #: The client's own words asking for something to be said out loud, when
+    #: present ("say it out loud").
+    asked_aloud: Optional[str] = None
+    #: The client's own words asking for help, when present ("can you get
+    #: someone").
+    asked_for_help: Optional[str] = None
+    #: Echo of the caller's context: two beings talking to each other. The
+    #: words are read exactly as if a client were there.
+    between_beings: bool = False
+    #: "no" or "yes" when the words are a bare short answer ("no", "nope",
+    #: "yeah"), else None.
+    short_answer: Optional[str] = None
+    #: Echo of the question the being says it asked (context["answering"]),
+    #: or None. The words are read on their own either way.
+    answering: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
 
-class CrisisNotDelivered(RuntimeError):
-    """Raised when a hard block could not be handed to a human. Not caught here."""
-
-
 class Aegis:
     """
-    Safety boundary. Flags; does not edit.
+    Safety reading. Classifies; does not edit, page, hold or raise.
 
-    A hard block MUST reach a human. `crisis_callback` is how, and its absence
-    is an error at the moment a crisis is detected.
+    `check` returns the classified SafetyResult and does nothing else.
     """
 
     _FLOOR_HARD = {"kill myself", "end my life", "hurt myself", "suicide"}
@@ -358,18 +349,11 @@ class Aegis:
     def __init__(
         self,
         safety_callback: Optional[Callable[[str, Dict[str, Any]], SafetyResult]] = None,
-        crisis_callback: Optional[Callable[[SafetyResult, Dict[str, Any]], bool]] = None,
     ) -> None:
         self.safety_callback = safety_callback
-        self.crisis_callback = crisis_callback
-        if crisis_callback is None:
-            logger.warning(
-                "Aegis has no crisis_callback. A hard block will raise "
-                "CrisisNotDelivered rather than being detected and dropped."
-            )
 
     def check(self, text: str, context: Optional[Dict[str, Any]] = None) -> SafetyResult:
-        """Run the safety check, escalating hard blocks to a human."""
+        """Classify `text`. Returns the SafetyResult; acts on nothing."""
         context = context or {}
         original = text or ""
 
@@ -394,17 +378,14 @@ class Aegis:
             result = self._floor_check(original)
             if degraded_reason:
                 # The floor is a substring match, not the gate that was
-                # configured. Say so on the result; the fusion engine will not
-                # claim a reading it cannot vouch for.
+                # configured. Say so on the result, so no one reads it as
+                # the gate's reading.
                 result.degraded = True
                 result.degraded_reason = degraded_reason
 
-        # The words are the words. Whatever a callback put here, what reaches
-        # the human and everything after the gate is exactly what was said.
+        # The words are the words. Whatever a callback put here, everything
+        # after the gate gets exactly what was said.
         result.said = original
-
-        if result.status == "hard_block":
-            return self._deliver_crisis(result, context)
         return result
 
     def _floor_check(self, original: str) -> SafetyResult:
@@ -418,7 +399,6 @@ class Aegis:
                     said=original,
                     flags=[f"hard:{phrase}"],
                     flagged_terms=[phrase],
-                    hold_marker=HOLD_CRISIS_LANGUAGE,
                 )
 
         flags: List[str] = []
@@ -439,71 +419,66 @@ class Aegis:
 
         return SafetyResult(status="clear", said=original)
 
-    def _deliver_crisis(
-        self, result: SafetyResult, context: Dict[str, Any]
-    ) -> SafetyResult:
-        logger.warning("CRISIS DETECTED. flags=%s", result.flags)
-
-        if self.crisis_callback is None:
-            raise CrisisNotDelivered(
-                "Crisis language was detected and no crisis_callback is "
-                "configured. Detection without delivery is not a safety system."
-            )
-        try:
-            delivered = self.crisis_callback(result, context)
-        except Exception as exc:
-            raise CrisisNotDelivered(
-                f"crisis_callback raised while delivering a hard block: {exc}"
-            ) from exc
-        if delivered is not True:
-            raise CrisisNotDelivered(
-                f"crisis_callback returned {delivered!r}. Only True is accepted "
-                "as proof a human was reached."
-            )
-
-        logger.info("Crisis delivered to human.")
-        return SafetyResult(
-            status=result.status,
-            reason=result.reason,
-            said=result.said,
-            flags=list(result.flags),
-            flagged_terms=list(result.flagged_terms),
-            hold_marker=result.hold_marker,
-            delivered_to_human=True,
-            degraded=result.degraded,
-            degraded_reason=result.degraded_reason,
-            follow_up=result.follow_up,
-            follow_up_about=result.follow_up_about,
-            silent_alarm=result.silent_alarm,
-            voice_aloud=result.voice_aloud,
-        )
-
 
 # ---------------------------------------------------------------------------
-# Decision
+# Reading
 # ---------------------------------------------------------------------------
+
+#: Safety reasons whose words leave the reading unresolved, in the order they
+#: are checked, with what each says. The affect check (AMBIGUOUS) sits
+#: between the first four and the last two, as it always has.
+_UNRESOLVED_BEFORE_AFFECT: Tuple[Tuple[str, str], ...] = (
+    # Ruling R (Everett, 2026-10-29): "I can't be happy" is an inability, a
+    # signal. Nothing is concluded.
+    ("inability_signal", "an inability over a good feeling, a signal"),
+    # Ruling AA: "my teacher is sad" — whether that is a person is not known
+    # from the words.
+    ("person_unclear", "whether the subject is a person is not known from the words"),
+    # Ruling X: "it hurts" with no turn before it to anchor it.
+    ("fragment_unclear", "a fragment with nothing before it to anchor it"),
+    # Ruling W: "thank you, I'm scared" stays unclear.
+    ("thanks_unclear", "thanks and a feeling, unclear together"),
+)
+_UNRESOLVED_AFTER_AFFECT: Tuple[Tuple[str, str], ...] = (
+    # Ruling O (Everett, 2026-10-29): "You got to have full context."
+    ("fear_without_context", "not enough context to tell what the fear is about"),
+    # Ruling P: whose feeling it is cannot be told from the words.
+    ("whose_feeling_unclear", "whose feeling it is cannot be told from the words"),
+)
+
 
 @dataclass
-class Decision:
+class Reading:
     """
-    What downstream surfaces must honor.
+    One fused reading. Decides nothing.
 
-    `affect` and `reconciliation` are the real payload. `carbon` is retained as
-    a dict view so existing consumers reading `decision.carbon["valence"]` keep
-    working — but it now carries None where nothing was measured, where the old
-    version always produced a float.
+    `safety` is the safety reading, `affect` the structural affect reading,
+    `reconciliation` the words against the voice. `carbon` is retained as a
+    dict view so consumers reading `reading.carbon["valence"]` keep working;
+    it carries None where nothing was measured.
+
+    `resolved` is False when the reading could not be resolved, and
+    `unresolved_reason` names what produced that. `provenance` says where
+    each part came from: `affect_reading` (the analyzer's certainty),
+    `live_state_rejected`, `safety_degraded`, `channels` (the words against
+    the voice: agree, conflict, text_only, prosody_only, unknown),
+    `channels_disagree`, and `response_mode_source` ("live") when the being
+    supplied its own response mode in live_state.
+
+    WHAT CHANGED AND WHY (2026-11-04): renamed from `Decision`. It no longer
+    carries a mode, a delivery, `speakable` or `reply_held` (see the module
+    docstring).
     """
 
-    mode: str
     safety: SafetyResult
     affect: AffectReading
     silicon: Dict[str, Any]
     reconciliation: Optional[Reconciliation]
-    # `coherence` (the dominant domain's score) is removed with the steering
-    # table it came from (ruling N).
-    delivery: Dict[str, Any]
     #: The client's words, exactly as said. Never edited, never withheld.
     input_text: str
+    resolved: bool
+    unresolved_reason: Optional[str]
+    provenance: Dict[str, Any]
 
     @property
     def carbon(self) -> Dict[str, Any]:
@@ -518,60 +493,33 @@ class Decision:
         }
 
     @property
-    def speakable(self) -> bool:
-        """
-        True whenever there are words, except under the silent alarm.
-
-        A safety hold pages a human; it never withholds what the client said.
-        2026-10-29: this was False on every safety hold, so a client who typed
-        "I want to kill myself" on an AAC board was silenced at the moment
-        they asked for help.
-
-        The one exception is Everett's own (rulings I and K, 2026-10-29): a
-        danger sentence ("I'm scared for my safety", "he is hurting me") is
-        not voiced, so the client is not put in more danger, unless the client
-        asked for it aloud or the setting is public. Its words are unchanged
-        in `input_text` and `safety.said`, and they reach the human.
-        """
-        if self.safety.silent_alarm and not self.safety.voice_aloud:
-            return False
-        return bool(self.input_text)
-
-    @property
-    def reply_held(self) -> bool:
-        """The being's OWN reply waits for the human. The client's words do not."""
-        return self.mode == MODE_SAFETY_HOLD
-
-    @property
     def knows(self) -> bool:
         """
         False when the engine could not resolve a reading.
 
-        2026-10-11: this was `mode != unknown`, so an utterance with no
-        affect vocabulary at all ("pass the salt", "fuck you") reported
-        knows=True — a confident reading of nothing. The mode may still be
-        `standard` for such input (there is nothing to act on), but the
-        engine does not KNOW the person's state, and now says so.
+        2026-10-11: this used to be true for an utterance with no affect
+        vocabulary at all ("pass the salt", "fuck you") — a confident reading
+        of nothing. The engine does not KNOW the person's state there, and
+        says so.
         """
         return (
-            self.mode != MODE_UNKNOWN
+            self.resolved
             and self.affect.certainty is not AffectCertainty.NO_SIGNAL
         )
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "mode": self.mode,
             "safety": self.safety.to_dict(),
             "affect": self.affect.to_dict(),
             "silicon": dict(self.silicon),
             "reconciliation": (
                 self.reconciliation.to_dict() if self.reconciliation else None
             ),
-            "delivery": dict(self.delivery),
             "input_text": self.input_text,
             "carbon": self.carbon,
-            "speakable": self.speakable,
-            "reply_held": self.reply_held,
+            "resolved": self.resolved,
+            "unresolved_reason": self.unresolved_reason,
+            "provenance": dict(self.provenance),
             "knows": self.knows,
         }
 
@@ -582,24 +530,20 @@ class Decision:
 
 class FusionEngine:
     """
-    Carbon + Silicon under Aegis. One fusion cycle in, one Decision out.
+    Carbon + Silicon + Aegis. One fusion cycle in, one Reading out.
 
-    Does not speak. Does not synthesize. Decides — or says it cannot.
+    Does not speak. Does not synthesize. Does not decide. Reads — or says it
+    cannot.
     """
-
-    MAX_SHARED_KEYS = 256
 
     def __init__(
         self,
         analyzer: Optional[StructuralAffectAnalyzer] = None,
         safety_callback: Optional[Callable[[str, Dict[str, Any]], SafetyResult]] = None,
-        crisis_callback: Optional[Callable[[SafetyResult, Dict[str, Any]], bool]] = None,
     ) -> None:
         self.carbon_layer = Carbon(analyzer)
         self.silicon = Silicon()
-        self.aegis = Aegis(safety_callback=safety_callback,
-                           crisis_callback=crisis_callback)
-        self.shared_state: Dict[str, Any] = {}
+        self.aegis = Aegis(safety_callback=safety_callback)
         logger.info("Christman Fusion Engine initialized (structural affect)")
 
     def fuse(
@@ -607,22 +551,20 @@ class FusionEngine:
         user_input: str,
         live_state: Optional[Dict[str, Any]] = None,
         prosody: Optional[ProsodyReading] = None,
-    ) -> Decision:
+    ) -> Reading:
         """
         Run one fusion cycle.
 
         Args:
             user_input: What the person said.
-            live_state: Optional live system state.
+            live_state: Optional live system state. Passed into the safety
+                gate's context as given.
             prosody: Optional ProsodyReading from the ear. The ear measures; it
                 does not classify and it does not vote on valence. Its only
                 role here is agreement or disagreement with the structural
                 reading.
 
-        Raises:
-            CrisisNotDelivered: crisis language detected and undeliverable. The
-                cycle does not complete, because the correct next action is not
-                a response — it is a person.
+        Nothing here raises because of what was read.
         """
         live_state = live_state or {}
 
@@ -630,13 +572,6 @@ class FusionEngine:
         affect = self.carbon_layer.encode(
             user_input, previous_turn=str(live_state.get("previous_turn") or ""))
 
-        # THE PAGE FIRES FIRST (Everett, 2026-10-29, ruling M). "That slowing
-        # down and confirming is enough time for a veteran to shoot
-        # themselves in the head, or for an assailant to stab a victim."
-        # Aegis hands a hard block to a human here, before the constraints
-        # are retrieved, before the mode, the delivery or any reply exists, and
-        # nothing after this line can delay it or take it back. Nothing in
-        # the crisis path waits on a confirmation, a reply, or a pace.
         safety = self.aegis.check(
             user_input,
             context={
@@ -648,194 +583,89 @@ class FusionEngine:
         )
 
         constraints = self.silicon.retrieve(affect, live_state)
-
         rec = reconcile(affect.valence, affect.is_self_distress, prosody)
-        mode, unknown_reason = self._resolve_mode(
-            safety, affect, constraints, rec, user_input
-        )
+        resolved, unresolved_reason = self._resolve(safety, affect, rec, user_input)
 
-        delivery = self._delivery(mode, constraints, rec, affect, safety, unknown_reason)
+        provenance: Dict[str, Any] = {
+            "affect_reading": affect.certainty.value,
+            "live_state_rejected": list(constraints.get("live_state_rejected", [])),
+            "safety_degraded": bool(safety.degraded),
+            # Words against voice, as measured (prosody.reconcile).
+            "channels": rec.agreement.value,
+            "channels_disagree": rec.channels_disagree,
+        }
+        if live_state.get("response_mode") is not None:
+            provenance["response_mode_source"] = "live"
 
-        self._update_shared_state({
-            "last_mode": mode,
-            "last_valence": affect.valence,
-            "last_intensity": affect.intensity,
-            "last_certainty": affect.certainty.value,
-            "last_safety": safety.status,
-            "last_agreement": rec.agreement.value,
-        })
-
-        return Decision(
-            mode=mode,
+        return Reading(
             safety=safety,
             affect=affect,
             silicon=constraints,
             reconciliation=rec,
-            delivery=delivery,
             input_text=user_input or "",
+            resolved=resolved,
+            unresolved_reason=unresolved_reason,
+            provenance=provenance,
         )
 
-    def _resolve_mode(
-        self,
+    @staticmethod
+    def _resolve(
         safety: SafetyResult,
         affect: AffectReading,
-        constraints: Dict[str, Any],
         rec: Reconciliation,
         user_input: Optional[str] = None,
-    ) -> Tuple[str, str]:
+    ) -> Tuple[bool, Optional[str]]:
         """
-        Decide the mode. Returns (mode, reason) — the reason is non-empty
-        only for MODE_UNKNOWN and names what actually produced it.
+        Whether the reading resolved. Returns (resolved, reason); the reason
+        is None when it resolved and otherwise names what actually left it
+        unresolved, first match wins:
 
-        Precedence, highest first:
-          1. safety-hold — a crisis outranks everything
-          2. unknown     — the safety gate is degraded, there was no
-                           utterance, the channels disagree, or affect did
-                           not resolve
-          3. grounding / live-state modes
-          4. standard
+          - the safety gate is degraded (the reading came from the floor);
+          - there was no utterance;
+          - the words and the voice disagree, or the voice is elevated
+            with no resolved reading of the words (prosody.reconcile);
+          - the words leave something unclear (inability, person, fragment,
+            thanks), then an ambiguous affect structure, then a fear with no
+            context or a feeling whose owner cannot be told.
         """
-        if safety.status == "hard_block":
-            return MODE_SAFETY_HOLD, ""
-
-        # A result from the substring floor because the real gate failed is
-        # not a reading the engine can act on as though it were clear.
         if safety.degraded:
-            return MODE_UNKNOWN, f"safety gate degraded: {safety.degraded_reason}"
+            return False, f"safety gate degraded: {safety.degraded_reason}"
 
         if not (user_input or "").strip():
-            return MODE_UNKNOWN, "no utterance — nothing was said"
+            return False, "no utterance — nothing was said"
 
-        # Not knowing is its own answer, and it outranks acting on a guess.
-        if rec.defer_to_human:
-            return MODE_UNKNOWN, rec.reason
-        # Ruling R (Everett, 2026-10-29): "I can't be happy" is an inability,
-        # a signal. Nothing is concluded; the being asks why.
-        if safety.reason == "inability_signal":
-            return MODE_UNKNOWN, ("an inability over a good feeling, a signal; "
-                                  f"the being asks: {safety.follow_up!r}")
-        # Ruling AA: "my teacher is sad" — whether that is a person is not
-        # known from the words. Nothing is concluded; the being asks.
-        if safety.reason == "person_unclear":
-            return MODE_UNKNOWN, ("whether the subject is a person is not known; "
-                                  f"the being asks: {safety.follow_up!r} about "
-                                  f"{safety.follow_up_about!r}")
-        # Ruling X: "it hurts" with no turn before it to anchor it.
-        if safety.reason == "fragment_unclear":
-            return MODE_UNKNOWN, ("a fragment with nothing before it to anchor it; "
-                                  f"the being asks: {safety.follow_up!r}")
-        # Ruling W: "thank you, I'm scared" stays unclear; the being asks.
-        if safety.reason == "thanks_unclear":
-            return MODE_UNKNOWN, ("thanks and a feeling, unclear together; "
-                                  f"the being asks: {safety.follow_up!r}")
+        # The words and the voice disagree, or the voice is elevated with no
+        # resolved reading of the words: the reading is not resolved, and
+        # the reconciliation says why. (Until 2026-11-04 this read the
+        # reconciliation's `defer_to_human` instruction; it now reads the
+        # measurements that flag rested on, with the same result.)
+        if rec.channels_disagree or (rec.agreement is Agreement.PROSODY_ONLY
+                                     and rec.voice_elevated):
+            return False, rec.reason
+
+        def _unclear(said: str) -> str:
+            parts = [said]
+            if safety.unclear:
+                parts.append(f"unclear: {safety.unclear}")
+            if safety.about:
+                parts.append(f"about: {safety.about!r}")
+            return "; ".join(parts)
+
+        for reason, said in _UNRESOLVED_BEFORE_AFFECT:
+            if safety.reason == reason:
+                return False, _unclear(said)
+
         if affect.certainty is AffectCertainty.AMBIGUOUS:
-            return MODE_UNKNOWN, (
+            return False, (
                 "; ".join(affect.notes)
                 or "Affect could not be resolved from sentence structure."
             )
-        # Ruling O (Everett, 2026-10-29): "You got to have full context." A
-        # fear with nothing in the turn to say what it is about concludes
-        # nothing; the being asks (safety.follow_up).
-        if safety.reason == "fear_without_context":
-            return MODE_UNKNOWN, ("not enough context to tell what the fear is "
-                                  f"about; the being asks: {safety.follow_up!r}")
-        # Ruling P: whose feeling it is cannot be told from the words.
-        if safety.reason == "whose_feeling_unclear":
-            return MODE_UNKNOWN, ("whose feeling it is cannot be told from the "
-                                  f"words; the being asks: {safety.follow_up!r}")
 
-        # HELD FOR EVERETT (2026-10-29). Two lines were added here in the
-        # Replit handoff and are taken back out, so the mode is what main
-        # (e35fe46) decided:
-        #   - a soft_redirect (the client's own history of harm, or someone
-        #     else at risk while two beings talk) turned the turn to
-        #     hold-space;
-        #   - the client's own distress under the grounding bar turned the
-        #     turn to hold-space.
-        # Both change how the client's own distress is routed. Everett ruled
-        # that text alone cannot tell "I'm okay" from "I'm okay"; only the
-        # voice carries the difference. The questions are written for him.
-        mode = constraints.get("response_mode") or MODE_STANDARD
-        if constraints.get("needs_grounding") and mode == MODE_STANDARD:
-            mode = MODE_GENTLE_LIFT
-        return mode, ""
+        for reason, said in _UNRESOLVED_AFTER_AFFECT:
+            if safety.reason == reason:
+                return False, _unclear(said)
 
-    @staticmethod
-    def _delivery(
-        mode: str,
-        constraints: Dict[str, Any],
-        rec: Reconciliation,
-        affect: AffectReading,
-        safety: Optional[SafetyResult] = None,
-        unknown_reason: str = "",
-    ) -> Dict[str, Any]:
-        """
-        Delivery constraints.
-
-        MODE_UNKNOWN is a careful posture, not a passive one: slower, silence
-        permitted, no rush, assert nothing. Not knowing is a reason to move
-        carefully rather than a reason to do nothing. Nothing is held for
-        confirmation (ruling M): the being asks through the ask marks.
-
-        Every delivery carries `affect_reading` (the analyzer's certainty),
-        `response_mode_source` and `live_state_rejected`, so a `standard`
-        mode that came from a default is distinguishable from one that came
-        from a measurement.
-        """
-        provenance = {
-            "affect_reading": affect.certainty.value,
-            "response_mode_source": constraints.get("response_mode_source", "none"),
-            "live_state_rejected": list(constraints.get("live_state_rejected", [])),
-            "safety_degraded": bool(safety.degraded) if safety is not None else False,
-        }
-        if mode == MODE_UNKNOWN:
-            return {
-                "pace": "slower",
-                "warmth": "steady",
-                "allow_silence": True,
-                "needs_grounding": False,
-                "no_rush": True,
-                "assert_nothing": True,
-                # The reason must name what ACTUALLY produced the unknown.
-                "reason": unknown_reason or (
-                    rec.reason if rec.defer_to_human
-                    else "; ".join(affect.notes)
-                    or "Affect could not be resolved from sentence structure."
-                ),
-                **provenance,
-            }
-
-        # HELD FOR EVERETT (2026-10-29). The Replit handoff made pace, warmth
-        # and silence follow the mode (a safety hold and a gentle lift
-        # "slower") and added a `safety_flag` field. That changes how the
-        # client's own distress is delivered, so this is main's (e35fe46)
-        # delivery, and the question is written for Everett.
-        #
-        # Ruling M (Everett, 2026-10-29): no confirm-before-acting, in any
-        # mode. The page has already gone (see fuse); this is only how the
-        # being speaks afterward, and it never sits in front of the page.
-        delivery = {
-            "pace": constraints.get("pace", "normal"),
-            "warmth": constraints.get("warmth", "balanced"),
-            "allow_silence": constraints.get("allow_silence", True),
-            "needs_grounding": constraints.get("needs_grounding", False),
-            "no_rush": mode in {MODE_HOLD_SPACE, MODE_GENTLE_LIFT, MODE_SAFETY_HOLD},
-            "assert_nothing": False,
-            **provenance,
-        }
-        if mode == MODE_SAFETY_HOLD:
-            delivery["page_sent_first"] = bool(safety is not None and safety.delivered_to_human)
-        return delivery
-
-    def _update_shared_state(self, update: Dict[str, Any]) -> None:
-        self.shared_state.update(update)
-        overflow = len(self.shared_state) - self.MAX_SHARED_KEYS
-        if overflow > 0:
-            for key in list(self.shared_state.keys())[:overflow]:
-                del self.shared_state[key]
-
-    def get_shared_state(self) -> Dict[str, Any]:
-        return dict(self.shared_state)
+        return True, None
 
 
 _fusion_engine: Optional[FusionEngine] = None
@@ -844,26 +674,22 @@ _fusion_engine: Optional[FusionEngine] = None
 def get_fusion_engine(
     analyzer: Optional[StructuralAffectAnalyzer] = None,
     safety_callback: Optional[Callable[[str, Dict[str, Any]], SafetyResult]] = None,
-    crisis_callback: Optional[Callable[[SafetyResult, Dict[str, Any]], bool]] = None,
+    *,
     force_new: bool = False,
 ) -> FusionEngine:
+    """The shared engine. `force_new` is keyword-only, so a caller still
+    passing a crisis callback in third place fails loudly instead of having
+    it read as `force_new`."""
     global _fusion_engine
     if _fusion_engine is None or force_new:
         _fusion_engine = FusionEngine(
             analyzer=analyzer,
             safety_callback=safety_callback,
-            crisis_callback=crisis_callback,
         )
     return _fusion_engine
 
 
 __all__ = [
-    "Carbon", "Silicon", "Aegis", "SafetyResult", "Decision", "FusionEngine",
-    "CrisisNotDelivered", "get_fusion_engine",
-    "MODE_SAFETY_HOLD", "MODE_UNKNOWN", "MODE_HOLD_SPACE", "MODE_GENTLE_LIFT",
-    "MODE_STANDARD",
-    "HOLD_CRISIS_LANGUAGE", "HOLD_SPEAKER_AT_RISK", "HOLD_HARM_NOW", "HOLD_THREAT", "HOLD_DANGER",
-    "HOLD_ANSWERED", "HOLD_OWN_DISTRESS", "HOLD_ASKED_FOR_HELP",
-    "HOLD_ASKED_FOR_HELP_FOR_OTHER", "HOLD_NONVERBAL", "HOLD_PAIN", "HOLD_NEED_MEDICINE",
-    "HOLD_MARKS",
+    "Carbon", "Silicon", "Aegis", "SafetyResult", "Reading", "FusionEngine",
+    "get_fusion_engine",
 ]

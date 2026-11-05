@@ -6,6 +6,9 @@
 """
 christman_sound.ear.mouth — Filament Mouth Map + Carbon Pile (ported from
 THEFILAMENT ear/mouth.py).
+
+Being-neutral: holds no person's or being's name by default. Callers may pass
+`extra_mangles` when recovering custom vocabulary.
 """
 
 from __future__ import annotations
@@ -15,7 +18,7 @@ import os
 import re
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 __all__ = [
     "CONF_FLOOR",
@@ -31,15 +34,13 @@ __all__ = [
     "dress",
 ]
 
+#: Word lattice confidence floor (0.55) below which a heard word is flagged as
+#: unsure and set aside on the Carbon pile rather than trusted silently.
+#: CHOSEN STARTING VALUE, NOT A MEASUREMENT — held until client data replaces
+#: it. Reason: carried from THEFILAMENT ear/mouth.py (CONF_FLOOR = 0.55).
 CONF_FLOOR = 0.55
 CARBON_MAX = 80
 
-# WHAT CHANGED AND WHY (2026-10-30, Everett's ruling: nothing in the sound
-# package names a person or a being). The map used to rewrite "christmas" and
-# seven other spellings to "Christman", and "averett", "everette" and
-# "everitt" to "Everett", on every transcript that passed through dress(),
-# so any client who said Christmas got a family name back. Those rows came
-# out. They live on in THEWHOLEHOUSE's porch, where they were ported from.
 # 2026-11-04 (Everett): "sumbitch" and "son of a bitch" are two different
 # things. The five rows that turned "son of a bitch" (and its run-together
 # spellings) into "sumbitch" came out; the rows left recover "sumbitch" from
@@ -59,10 +60,13 @@ def carbon_path() -> Path:
     return root / "carbon.json"
 
 
-def recover(text: str) -> Tuple[str, List[Dict[str, str]]]:
+def recover(
+    text: str,
+    extra_mangles: Sequence[Tuple[re.Pattern[str], str]] = (),
+) -> Tuple[str, List[Dict[str, str]]]:
     next_text = text or ""
     hits: List[Dict[str, str]] = []
-    for pat, keep in MANGLES:
+    for pat, keep in list(MANGLES) + list(extra_mangles):
         if pat.search(next_text):
             next_text = pat.sub(keep, next_text)
             hits.append({"from": pat.pattern, "to": keep, "why": "mouth map"})
@@ -77,7 +81,10 @@ def word_conf(raw: Dict[str, Any]) -> Optional[float]:
     return None
 
 
-def shape_words(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+def shape_words(
+    payload: Dict[str, Any],
+    extra_mangles: Sequence[Tuple[re.Pattern[str], str]] = (),
+) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for w in payload.get("result") or payload.get("partial_result") or payload.get("words") or []:
         if not isinstance(w, dict):
@@ -85,7 +92,7 @@ def shape_words(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
         tok = str(w.get("word") or w.get("text") or "").strip()
         if not tok:
             continue
-        kept, _hits = recover(tok)
+        kept, _hits = recover(tok, extra_mangles=extra_mangles)
         conf = word_conf(w)
         unsure = conf is not None and conf < CONF_FLOOR
         out.append({
@@ -144,12 +151,17 @@ def aside_for_carbon(words: List[Dict[str, Any]], heard: str, path: Optional[Pat
     return added
 
 
-def dress(result: Dict[str, Any], payload: Optional[Dict[str, Any]] = None, path: Optional[Path] = None) -> Dict[str, Any]:
+def dress(
+    result: Dict[str, Any],
+    payload: Optional[Dict[str, Any]] = None,
+    path: Optional[Path] = None,
+    extra_mangles: Sequence[Tuple[re.Pattern[str], str]] = (),
+) -> Dict[str, Any]:
     raw_text = str(result.get("text") or result.get("partial") or "").strip()
-    words = shape_words(payload if payload is not None else result)
-    kept, hits = recover(raw_text)
+    words = shape_words(payload if payload is not None else result, extra_mangles=extra_mangles)
+    kept, hits = recover(raw_text, extra_mangles=extra_mangles)
     for w in words:
-        w_kept, _ = recover(str(w.get("text") or ""))
+        w_kept, _ = recover(str(w.get("text") or ""), extra_mangles=extra_mangles)
         w["text"] = w_kept
     result["text"] = kept
     if "transcript" in result:

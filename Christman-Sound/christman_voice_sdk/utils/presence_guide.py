@@ -3,8 +3,9 @@
 
 — Presence Guide.
 
-Detects when an AAC / nonverbal client is in a state that needs *presence*
-rather than problem-solving, and shapes response guidance accordingly.
+Reads text for states that may need *presence* rather than problem-solving,
+and holds guidance the being may look up. It chooses nothing for the being:
+the reading and the guidance are knowledge; the being decides (2026-11-04).
 
 NOT a clinical instrument. A phrase-list guard against toxic positivity,
 premature problem-solving, and minimization in the generated voice surface.
@@ -29,7 +30,8 @@ WHAT CHANGED AND WHY
    Only the last one is grief. The word is now disambiguated by what follows
    it — "feel lost" is confusion — and the remaining ambiguity returns `None`
    rather than a guess. (Ruling AA, 2026-10-29: "lost my <person>" was read
-   from a fixed list of people; the list is gone and the being asks who.)
+   from a fixed list of people; the list is gone. Since 2026-11-04 the
+   reading says who is unclear — see 6 — and the being decides what to do.)
 
 2. DETECTION WAS ORDER-DEPENDENT EVERYWHERE, NOT JUST "lost".
 
@@ -53,6 +55,35 @@ WHAT CHANGED AND WHY
 5. `get_presence_response` had a `.get(state, default)` fallback that could
    never fire, since every enum member has an entry. An unmapped state is now
    a real error rather than dead code that looks like a safety net.
+
+WHAT CHANGED AND WHY (2026-11-04)
+---------------------------------
+
+6. A READING, NOT A QUESTION TO ASK. Everett's ruling, 2026-11-04: "we can
+   have this knowledge in the sound package, but it can't be making those
+   decisions. It's up to the being to make those decisions, not something
+   that just creates a voice."
+
+   `StateAssessment.follow_up` was a mark naming the question the being
+   should ask (hearing.ASK_WHO), and `follow_up_about` the words it was
+   about. Choosing what the being asks is a decision, so both are gone. In
+   their place, two readings: `unclear` names what the words leave unclear
+   ("who" for "lost my mother": the words do not say whether a person was
+   lost) and `about` holds the client's words it concerns ("my mother").
+   Both are None when nothing is unclear. Whether to ask, and what, is the
+   being's. This module no longer imports anything from hearing.
+
+   `check_response_quality` stays: it reads a candidate reply's text for
+   listed phrases and reports what it found. It blocks nothing and rewrites
+   nothing.
+
+7. NO WORDS CHOSEN FOR THE BEING (2026-11-04, the same ruling). The
+   guidance table gave every state a canned `primary_response`, a
+   `secondary` line and an `offer` ("I'm so sorry.", "I'm right here.",
+   "What do you need in this moment?"): words chosen for the being to say.
+   They are removed. The state reading (`assess`) is unchanged, and
+   `get_presence_response` still returns the tone, whether silence is
+   allowed and the principles, as a lookup the being calls by name.
 """
 
 from __future__ import annotations
@@ -76,7 +107,6 @@ logger.addHandler(logging.NullHandler())
 # correction ruled today, are the starting point; a client's learned words
 # extend or override them through ReadingWords.for_client.
 from ..audio.structural_affect import SHARED_READING_WORDS, ReadingWords
-from ..audio.hearing import ASK_WHO
 
 _WORD = re.compile(r"[a-z']+")
 CLAUSE_BOUNDARY = "\x00"
@@ -145,11 +175,12 @@ class StateAssessment:
     matched: Dict[str, List[str]] = field(default_factory=dict)
     negated: List[str] = field(default_factory=list)
     ambiguous: List[str] = field(default_factory=list)
-    #: What the being should ask, as a mark (hearing.ASK_*), or "". "lost my
-    #: mother" concludes nothing about who was lost; the being asks who.
-    follow_up: str = ""
-    #: The words the question is about ("my mother").
-    follow_up_about: str = ""
+    #: What the words leave unclear, as one word, or None. "lost my mother"
+    #: does not say whether a person was lost: unclear is "who". A reading;
+    #: whether to ask, and what, is the being's (2026-11-04).
+    unclear: Optional[str] = None
+    #: The client's words the unclear reading concerns ("my mother"), or None.
+    about: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -159,8 +190,8 @@ class StateAssessment:
             "matched": dict(self.matched),
             "negated": list(self.negated),
             "ambiguous": list(self.ambiguous),
-            "follow_up": self.follow_up,
-            "follow_up_about": self.follow_up_about,
+            "unclear": self.unclear,
+            "about": self.about,
             "note": (
                 "No detected state does NOT mean the person is fine. It means "
                 "no presence marker was found in this text."
@@ -195,13 +226,14 @@ def _negated_at(tokens: Sequence[str], index: int,
 
 
 class PresenceGuide:
-    """Shapes response guidance when a client is in a presence-needed state."""
+    """Reads presence-needed states from text; holds guidance the being may look up."""
 
     #: Ruling AA (Everett, 2026-10-29): no fixed list of people. There used
     #: to be one here (mother, dad, friend, dog ...) that decided "lost my
     #: mother" was grief and "lost my keys" was not. Whether what was lost is
-    #: a person cannot be told from a list; the being asks (ASK_WHO), the
-    #: same way the clause reader's THIRD_PERSON list was removed.
+    #: a person cannot be told from a list; the reading says so (unclear =
+    #: "who", 2026-11-04), the same way the clause reader's THIRD_PERSON list
+    #: was removed. What to do about it is the being's.
     _POSSESSIVES = frozenset({"my", "our", "his", "her", "their", "your"})
 
     GRIEVING_MARKERS = (
@@ -280,7 +312,7 @@ class PresenceGuide:
                 scores[state.value] = self._WEIGHTS[state] * len(live)
 
         lost_state, lost_evidence, ambiguous, lost_who = self._resolve_lost(tokens)
-        ask = {"follow_up": ASK_WHO, "follow_up_about": lost_who} if lost_who else {}
+        unclear = {"unclear": "who", "about": lost_who} if lost_who else {}
         if lost_state is not None:
             matched.setdefault(lost_state.value, []).extend(lost_evidence)
             scores[lost_state.value] = (
@@ -289,13 +321,13 @@ class PresenceGuide:
 
         if not scores:
             return StateAssessment(
-                state=None, matched=matched, negated=negated, ambiguous=ambiguous, **ask
+                state=None, matched=matched, negated=negated, ambiguous=ambiguous, **unclear
             )
 
         best = max(scores, key=lambda k: scores[k])
         return StateAssessment(
             state=HumanState(best), scores=scores, matched=matched,
-            negated=negated, ambiguous=ambiguous, **ask,
+            negated=negated, ambiguous=ambiguous, **unclear,
         )
 
     def assess_human_state(
@@ -311,12 +343,13 @@ class PresenceGuide:
         Decide what "lost" means here.
 
         "feel lost"       -> confusion
-        "lost my mother"  -> not told from the words: ambiguous, ask who
-        "lost my keys"    -> not told from the words: ambiguous, ask who
+        "lost my mother"  -> not told from the words: ambiguous, who is unclear
+        "lost my keys"    -> not told from the words: ambiguous, who is unclear
         "lost" alone      -> ambiguous, no state
 
         Grief still reads from its own words ("passed away", "funeral").
-        The last value is what the being asks about ("my mother"), or "".
+        The last value is the words the unclear "who" concerns ("my
+        mother"), or "".
         """
         ambiguous: List[str] = []
         who = ""
@@ -367,65 +400,51 @@ class PresenceGuide:
 
     # -- Guidance -------------------------------------------------------------
 
+    #: Guidance per state, for the being to look up: a tone, whether silence
+    #: is allowed, and the principles (PresencePrinciples) that apply. Until
+    #: 2026-11-04 each state also carried a canned `primary_response`,
+    #: `secondary` line and `offer` ("I'm so sorry.", "I'm right here.",
+    #: "Would it help to focus on just one thing right now?"): words chosen
+    #: for the being. They are removed (item 7, module docstring); what the
+    #: being says is the being's.
     _RESPONSES: Dict[HumanState, Dict[str, Any]] = {
         HumanState.GRIEVING: {
             "tone": "soft, steady, unhurried",
-            "primary_response": "I'm so sorry.",
-            "secondary": "There's nothing that makes this okay.",
-            "offer": None, "allow_silence": True,
+            "allow_silence": True,
             "principles": ["steady", "witness", "no_fix"],
         },
         HumanState.OVERWHELMED: {
             "tone": "calm, grounding, slow",
-            "primary_response": "That's a lot to carry.",
-            "secondary": "You don't have to handle it all at once.",
-            "offer": "Would it help to focus on just one thing right now?",
             "allow_silence": True,
             "principles": ["steady", "no_rush", "permission"],
         },
         HumanState.BREAKING: {
             "tone": "gentle, anchored, present",
-            "primary_response": "I'm right here.",
-            "secondary": "You don't have to hold it together right now.",
-            "offer": "What do you need in this moment?",
             "allow_silence": True,
             "principles": ["steady", "witness", "permission"],
         },
         HumanState.AFRAID: {
             "tone": "steady, calm, reassuring",
-            "primary_response": "I hear that you're scared.",
-            "secondary": "Fear is hard. You're not alone in this.",
-            "offer": "Would grounding help, or do you just need to talk?",
             "allow_silence": False,
             "principles": ["steady", "witness", "gentle_options"],
         },
         HumanState.NUMB: {
             "tone": "gentle, patient, accepting",
-            "primary_response": "Numbness makes sense sometimes.",
-            "secondary": "You don't have to feel anything right now.",
-            "offer": None, "allow_silence": True,
+            "allow_silence": True,
             "principles": ["permission", "no_rush", "witness"],
         },
         HumanState.HOLDING_ON: {
             "tone": "acknowledging, steady, validating",
-            "primary_response": "You're doing what you can.",
-            "secondary": "That's enough.",
-            "offer": "Is there anything that would make holding on a little easier?",
             "allow_silence": True,
             "principles": ["witness", "permission", "gentle_options"],
         },
         HumanState.WITNESSING_PAIN: {
             "tone": "compassionate, understanding, gentle",
-            "primary_response": "Watching someone you love suffer is one of the hardest things.",
-            "secondary": "You can't fix their pain, but you can be there. And that matters.",
-            "offer": None, "allow_silence": True,
+            "allow_silence": True,
             "principles": ["witness", "no_fix", "steady"],
         },
         HumanState.CONFUSED: {
             "tone": "calm, clear, unhurried",
-            "primary_response": "It's okay not to know where you are right now.",
-            "secondary": "You don't have to figure it out all at once.",
-            "offer": "Is there one thing that feels clearest right now?",
             "allow_silence": True,
             "principles": ["steady", "no_rush", "permission"],
         },
@@ -435,7 +454,9 @@ class PresenceGuide:
         self, human_state: HumanState, client_said_what: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Guidance for a detected state.
+        Guidance for a state: tone, allow_silence and principles. A lookup
+        the being may call by name; nothing in this package calls it, and it
+        carries no words for the being to say.
 
         Raises:
             KeyError: for a state with no entry. The predecessor had a `.get`

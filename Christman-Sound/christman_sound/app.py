@@ -14,8 +14,8 @@ without stubs or outside engines:
   - Codec War bare table verification (render_codecwar_table)
   - Multi-canal Dispersion & War bench (christman_sound.dispersion)
   - Silico-Stasis equilibrium, 2 Hz shaker & psychoacoustic units (christman_sound.being)
-  - Hearing, structural affect, harm frame, crisis gate & nonverbal (Hearing)
-  - Corti Greenwood cochlea, cycle DSP quality, SpeakerSeat, grunt physics router &
+  - Hearing, structural affect, harm frame, crisis reading & nonverbal (Hearing)
+  - Corti Greenwood cochlea, cycle DSP quality, SpeakerSeat, Grunt Physics Router &
     20 Hz CanalRecorder (christman_voice_sdk.audio.corti_canal)
   - Lucent Gullstrand cornea optics, 5-part RhythmTracker & BodySignalFrame
     bridge (christman_voice_sdk.audio.lucent_reader & body_signals)
@@ -65,7 +65,7 @@ from .dsp import DSPUnavailable, PlaybackUnavailable, SynthRefused, SynthUnavail
 from .ear.board import DIALECT_MAP, add_family, add_residual, snapshot as board_snapshot
 from .ear.mouth import CONF_FLOOR, dress as dress_filament, load_carbon, save_carbon
 from . import __version__
-from .ear.porch import FAMILY_NAMES, MOUTH_COOPERATION, reconstruct_dialect, recover_mangles
+from .ear.porch import FAMILY_NAMES, MOUTH_COOPERATION, reconstruct_dialect
 from .ear.recognizer import discover_vosk_model
 from .formants import measure_formants
 from .frames import analyze_frames
@@ -237,6 +237,40 @@ def _json_resp(payload: Any, status_code: int = 200) -> AppResponse:
     )
 
 
+#: Request keys /api/hear and /api/synthesize no longer read (2026-11-04,
+#: Everett: the package reads, the being decides), and what replaced each.
+#: A request still sending one is refused with 400 naming it: Rule 6, a key
+#: the caller thinks is doing something is never quietly ignored.
+REMOVED_REQUEST_KEYS: Dict[str, str] = {
+    "public_setting": ("removed 2026-11-04: the studio no longer chooses whether danger "
+                       "is voiced; the reading carries `danger` and `asked_aloud`, and "
+                       "what is said aloud is the being's decision"),
+    "auto_route_grunt": ("removed 2026-11-04: `grunt_route` is returned as a reading "
+                         "only; a being that wants a key read sends `acoustic_key` "
+                         "itself"),
+    "silent_alarm": ("removed 2026-11-04: pass `danger` (the being's own "
+                     "SafetyResult.danger) with `being_reply`; `forbidden_lines` comes "
+                     "back beside the audio and nothing is refused"),
+    "answering_follow_up": ("removed 2026-11-04: pass `answering`, the question the "
+                            "being actually asked, in its own words"),
+}
+
+
+def _refuse_removed_keys(data: Any) -> Optional[AppResponse]:
+    """400 naming every removed key in the request and what replaced it, or None."""
+    if not isinstance(data, dict):
+        return None
+    sent = [k for k in REMOVED_REQUEST_KEYS if k in data]
+    if not sent:
+        return None
+    return _json_resp({
+        "status": "refused",
+        "kind": "RemovedRequestKey",
+        "removed": [{"key": k, "replaced_by": REMOVED_REQUEST_KEYS[k]} for k in sent],
+        "reason": "; ".join(f"{k!r}: {REMOVED_REQUEST_KEYS[k]}" for k in sent),
+    }, 400)
+
+
 class ChristmanSoundApp:
     """Pure-stdlib application router with an in-memory test client and HTTP server."""
 
@@ -334,8 +368,6 @@ class ChristmanSoundApp:
             if path == "/api/dispersion":
                 data = json.loads(body.decode("utf-8") or "{}") if body else {}
                 return self._handle_dispersion(data)
-            if path == "/api/voice-creation-center":
-                return self._handle_vcc_get()
             if path == "/api/porch":
                 data = json.loads(body.decode("utf-8") or "{}") if body else {}
                 return self._handle_porch(data)
@@ -464,6 +496,9 @@ class ChristmanSoundApp:
             return _json_resp({"status": "error", "reason": str(exc)}, 500)
 
     def _handle_synthesize(self, data: Dict[str, Any]) -> AppResponse:
+        refused = _refuse_removed_keys(data)
+        if refused is not None:
+            return refused
         text = data.get("text")
         phones_raw = data.get("phones")
         voice_arg = data.get("voice")
@@ -473,20 +508,19 @@ class ChristmanSoundApp:
         lexicon_inline = data.get("lexicon_text")
         sample_rate = data.get("sample_rate")
         play_aloud = bool(data.get("play_aloud", False))
-        being_reply = bool(data.get("being_reply", False))
-        silent_alarm = bool(data.get("silent_alarm", False))
-
-        if being_reply and text:
-            try:
-                from christman_voice_sdk.synthesis.reply_guard import ForbiddenReply, check_being_reply
-                check_being_reply(text, silent_alarm=silent_alarm)
-            except ForbiddenReply as exc:
-                return _json_resp({
-                    "available": False,
-                    "status": "forbidden_reply",
-                    "kind": "ForbiddenReply",
-                    "reason": str(exc),
-                }, 422)
+        # The studio renders what was asked. When the caller says the text is
+        # a being's own reply, the reply guard's lines are read on it and
+        # returned beside the audio; the being decides what to do with them.
+        # `danger` is the being's own reading (SafetyResult.danger) passed
+        # back in: with it, the announcement lines are read too. The guard
+        # is never read on a client's words, so without being_reply, or when
+        # phones (not the text) are rendered, forbidden_lines is None.
+        being_reply = data.get("being_reply") is True
+        danger = data.get("danger") is True
+        forbidden: Optional[List[str]] = None
+        if being_reply and isinstance(text, str) and phones_raw is None:
+            from christman_voice_sdk.synthesis.reply_guard import forbidden_lines
+            forbidden = forbidden_lines(text, danger=danger)
 
         tmp_files: List[Path] = []
         try:
@@ -568,6 +602,7 @@ class ChristmanSoundApp:
                 "phones": [{"id": p.id, "start": round(p.start, 4), "dur": round(p.dur, 4), "word": p.word} for p in res.phones],
                 "applied": res.applied,
                 "selection": res.selection,
+                "forbidden_lines": forbidden,
             }, 200)
         except (NoVoice, VoiceProfileError, FrameVoiceUnavailable, LexiconUnavailable, LexiconFormatError, DSPUnavailable, SynthUnavailable) as exc:
             return _json_resp({
@@ -665,104 +700,98 @@ class ChristmanSoundApp:
             for tf in tmp_files:
                 tf.unlink(missing_ok=True)
 
+    # -------------------------------------------------------------------------
+    # WHAT CHANGED AND WHY (2026-11-04). Everett's ruling: "we can have this
+    # knowledge in the sound package, but it can't be making those decisions.
+    # It's up to the being to make those decisions, not something that just
+    # creates a voice." /api/hear hears and reads, and returns what it read:
+    # the turn, the crisis reading (the turn's SafetyResult: status, reason,
+    # flags and the rest), the measured stress rise, the porch and the grunt
+    # route. The studio pages no one, so human_reached is always false. It
+    # picks no grounding script and feeds no reading back in as the client's
+    # key. stress_level and grounding_level come back exactly as the caller
+    # sent them. The being decides what to do with every reading.
+    # -------------------------------------------------------------------------
     def _handle_hear(self, data: Dict[str, Any]) -> AppResponse:
         from christman_voice_sdk.audio.corti_canal import analyze_grunt_physics
-        from christman_voice_sdk.audio.hearing import CrisisNotDelivered, Hearing
-        from christman_voice_sdk.utils.grounder import Grounder
+        from christman_voice_sdk.audio.hearing import Hearing
+        from christman_voice_sdk.tone.emotion_quantifier import EmotionAnalysisService
         from christman_voice_sdk.utils.presence_guide import PresenceGuide
 
+        refused = _refuse_removed_keys(data)
+        if refused is not None:
+            return refused
         text = data.get("text")
         previous_turn = data.get("previous_turn") or None
         between_beings = bool(data.get("between_beings", False))
-        public_setting = bool(data.get("public_setting", False))
         acoustic_key = data.get("acoustic_key") or None
         nonverbal = data.get("nonverbal") or None
         corti_event = data.get("corti_event") or None
+        # The question the being says it asked, in its own words. Echoed into
+        # the reading; the studio asks nothing itself.
+        answering = data.get("answering")
+        if answering is not None and not isinstance(answering, str):
+            return _json_resp({
+                "status": "refused",
+                "kind": "AnsweringNotText",
+                "reason": f"answering is the question the being asked, as text; got {type(answering).__name__}",
+            }, 400)
+        answering = answering if (answering and answering.strip()) else None
         porch_result = None
 
         if isinstance(text, str) and text.strip():
-            porch_layer = reconstruct_dialect(text, names=tuple(data.get("names") or ()))
+            porch_layer = reconstruct_dialect(text)
             porch_result = porch_layer.to_dict()
 
+        # A reading of the Corti event's grunt physics, returned as is. It is
+        # never passed to hear() as the acoustic key: a being that wants that
+        # key read sends acoustic_key itself.
         grunt_route = None
         if isinstance(corti_event, dict) and not acoustic_key and not (text and str(text).strip()):
-            route_obj = analyze_grunt_physics(corti_event, seat=self.speaker_seat)
-            grunt_route = route_obj.to_dict()
-            if data.get("auto_route_grunt"):
-                acoustic_key = route_obj.key
+            grunt_route = analyze_grunt_physics(corti_event, seat=self.speaker_seat).to_dict()
 
-        paged: List[Dict[str, Any]] = []
-
-        def crisis_pager(safety_result, context) -> bool:
-            paged.append({
-                "status": safety_result.status,
-                "reason": safety_result.reason,
-                "said": safety_result.said,
-                "flags": list(safety_result.flags),
-                "silent_alarm": safety_result.silent_alarm,
-                "voice_aloud": safety_result.voice_aloud,
-            })
-            # WHAT CHANGED AND WHY (2026-10-30): this returned True, which by the
-            # crisis contract (fusion_engine, hearing) means a human was reached,
-            # when all it did was append to this list. Nothing on the studio's web
-            # connection reaches a person, so it says so: False, and Hearing raises
-            # CrisisNotDelivered, answered below as a 503 with the reason. What a
-            # delivered page means over this connection is Everett's ruling to make.
-            return False
-
-        hearing = Hearing(crisis_callback=crisis_pager)
-        try:
-            turn = hearing.hear(
-                text=text,
-                corti_event=corti_event,
-                nonverbal=nonverbal,
-                acoustic_key=acoustic_key,
-                previous_turn=previous_turn,
-                between_beings=between_beings,
-                public_setting=public_setting if public_setting else None,
-            )
-        except CrisisNotDelivered as exc:
-            return _json_resp({
-                "status": "refused",
-                "kind": "CrisisNotDelivered",
-                "reason": str(exc),
-                "paged_human": False,
-                "pager_events": paged,
-            }, 503)
+        turn = Hearing().hear(
+            text=text,
+            corti_event=corti_event,
+            nonverbal=nonverbal,
+            acoustic_key=acoustic_key,
+            previous_turn=previous_turn,
+            between_beings=between_beings,
+            answering=answering,
+        )
+        crisis_reading = None if turn.reading is None else turn.reading.safety.to_dict()
 
         presence = None
+        measured_stress: Optional[float] = None
+        stress_error: Optional[str] = None
         if isinstance(text, str) and text.strip():
             try:
                 presence = PresenceGuide().assess(text).to_dict()
             except Exception as exc:
-                presence = {"error": str(exc)}
-
-        # WHAT CHANGED AND WHY (2026-10-30): this called Grounder().select_script,
-        # which does not exist, with a stress score of 0.75 nobody measured, and
-        # swallowed the error, so grounding never worked and read as "none
-        # needed". It now uses Grounder.get_grounding_for_state with the stress
-        # and grounding levels the caller measured (emotion_quantifier's
-        # stress_level rise, a 0-1 grounding level); with neither it says so.
-        grounding = None
-        if turn.decision and turn.decision.delivery.get("needs_grounding"):
-            def _level(key):
-                v = data.get(key)
-                return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
-
-            technique = Grounder().get_grounding_for_state(
-                stress_level=_level("stress_level"), grounding_level=_level("grounding_level"))
-            grounding = technique if technique is not None else {
-                "available": False,
-                "reason": "grounding is needed, but no stress_level or grounding_level was measured and sent",
-            }
+                # Not swallowed: the error goes back in the response.
+                presence = {"error": f"{type(exc).__name__}: {exc}"}
+            try:
+                # emotion_quantifier's text reading: stress_level is the rise
+                # above baseline, scored from a word list with chosen weights.
+                measured_stress = float(EmotionAnalysisService().analyze_text_input(text).stress_level)
+            except Exception as exc:
+                # Not swallowed: the reason goes back in the response.
+                measured_stress = None
+                stress_error = f"{type(exc).__name__}: {exc}"
+        else:
+            stress_error = "no text was sent; the stress rise is read from words"
 
         return _json_resp({
             "status": "ok",
             "turn": turn.to_dict(),
-            "paged_human": len(paged) > 0,
-            "pager_events": paged,
+            "crisis_reading": crisis_reading,
+            "human_reached": False,
+            "human_reached_reason": "the studio pages no one",
             "presence_guide": presence,
-            "grounding_script": grounding,
+            "measured_stress_rise": measured_stress,
+            "stress_error": stress_error,
+            "stress_level": data.get("stress_level"),
+            "grounding_level": data.get("grounding_level"),
             "porch": porch_result,
             "grunt_route": grunt_route,
         }, 200)
@@ -879,7 +908,6 @@ class ChristmanSoundApp:
         code = 200 if res.status.value == "ok" else 503
         return _json_resp(payload, code)
 
-
     def _handle_vcc_get(self) -> AppResponse:
         voices_dir = Path.home() / ".christman_ai" / "voices"
         frame_voices = sorted(str(p) for p in voices_dir.glob("*") if (p / "voice.json").is_file()) if voices_dir.is_dir() else []
@@ -899,8 +927,7 @@ class ChristmanSoundApp:
             if action == "resynthesize_frames":
                 wav_in = data.get("wav_path")
                 if not wav_in or not Path(wav_in).expanduser().is_file():
-                    return _json_resp({"status": "refused", "kind": "NoRecording",
-                                       "reason": "no WAV given: pass wav_path, a recording to resynthesize"}, 400)
+                    return _json_resp({"error": "provide a valid wav_path to resynthesize"}, 422)
                 rep = resynthesize_from_frames(wav_in, cache)
                 rep["source_audio_url"] = f"/audio/{Path(rep['source_wav_path']).name}"
                 rep["rendered_audio_url"] = f"/audio/{Path(rep['rendered_wav_path']).name}"
@@ -915,17 +942,22 @@ class ChristmanSoundApp:
                     return _json_resp({"status": "refused", "kind": "UnsafeName",
                                        "reason": "a voice name may hold only letters, digits, '_', '.' and '-'"}, 400)
                 wav_list = list(data.get("wav_paths") or [])
+                if not wav_list:
+                    return _json_resp({"status": "refused", "kind": "NoAudio",
+                                       "reason": "no recordings given: pass wav_paths; refusing to invent defaults"}, 422)
                 out_file = cache / f"profile_{name}.json"
-                lex_path = None
+                lex_obj = None
                 if data.get("lexicon_text"):
-                    lex_path = cache / "tmp_vcc_lex.txt"
-                    lex_path.write_text(str(data["lexicon_text"]), encoding="utf-8")
+                    tf = cache / "tmp_vcc_lex.txt"
+                    tf.write_text(str(data["lexicon_text"]), encoding="utf-8")
+                    lex_obj = load_lexicon(tf)
                 res = measure_and_prove_voice_profile(
                     name=name,
                     wav_paths=wav_list,
                     out_path=out_file,
-                    lexicon_path=lex_path,
-                    prefix=str(data.get("prefix") or ""),
+                    lexicon=lex_obj,
+                    vosk_model=data.get("vosk_model"),
+                    aligned_words_by_file=data.get("aligned_words_by_file"),
                 )
                 return _json_resp({"status": "ok", **res}, 200)
 
@@ -938,16 +970,22 @@ class ChristmanSoundApp:
                     return _json_resp({"status": "refused", "kind": "UnsafeName",
                                        "reason": "a voice name may hold only letters, digits, '_', '.' and '-'"}, 400)
                 wav_list = list(data.get("wav_paths") or [])
+                if not wav_list:
+                    return _json_resp({"status": "refused", "kind": "NoAudio",
+                                       "reason": "no recordings given: pass wav_paths; refusing to invent defaults"}, 422)
                 out_dir = cache / f"frame_voice_{name}"
-                lex_path = None
+                lex_obj = None
                 if data.get("lexicon_text"):
-                    lex_path = cache / "tmp_vcc_lex.txt"
-                    lex_path.write_text(str(data["lexicon_text"]), encoding="utf-8")
+                    tf = cache / "tmp_vcc_lex.txt"
+                    tf.write_text(str(data["lexicon_text"]), encoding="utf-8")
+                    lex_obj = load_lexicon(tf)
                 fv = build_frame_voice_center(
                     name=name,
                     wav_paths=wav_list,
                     out_dir=out_dir,
-                    lexicon_path=lex_path,
+                    lexicon=lex_obj,
+                    vosk_model=data.get("vosk_model"),
+                    aligned_tokens=data.get("aligned_tokens"),
                 )
                 return _json_resp({
                     "status": "ok",
@@ -964,24 +1002,17 @@ class ChristmanSoundApp:
                 preset = data.get("preset")
                 overrides = data.get("controls") or {}
                 controls = resolve_vcc_controls(preset=preset, overrides=overrides)
-                # 2026-10-30: no default voice (it reached for one being's frame voice
-                # folder), and no lexicon of its own (it wrote a hidden ten-word one).
-                # The lexicon is the one sent, else the one on this disk; with none,
-                # synthesize refuses with LexiconUnavailable, and with no voice, NoVoice.
-                voice_arg = data.get("voice") or None
+                voice_arg = data.get("voice")
+                if not voice_arg:
+                    return _json_resp({"error": "provide a voice profile or frame voice path; refusing to assume a default voice"}, 422)
                 lex_obj = None
                 if data.get("lexicon_text"):
                     tf = cache / "tmp_vcc_lex.txt"
                     tf.write_text(str(data["lexicon_text"]), encoding="utf-8")
                     lex_obj = load_lexicon(tf)
-                else:
-                    found = discover_align_lexicon()
-                    if found is not None:
-                        lex_obj = load_lexicon(found)
                 text = str(data.get("text") or "").strip()
                 if not text:
-                    return _json_resp({"status": "refused", "kind": "NoText",
-                                       "reason": "no text given: pass text"}, 400)
+                    return _json_resp({"error": "provide text to synthesize"}, 422)
                 res = synthesize(text, voice=voice_arg, lexicon=lex_obj, **controls)
                 fname = f"vcc_{int(datetime.now().timestamp() * 1000)}.wav"
                 res.write_wav(cache / fname)
@@ -1006,6 +1037,9 @@ class ChristmanSoundApp:
                     return _json_resp({"status": "refused", "kind": "UnsafeName",
                                        "reason": "a voice name may hold only letters, digits, '_', '.' and '-'"}, 400)
                 wav_list = list(data.get("wav_paths") or [])
+                if not wav_list:
+                    return _json_resp({"status": "refused", "kind": "NoAudio",
+                                       "reason": "no recordings given: pass wav_paths; refusing to invent defaults"}, 422)
                 out_vp = cache / f"{name}.voicepack"
                 vp_res = package_voicepack_center(name=name, wav_paths=wav_list, out_path=out_vp)
                 return _json_resp(vp_res, 200)
@@ -1083,7 +1117,8 @@ class ChristmanSoundApp:
 
         raw_text = str(data.get("text") or "")
         extra = data.get("extra_lexicon") or []
-        layer = reconstruct_dialect(raw_text, extra_lexicon=extra, names=tuple(data.get("names") or ()))
+        family_names = data.get("family_names") or []
+        layer = reconstruct_dialect(raw_text, extra_lexicon=extra, family_names=family_names)
         words = data.get("words") or []
         dressed = dress_filament({"ok": True, "final": True, "text": raw_text, "words": words})
         return _json_resp({

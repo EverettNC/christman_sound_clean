@@ -1,7 +1,8 @@
 """
 ToneScore™ Engine
 
-Multi-layer tone detection: raw audio → measured features → adaptive response.
+Multi-layer tone detection: raw audio → measured features → readings. The
+being decides what to do with them (see 7 below).
 
 WHAT CHANGED AND WHY
 --------------------
@@ -86,8 +87,24 @@ WHAT CHANGED AND WHY
        because pitch never loaded; turning pitch on would have switched them
        on with new inputs on new scales. They stay None, with a note saying
        why, until Everett rules.
-     - tone_score and response_mode therefore stay exactly what they were:
-       None and "unknown" whenever arousal is None.
+     - tone_score therefore stays exactly what it was: None whenever arousal
+       is None. (response_mode, "unknown" in that case, was removed on
+       2026-11-04; see 7.)
+
+WHAT CHANGED AND WHY (2026-11-04)
+---------------------------------
+
+7. NO RESPONSE MODE. Everett's ruling, 2026-11-04: "we can have this
+   knowledge in the sound package, but it can't be making those decisions.
+   It's up to the being to make those decisions, not something that just
+   creates a voice."
+
+   `adaptive_response_mode` turned the composite into a posture for the
+   being (hold_space: slower, deeper, longer pauses; gentle_lift: warmer,
+   micro-affirmations). That is a decision about how the being responds, so
+   it is gone, and so is the `response_mode` field it filled on every
+   ToneResult. The result carries the readings (tone_score, arousal,
+   valence, dominance, emotions, interpretation); the being decides.
 """
 
 from __future__ import annotations
@@ -148,7 +165,6 @@ class ToneResult:
     emotion_confidence: Optional[float] = None
     tone_score: Optional[float] = None
     interpretation: Optional[str] = None
-    response_mode: Optional[Dict[str, Any]] = None
     physiological: Dict[str, Any] = field(default_factory=dict)
     label_set: Optional[Dict[str, Any]] = None
     notes: List[str] = field(default_factory=list)
@@ -168,7 +184,6 @@ class ToneResult:
             "composite_weights_are_chosen": True,
             "composite_weights": ToneScoreEngine.COMPOSITE_WEIGHTS,
             "interpretation": self.interpretation,
-            "response_mode": self.response_mode,
             "physiological": dict(self.physiological),
             "label_set": self.label_set,
             "notes": list(self.notes),
@@ -330,7 +345,6 @@ class ToneScoreEngine:
             emotion_confidence=emo_conf,
             tone_score=tone_score,
             interpretation=self._interpret(tone_score, dom, emo_conf),
-            response_mode=self.adaptive_response_mode(tone_score),
             physiological={
                 "pitch_mean_hz": track.mean_hz,
                 "pitch_median_hz": track.median_hz,
@@ -516,31 +530,6 @@ class ToneScoreEngine:
         return round(min(100.0, max(0.0,
             w["arousal"] * arousal + w["valence"] * valence
             + w["emotion_intensity"] * emotion_intensity)), 2)
-
-    @staticmethod
-    def adaptive_response_mode(tone_score: Optional[float]) -> Dict[str, Any]:
-        """
-        Response mode from the composite.
-
-        `unknown` is a real mode. The predecessor had no branch for a missing
-        score and would have fallen through to "standard", treating "we did not
-        measure this" as "this person is in the normal range".
-        """
-        if tone_score is None:
-            return {
-                "mode": "unknown",
-                "description": "Tone was not measured. Do not infer a state.",
-                # Ruling M (2026-10-29 review): no confirm-before-acting; the
-                # package never holds an action for confirmation.
-                "assert_nothing": True,
-            }
-        if tone_score > 75:
-            return {"mode": "hold_space", "description": "High composite",
-                    "cadence": "slower", "pitch": "deeper", "pauses": "longer"}
-        if tone_score < 35:
-            return {"mode": "gentle_lift", "description": "Low composite",
-                    "timbre": "warmer", "affirmations": "micro", "energy": "gentle_boost"}
-        return {"mode": "standard", "description": "Mid composite", "adaptive": True}
 
     @staticmethod
     def _interpret(

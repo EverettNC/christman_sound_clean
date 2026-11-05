@@ -238,7 +238,11 @@ def test_phonemes_are_unavailable_with_the_reason_never_invented(tmp_path, monke
     # transcript's letters. No phonemes: available False, with the reason.
     import subprocess
 
-    import soundfile as sf
+    try:
+        import soundfile as sf
+    except ImportError:
+        pytest.skip("not run: soundfile is not installed here; this test writes its tone "
+                    "with it and phoneme_labeler imports it at module top")
     from christman_voice_sdk.synthesis import phoneme_labeler as pl
 
     def no_subprocess(*a, **k):

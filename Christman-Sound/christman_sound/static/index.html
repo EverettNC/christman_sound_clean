@@ -215,17 +215,13 @@
             <button class="action" onclick="runCodecWar()">Verify Bare Table</button>
           </div>
           <audio id="vccAudio" controls></audio>
-          <pre id="vccOut">Click "1. Build Frame Voice Bank" then "2. Speak with 12 VCC Controls" to hear stitched frame synthesis.</pre>
+          <pre id="vccOut">Provide your recordings and voice path to build a Frame Voice Bank and speak with the 12 VCC Controls.</pre>
         </div>
 
         <div class="card">
           <h2>Voice Profile Measurement, Before/After Proof &amp; Voicepack Builder</h2>
           <label>Voice Name</label>
-          <input id="profName" value="" placeholder="the voice's name" />
-          <label>The being's own recordings (WAV paths, one per line; 22,050 Hz 16-bit mono for a frame voice)</label>
-          <textarea id="profWavs" rows="4" placeholder="/path/to/recording.wav"></textarea>
-          <label>File name prefix before each phrase's words (for measuring a profile)</label>
-          <input id="profPrefix" value="" placeholder="e.g. take_" />
+          <input id="profName" value="" placeholder="Enter voice name" />
           <div style="display:flex; flex-wrap:wrap; gap:8px;">
             <button class="action" onclick="runVccMeasureProfile()">Measure &amp; Prove VoiceProfile (.json)</button>
             <button class="action" onclick="runVccPackageVoicepack()">Package .voicepack Archive</button>
@@ -242,8 +238,8 @@
       <div class="card">
         <h2>Frames Room — 4.99 ms Frame Measurement &amp; Side-by-Side Vocoder Resynthesis</h2>
         <p class="subtitle">Measures a recording every 4.99 ms (pitch, 96-point CheapTrick mel envelope, 8-band aperiodicity) and renders it back out from those numbers alone via christman_vocoder.c.</p>
-        <label>WAV Path (required)</label>
-        <input id="framesWavPath" placeholder="a recording to resynthesize" />
+        <label>WAV Path (22,050 Hz or 16,000 Hz 16-bit mono WAV)</label>
+        <input id="framesWavPath" placeholder="/path/to/recording.wav" />
         <button class="action" onclick="runFramesRoom()">Measure Recording &amp; Render From Its Frames</button>
         <div class="grid" style="margin-top:12px;">
           <div>
@@ -280,8 +276,8 @@
       <div class="grid">
         <div class="card">
           <h2>Porch Dialect &amp; TCAP-V-0020 Mouth-Cooperation</h2>
-          <label>Raw STT Transcript (test Christmas, some bitch, Miss Reed, hectic feedback, Alpha Vox)</label>
-          <textarea id="porchText" rows="3">Merry Christmas from Alpha Vox! Miss Reed said the hectic feedback on the skin sensor might could work.</textarea>
+          <label>Raw STT Transcript (test dialect & mouth-cooperation)</label>
+          <textarea id="porchText" rows="3">Miss Reed said the hectic feedback on the skin sensor might could work.</textarea>
           <button class="action" onclick="runPorch()">Reconstruct Dialect &amp; Dress Mouth Map</button>
           <pre id="porchOut"></pre>
         </div>
@@ -302,17 +298,27 @@
     <section id="tab-corti" class="tab">
       <div class="grid">
         <div class="card">
-          <h2>Greenwood Cochlea, SpeakerSeat &amp; Grunt Physics</h2>
+          <h2>Greenwood Cochlea, SpeakerSeat &amp; Nonverbal Grunt Physics</h2>
           <label>Frequency (Hz)</label>
           <input id="cortiHz" type="number" value="265" />
+          <label>Speaker lock, measured (optional; sent only when Measured F0 is filled in)</label>
+          <div class="slider-grid">
+            <div><label>Measured F0 Hz</label><input id="lockF0" type="number" placeholder="from a measurement" /></div>
+            <div><label>Peak RMS</label><input id="lockRms" type="number" step="0.001" placeholder="from a measurement" /></div>
+            <div><label>F1 Hz</label><input id="lockF1" type="number" placeholder="from a measurement" /></div>
+            <div><label>F2 Hz</label><input id="lockF2" type="number" placeholder="from a measurement" /></div>
+          </div>
           <button class="action" onclick="runCortiCanal()">Evaluate Cochlea &amp; Grunt Physics</button>
           <pre id="cortiOut"></pre>
         </div>
         <div class="card">
-          <h2>Hearing, Structural Affect &amp; Harm Frame</h2>
+          <h2>Hearing, Structural Affect &amp; Harm Frame — Readings for the Being</h2>
           <label>Utterance Text</label>
           <input id="hearText" value="I'm in pain and I need my medicine" />
-          <button class="action" onclick="runHear()">Run Hearing Gate</button>
+          <label>Question the being asked, in its own words (optional; echoed as answering)</label>
+          <input id="hearAnswering" value="" placeholder="e.g. Are you safe right now?" />
+          <button class="action" onclick="runHear()">Read the Words</button>
+          <pre id="hearSummary"></pre>
           <pre id="hearOut"></pre>
         </div>
       </div>
@@ -430,16 +436,10 @@
       return out;
     }
 
-    function profWavPaths() {
-      return document.getElementById('profWavs').value.split('\n').map(x => x.trim()).filter(Boolean);
-    }
-
     async function runVccBuildFrameVoice() {
       const d = await postJson('/api/voice-creation-center', {
         action: 'build_frame_voice',
-        name: document.getElementById('profName').value,
-        wav_paths: profWavPaths(),
-        prefix: document.getElementById('profPrefix').value
+        name: document.getElementById('profName').value 
       });
       document.getElementById('vccOut').textContent = JSON.stringify(d, null, 2);
       if (d.frame_voice_dir) document.getElementById('vccVoice').value = d.frame_voice_dir;
@@ -459,9 +459,7 @@
     async function runVccMeasureProfile() {
       const d = await postJson('/api/voice-creation-center', {
         action: 'measure_profile',
-        name: document.getElementById('profName').value,
-        wav_paths: profWavPaths(),
-        prefix: document.getElementById('profPrefix').value
+        name: document.getElementById('profName').value 
       });
       document.getElementById('statusOut').textContent = JSON.stringify(d, null, 2);
     }
@@ -469,9 +467,7 @@
     async function runVccPackageVoicepack() {
       const d = await postJson('/api/voice-creation-center', {
         action: 'package_voicepack',
-        name: document.getElementById('profName').value,
-        wav_paths: profWavPaths(),
-        prefix: document.getElementById('profPrefix').value
+        name: document.getElementById('profName').value 
       });
       document.getElementById('statusOut').textContent = JSON.stringify(d, null, 2);
     }
@@ -545,31 +541,83 @@
       document.getElementById('wavOut').textContent = JSON.stringify(d, null, 2);
     }
 
+    // A number the operator typed into a box, or null when the box is empty.
+    function enteredNumber(id) {
+      const raw = document.getElementById(id).value.trim();
+      if (raw === '') return null;
+      const n = Number(raw);
+      return Number.isFinite(n) ? n : null;
+    }
+
     async function runCortiCanal() {
-      const hz = Number(document.getElementById('cortiHz').value) || 265;
-      const d = await postJson('/api/corti-canal', {
-        hz,
-        observe_lock: {f0: hz, peak_rms: 0.14, f1: 520, f2: 1480},
-        record_canal_frame: {t_ms: Date.now(), rms: 0.14, zcr: 0.06, f0: hz, f1: 520, f2: 1480}
-      });
+      const hz = enteredNumber('cortiHz');
+      if (hz === null) {
+        document.getElementById('cortiOut').textContent = 'Enter a frequency in Hz.';
+        return;
+      }
+      const body = {hz};
+      // Only what the operator entered is sent. No lock is sent without a
+      // measured F0; empty boxes stay out of the request.
+      const f0 = enteredNumber('lockF0');
+      if (f0 !== null) {
+        const lock = {f0};
+        const rms = enteredNumber('lockRms');
+        const f1 = enteredNumber('lockF1');
+        const f2 = enteredNumber('lockF2');
+        if (rms !== null) lock.peak_rms = rms;
+        if (f1 !== null) lock.f1 = f1;
+        if (f2 !== null) lock.f2 = f2;
+        body.observe_lock = lock;
+      }
+      const d = await postJson('/api/corti-canal', body);
       document.getElementById('cortiOut').textContent = JSON.stringify(d, null, 2);
     }
 
+    // The readings the being decides on, shown first; the full response below.
+    function hearSummary(d) {
+      if (d.status !== 'ok') return 'Not read: ' + (d.reason || d.error || JSON.stringify(d));
+      const lines = [];
+      lines.push('Human reached: ' + (d.human_reached ? 'yes' : 'no') +
+                 (d.human_reached_reason ? ' (' + d.human_reached_reason + ')' : ''));
+      const t = d.turn || {};
+      if (t.person_message) lines.push("Client's words (nonverbal): " + JSON.stringify(t.person_message));
+      const c = d.crisis_reading;
+      if (!c) {
+        lines.push('Crisis reading: none (no words were sent and no nonverbal distress signal was read)');
+      } else {
+        lines.push('Crisis reading: ' + c.status + ' / ' + c.reason);
+        if (c.flags && c.flags.length) lines.push('  flags: ' + c.flags.join(', '));
+        if (c.flagged_terms && c.flagged_terms.length) lines.push('  flagged terms: ' + c.flagged_terms.join(', '));
+        if (c.danger) lines.push('  danger: yes' + (c.danger_sentences && c.danger_sentences.length
+          ? ' — ' + c.danger_sentences.map(s => JSON.stringify(s)).join(' ') : ''));
+        if (c.unclear) lines.push('  unclear: ' + c.unclear + (c.about ? ' (about ' + JSON.stringify(c.about) + ')' : ''));
+        else if (c.about) lines.push('  about: ' + JSON.stringify(c.about));
+        if (c.asked_aloud) lines.push('  asked aloud: ' + JSON.stringify(c.asked_aloud));
+        if (c.asked_for_help) lines.push('  asked for help: ' + JSON.stringify(c.asked_for_help));
+        if (c.short_answer) lines.push('  short answer: ' + c.short_answer);
+        if (c.answering) lines.push('  answering: ' + JSON.stringify(c.answering));
+        if (c.between_beings) lines.push('  between beings: yes');
+        if (c.degraded) lines.push('  degraded: ' + (c.degraded_reason || 'yes'));
+      }
+      lines.push('Measured stress rise: ' + (d.measured_stress_rise === null || d.measured_stress_rise === undefined
+        ? 'not measured' + (d.stress_error ? ' (' + d.stress_error + ')' : '')
+        : d.measured_stress_rise));
+      return lines.join('\n');
+    }
+
     async function runHear() {
-      const d = await postJson('/api/hear', {
-        text: document.getElementById('hearText').value
-      });
+      const body = {text: document.getElementById('hearText').value};
+      const answering = document.getElementById('hearAnswering').value;
+      if (answering.trim() !== '') body.answering = answering;
+      const d = await postJson('/api/hear', body);
+      document.getElementById('hearSummary').textContent = hearSummary(d);
       document.getElementById('hearOut').textContent = JSON.stringify(d, null, 2);
     }
 
     async function runLucent() {
+      // No body frames are sent: none were measured on this page.
       const d = await postJson('/api/lucent', {
-        preset: document.getElementById('lucentPreset').value,
-        body_frames: [
-          {t_ms: 0, breath_freq: 0.25, eye_jitter: 0.02, stare_lock: 0.1},
-          {t_ms: 1000, breath_freq: 0.28, eye_jitter: 0.03, stare_lock: 0.2},
-          {t_ms: 2000, breath_freq: 0.31, eye_jitter: 0.04, stare_lock: 0.3}
-        ]
+        preset: document.getElementById('lucentPreset').value
       });
       document.getElementById('lucentOut').textContent = JSON.stringify(d, null, 2);
     }

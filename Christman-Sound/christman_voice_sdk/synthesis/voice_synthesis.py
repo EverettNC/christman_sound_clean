@@ -58,6 +58,25 @@ Why the rest is the way it is:
   - The WAV readers are standard library only. The cache directory is
     ~/.christman_ai/voice_cache (0700), created on first write; no file is
     created before there is audio to put in it.
+
+WHAT CHANGED AND WHY (2026-11-04) — THE MOUTH SPEAKS WHAT IT IS GIVEN
+----------------------------------------------------------------------
+Everett, 2026-11-04: "we can have this knowledge in the sound package, but it
+can't be making those decisions. It's up to the being to make those
+decisions, not something that just creates a voice."
+
+generate_speech_audio took being_reply and silent_alarm. With being_reply
+True it ran the reply guard before rendering, and a reply carrying "you're
+not okay" or "calm down", or (with silent_alarm) a reply announcing help,
+raised ForbiddenReply with nothing written. That was the mouth overruling
+the being. Both parameters and the guard call are gone. A caller that still
+passes being_reply= or silent_alarm= has them land in the controls and is
+refused loudly as StitchRefused ("not controls of this mouth"), never
+ignored. The lists stay in reply_guard as knowledge: forbidden_lines(reply,
+danger=...) names the lines and the being decides. The refusals above (no
+voice, a language with no lexicon, a keyword that is not a control) are
+about whether audio can be made at all; they are not decisions about what
+is said, and they are unchanged.
 """
 
 from __future__ import annotations
@@ -74,7 +93,6 @@ import time
 import threading
 import wave
 
-from .reply_guard import check_being_reply
 from ..engines.synthesis_result import (
     SOVEREIGN_NOT_WIRED,  # noqa: F401  (re-exported; the other cut paths still give it)
     DegradedSynthesisError,  # noqa: F401  (re-exported for callers that caught it here)
@@ -459,8 +477,6 @@ class SpeechSynthesisEngine:
         play_audio: bool = True,
         output_path: Optional[str] = None,
         voice=None,
-        being_reply: bool = False,
-        silent_alarm: bool = False,
         **controls,
     ) -> Optional[str]:
         """
@@ -468,19 +484,12 @@ class SpeechSynthesisEngine:
         with the real reason when no audio can be made. Returns None only
         for empty text.
 
-        being_reply: True when the text is the being's OWN reply. Then the
-        reply guard runs first (Everett, 2026-10-29): a being never says
-        "you're not okay" or "calm down" to a client, and such a reply
-        raises ForbiddenReply with nothing spoken. False (the default) is
-        the client's own words, which are spoken exactly as given and never
-        go through the guard.
-
-        silent_alarm: True while a danger signal has gone to a human silently
-        (ruling I). With being_reply, a reply that announces help is then
-        refused too.
+        The mouth speaks what it is given, the being's reply or the client's
+        own words alike. It reads nothing into the text and refuses nothing
+        because of what the text says (2026-11-04): what to say is the
+        being's decision. A being that wants its reply read against the
+        lines ruling E names calls reply_guard.forbidden_lines first.
         """
-        if being_reply:
-            check_being_reply(text, silent_alarm=silent_alarm)
         if not text or not text.strip():
             logger.warning("No text provided for speech generation.")
             return None

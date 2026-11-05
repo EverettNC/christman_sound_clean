@@ -34,8 +34,8 @@ The same frame separates the sentences the Aegis floor cannot:
     "my brother died by suicide"   patient=my brother, past, no agent on speaker
     "I want to kill myself"        subject=I, want to, kill, patient=myself
 
-One is grief. One is a crisis. Substring matching on "suicide" hard-blocks both
-and silences the person, because it never looks for a patient.
+One is grief. One is a crisis. Substring matching on "suicide" hard-blocks both,
+because it never looks for a patient.
 
 WHAT THIS IS NOT
 ----------------
@@ -49,9 +49,10 @@ Known limits, named rather than discovered:
   - Multi-clause chains beyond one embedding are not followed.
   - Pronoun antecedents are never resolved. "he" is THIRD_PARTY, never a name.
   - Sarcasm is invisible. "my mom will kill me if I'm late" is a live
-    third-party-on-speaker frame and the gate will hold it. That is the
-    chosen direction of error: a caregiver check-in costs minutes; a
-    cleared crisis costs a person.
+    third-party-on-speaker frame and the gate reads it hard_block. That is
+    the chosen direction of error: a reading that is too careful costs the
+    being a check-in; a cleared crisis costs a person. What is done with the
+    reading is the being's (Everett, 2026-11-04; see hearing.py).
   - Reported speech ("she said she'd kill me") attributes to the speaker.
   - Ideation phrasing outside IDEATION_PHRASES is not seen. "I can't go on"
     is deliberately NOT in the table — it is too often about a job.
@@ -272,23 +273,26 @@ MODAL_PATTERNS: Tuple[Tuple[str, Modality], ...] = (
 #:
 #: CORRECTED 2026-10-29 (review). This comment used to say "I used to want
 #: to kill myself" must NOT call a human. Everett's ruling A (2026-10-29)
-#: says it does: the client's own history of harm reaches a human
+#: says it does: the client's own history of harm reads hard_block
 #: (hearing.harm_frame_safety, reason "harm_frame_history_self"). Being
-#: history changes the reason, not whether a human is reached.
+#: history changes the reason, not the status.
 #:
 #: Everett's ruling H (2026-10-29) decides "he choked me yesterday", and
 #: every "verb plus me" sentence by someone else, outside this list. This
-#: reader still finds the frame; the crisis gate (hearing._words_gate) then
+#: reader still finds the frame; the safety gate (hearing._words_gate) then
 #: reads its time the same way as "he hurt my neck":
 #:   - Past physical harm ("he choked me", "she stabbed me", "he punched me",
-#:     "he choked me yesterday", "she stabbed me last week") does not page at
-#:     once. The being is handed an ask-if-safe mark. It pages when the
-#:     client asks for help in the same turn or answers "no" to the ask.
+#:     "he choked me yesterday", "she stabbed me last week") reads
+#:     soft_redirect, and hard_block when the client asks for help in the
+#:     same turn.
 #:   - Harm happening now ("he is choking me", "she's stabbing me", "he keeps
-#:     hitting me", "he's starting to choke me") pages at once, silently.
+#:     hitting me", "he's starting to choke me") reads hard_block, danger.
 #:   - A threat ("he will hurt me", "he is going to kill me") stays a crisis
-#:     frame and pages at once, as before.
+#:     frame and reads hard_block, danger, as before.
 #: Self-harm (ruling A) and someone else at risk (ruling D) are not moved.
+#: WHAT CHANGED AND WHY (2026-11-04): this list used to say who was paged,
+#: what was voiced and what the being was handed to ask. The gate reads; the
+#: being decides (Everett's ruling, hearing.py).
 _PAST_BEFORE = re.compile(
     r"\b(?:used to|tried to|almost|once|back then|long ago|a long time ago|"
     r"years? ago|months? ago|when i was|as a (?:kid|child|teenager)|"
@@ -307,7 +311,7 @@ _DISTANCING_IN_CLAUSE = re.compile(
 #: its own clause only. Everett, 2026-10-28: one such word anywhere in a
 #: message used to mark EVERY frame in it as history, so "I no longer care,
 #: I want to kill myself" and "I stopped eating and I want to kill myself"
-#: came back as the speaker's own history and called no human.
+#: came back as the speaker's own history, not a live crisis.
 _CLAUSE_EDGE = re.compile(r"[.!?;,]|\b(?:and|but|so|then|because|cause|now)\b")
 
 
@@ -432,8 +436,8 @@ class HarmFrame:
     #: typed on an AAC board (ideation).
     shape: str = "verb"
     #: True when the grammar says the subject is not the client ("mom WANTS
-    #: to die") but cannot say who it is. The being asks who (ruling AA);
-    #: it is never read as the client's own risk.
+    #: to die") but cannot say who it is. Who it is stays unclear (ruling
+    #: AA); it is never read as the client's own risk.
     subject_unresolved: bool = False
 
     @property
@@ -489,7 +493,7 @@ class HarmFrame:
         the right distinction for an intent score and the wrong one for a
         gate: "I might kill myself tonight" is hypothetical by grammar and a
         crisis by any other reading. A gate that lets grammar decide that
-        does not reach a human when it should.
+        does not read hard_block when it should.
         """
         return not self.negated and not self.past_tense
 
@@ -719,7 +723,7 @@ def extract_frames(text: str) -> List[HarmFrame]:
         subj, subj_text = _subject_before(tokens_before)
         # "mom wants to die": the verb agrees in the third person, so the
         # subject is someone other than the client even when the grammar
-        # cannot say who. No list decides it; the being asks who.
+        # cannot say who. No list decides it; who it is stays unclear.
         unresolved = subj is Party.UNKNOWN and (
             phrase.split()[0] in _THIRD_PERSON_AGREEMENT
             or (bool(tokens_before) and tokens_before[-1] in _THIRD_PERSON_AGREEMENT

@@ -65,12 +65,15 @@ WHERE THE NUMBERS COME FROM
     voice -> Corti VocalEvent -> ProsodyAnalyzer -> arousal (RELATIVE, never
              absolute, never valence)
     audio -> ToneScoreEngine (tone/tonescore_engine.py) -> 4-class emotions
-    both  -> reconcile() -> agreement, defer_to_human
+    both  -> reconcile() -> agreement, channels_disagree, voice_elevated
 
-`reconcile()` already exists and already returns `defer_to_human` when the
-words and the voice disagree rather than averaging them into a number. When it
-defers, this module reports `defer_to_human=True` and the face must not act
-confidently on the vector.
+`reconcile()` already exists and reports `channels_disagree` when the words
+and the voice disagree, rather than averaging them into a number; this module
+carries it, with `voice_elevated`, on the vector. WHAT CHANGED AND WHY
+(2026-11-04): the vector carried `defer_to_human` and a note that "the face
+must not act confidently"; what to do with a disagreement is the being's
+(Everett's 2026-11-04 ruling; see prosody.py), so the vector carries the
+reading it rested on.
 """
 
 from __future__ import annotations
@@ -130,7 +133,10 @@ class FaceVector:
     attribution: str
     certainty: str
     agreement: str
-    defer_to_human: bool
+    #: The words and the voice disagree (prosody.reconcile).
+    channels_disagree: bool
+    #: The measured arousal is above prosody.CONFLICT_AROUSAL; None with none.
+    voice_elevated: Optional[bool]
     reason: str
     notes: List[str] = field(default_factory=list)
     #: The clauses the reading came from, each with whose state it is.
@@ -183,7 +189,8 @@ class FaceVector:
             "attribution": self.attribution,
             "certainty": self.certainty,
             "agreement": self.agreement,
-            "defer_to_human": self.defer_to_human,
+            "channels_disagree": self.channels_disagree,
+            "voice_elevated": self.voice_elevated,
             "reason": self.reason,
             "carries_full_plutchik": False,
             "clauses": [dict(c) for c in self.clauses],
@@ -307,8 +314,8 @@ def build_face_vector(
 
     # -- The joint -------------------------------------------------------------
     rec: Reconciliation = reconcile(valence, self_distress, prosody)
-    if rec.defer_to_human:
-        notes.append("CHANNELS DISAGREE — do not act confidently on this vector")
+    if rec.channels_disagree:
+        notes.append(f"channels disagree: {rec.reason}")
 
     vec = FaceVector(
         values=tuple(values),
@@ -319,7 +326,8 @@ def build_face_vector(
         attribution=attribution,
         certainty=certainty,
         agreement=rec.agreement.value,
-        defer_to_human=rec.defer_to_human,
+        channels_disagree=rec.channels_disagree,
+        voice_elevated=rec.voice_elevated,
         reason=rec.reason,
         notes=notes,
         clauses=tuple(
@@ -343,8 +351,8 @@ def unavailable(reason: str) -> FaceVector:
     An explicit no-reading vector.
 
     For the paths that used to return `{"valence": 0.5, "status": "NORMAL"}`
-    when the model was missing or the buffer was empty. A face driven by this
-    should hold its baseline, not perform calm.
+    when the model was missing or the buffer was empty. It carries no
+    reading at all; it is not a reading of calm.
     """
     values, measured = _blank()
     return FaceVector(
@@ -353,7 +361,8 @@ def unavailable(reason: str) -> FaceVector:
         attribution=Attribution.UNKNOWN.value,
         certainty=AffectCertainty.NO_SIGNAL.value,
         agreement=Agreement.UNKNOWN.value,
-        defer_to_human=False,
+        channels_disagree=False,
+        voice_elevated=None,
         reason=reason,
         notes=[
             "No measurement was taken. This is NOT a reading of neutral or calm.",

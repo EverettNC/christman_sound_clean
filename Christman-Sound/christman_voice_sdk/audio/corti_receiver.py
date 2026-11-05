@@ -22,9 +22,11 @@ What this is:
     exactly what the Corti client's postAcousticKey sends after its router
     measured grunt_distress / grunt_acknowledge / grunt_frustration /
     vocal_stimming. Point the client's acoustic URL setting here.
-    The key is looked up (acoustic_live); a distress key goes to the crisis
-    gate and a human. 2026-10-29: before this, the key had no receiver in
-    this package at all.
+    The key is looked up (acoustic_live) and heard; a distress key is read
+    by the crisis gate, and the turn carries that reading to the being
+    (on_turn), which decides what to do with it. The device gets one fixed
+    receipt; with no being attached the key is refused (503). 2026-10-29:
+    before this, the key had no receiver in this package at all.
 
 What this is not:
   - Not a SoundDetectorBackend. The ear measures; nothing here classifies.
@@ -39,9 +41,42 @@ Failure behaviour (Rule 6):
   - A browser origin not on the allowlist is a 403, named in the body.
   - A consumer callback that raises is logged with traceback and counted;
     the count is visible in /health. Nothing returns 200 with a lie in it.
+  - An acoustic key with no being attached to receive its turn is a 503,
+    counted as keys_rejected.
 
 Nothing is constructed at import. Build a receiver with `create_receiver`
 or run `python3 -m christman_voice_sdk.audio.corti_receiver`.
+
+WHAT CHANGED AND WHY (2026-11-04) — THE BEING DECIDES
+-----------------------------------------------------
+Everett, 2026-11-04: "we can have this knowledge in the sound package, but it
+can't be making those decisions. It's up to the being to make those
+decisions, not something that just creates a voice."
+
+Before this, a distress key made Hearing try to page a human. When no human
+was confirmed, CrisisNotDelivered left take_key before the turn was rung,
+before on_turn ran and before the key was counted, and the device got a
+503: the being never received the reading and /health showed nothing.
+Under the silent alarm the reply was cut to {"received": true}, so the
+reply's shape itself changed with the reading. Nothing here pages anyone
+now, and the CrisisNotDelivered catch is gone.
+
+How a key is taken now, none of it depending on what the key was read as:
+  - A key is heard only when a being is attached to receive the turn (an
+    `on_turn` handler). With none attached, EVERY key is refused: HTTP 503,
+    "no being is attached to receive turns", counted in /health as
+    keys_rejected. A key heard by nobody would vanish without a sound (Rule
+    6); this is plumbing, the same for every key, not a crisis decision.
+    A caller that starts this receiver with no on_turn has its keys
+    refused until it attaches one.
+  - With a being attached, every key is counted, rung, and its full turn,
+    the safety reading included, goes to the being through on_turn only.
+  - The device that posted the key gets one fixed receipt for every key:
+    {"received": true, "key": <the key as sent>}. Ruling I's cut reply
+    existed so the device never shows that a danger reading happened; one
+    receipt for every key keeps that true without deciding anything from the
+    reading. The turn carries no id and the ring's indexes shift as turns
+    arrive, so the receipt carries no turn number.
 """
 
 from __future__ import annotations
@@ -55,7 +90,6 @@ from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
-from .fusion_engine import CrisisNotDelivered
 from .hearing import Hearing, HearingTurn
 
 logger = logging.getLogger(__name__)
@@ -79,6 +113,14 @@ ACOUSTIC_PATH = "/api/nonverbal/acoustic"
 MAX_KEY_CHARS = 64
 HEALTH_PATH = "/health"
 RING_SIZE = 64
+#: Why a key is refused when no on_turn handler is attached.
+NO_BEING_ATTACHED = "no being is attached to receive turns"
+
+
+class NoBeingAttached(RuntimeError):
+    """An acoustic key arrived and no being is attached (no on_turn handler)
+    to receive its turn. Raised for every key alike, whatever it would have
+    been read as: the key is not heard at all."""
 
 
 def allowed_origins() -> Tuple[str, ...]:
@@ -93,6 +135,8 @@ class ReceiverState:
 
     received: int = 0
     keys_received: int = 0
+    #: Keys refused because no being was attached to receive their turns.
+    keys_rejected: int = 0
     rejected: int = 0
     callback_failures: int = 0
     last_event_at: Optional[float] = None
@@ -136,18 +180,31 @@ class CortiReceiver:
         return turn
 
     def take_key(self, key: str) -> HearingTurn:
-        """One acoustic key in, one turn out. A distress key pages a human."""
+        """
+        One acoustic key in, one turn out, handed to the being through
+        on_turn. Every key is counted, rung and handed on, whatever it was
+        read as. A distress key's gate reading is in the turn; nothing here
+        pages anyone, and the being decides what the reading calls for.
+
+        Raises NoBeingAttached, for every key alike and before the key is
+        heard, when no on_turn handler is attached: a turn nobody reads
+        would make the client's key vanish without a sound (Rule 6). The
+        refusal is counted in keys_rejected.
+        """
+        if self.on_turn is None:
+            with self.state.lock:
+                self.state.keys_rejected += 1
+            raise NoBeingAttached(NO_BEING_ATTACHED)
         turn = self.hearing.hear(acoustic_key=key)
         with self.state.lock:
             self.state.keys_received += 1
             self.state.ring.appendleft(turn)
-        if self.on_turn is not None:
-            try:
-                self.on_turn(turn)
-            except Exception:
-                logger.exception("corti_receiver consumer callback raised")
-                with self.state.lock:
-                    self.state.callback_failures += 1
+        try:
+            self.on_turn(turn)
+        except Exception:
+            logger.exception("corti_receiver consumer callback raised")
+            with self.state.lock:
+                self.state.callback_failures += 1
         return turn
 
     def health(self) -> Dict[str, Any]:
@@ -157,6 +214,8 @@ class CortiReceiver:
                 "seat": "Hearing.hear(corti_event, text=None)",
                 "acoustic_seat": "Hearing.hear(acoustic_key=key)",
                 "keys_received": self.state.keys_received,
+                "keys_rejected": self.state.keys_rejected,
+                "being_attached": self.on_turn is not None,
                 "received": self.state.received,
                 "rejected": self.state.rejected,
                 "callback_failures": self.state.callback_failures,
@@ -252,24 +311,17 @@ def _make_handler(receiver: CortiReceiver) -> type:
                 if not isinstance(key, str) or not key.strip() or len(key) > MAX_KEY_CHARS:
                     self._reject(400, 'body must be {"key": "<acoustic key>"}')
                     return
+                # No being attached: every key is refused alike (Rule 6),
+                # before it is heard. Not a crisis decision; see take_key.
                 try:
-                    turn = receiver.take_key(key)
-                except CrisisNotDelivered as err:
-                    # Distress was read and no human was reached. That is a
-                    # 503 with the reason, never a 200.
-                    logger.error("acoustic key %r: crisis not delivered: %s", key, err)
-                    self._send_json(503, {"error": "crisis_not_delivered",
-                                          "detail": str(err), "key": key})
+                    receiver.take_key(key)
+                except NoBeingAttached as exc:
+                    self._reject(503, str(exc))
                     return
-                if turn.decision is not None and turn.decision.safety.silent_alarm:
-                    # THE SILENT ALARM (Everett, 2026-10-29, ruling I): the
-                    # danger went to a human. The answer to the device that
-                    # sent the key says nothing about it, so nothing on that
-                    # device announces it. The page itself is in the turn the
-                    # receiver keeps (ring, on_turn), not in this reply.
-                    self._send_json(200, {"received": True})
-                    return
-                self._send_json(200, turn.to_dict())
+                # One fixed receipt for every key, whatever it was read as.
+                # The full turn goes to the being through on_turn only; what
+                # the sending device shows is the being's decision.
+                self._send_json(200, {"received": True, "key": key})
                 return
 
             turn = receiver.take_card(card)
@@ -322,6 +374,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     logger.info("Corti wire listening on http://%s:%d%s", host, port, EVENT_PATH)
     logger.info("acoustic keys: http://%s:%d%s", host, port, ACOUSTIC_PATH)
     logger.info("health: http://%s:%d%s", host, port, HEALTH_PATH)
+    logger.warning("run on its own, no being is attached: every acoustic key is "
+                   "refused with 503 (%s)", NO_BEING_ATTACHED)
     logger.info("allowed browser origins: %s", ", ".join(allowed_origins()) or "none (set CORTI_ALLOWED_ORIGINS)")
     try:
         server.serve_forever()
@@ -334,6 +388,8 @@ def main(argv: Optional[List[str]] = None) -> int:
 __all__ = [
     "CortiReceiver",
     "ReceiverState",
+    "NoBeingAttached",
+    "NO_BEING_ATTACHED",
     "create_receiver",
     "start_in_thread",
     "main",

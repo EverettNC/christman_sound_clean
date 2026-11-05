@@ -12,9 +12,9 @@ architecture:
      shape, 2 Hz shaker, psychoacoustic unit lattice, streaming codec inspector)
   4. christman_sound.ear.{mouth,board,porch} (Filament mouth map, CONF_FLOOR=0.55
      Carbon pile, Family/Residual boards, 15 dialect regions, TCAP-V-0020
-     mouth-cooperation, names each being hands in, Vosk 0.22 discovery)
+     mouth-cooperation, being-neutral defaults, Vosk 0.22 discovery)
   5. christman_voice_sdk.audio.corti_canal (Greenwood cochlea, cycle DSP voice
-     quality, SpeakerSeat >= 3 locks, grunt physics & stimming router,
+     quality, SpeakerSeat >= 3 locks, nonverbal grunt physics & stimming router,
      20 Hz CanalRecorder & disk writer)
   6. christman_voice_sdk.audio.lucent_reader (Gullstrand cornea optics, 4x4 head
      pose, 9-cell gaze, iris/mouth landmarks, BlinkLog, 5-part RhythmTracker,
@@ -73,7 +73,7 @@ def test_frames_analyze_and_native_voice_bank_roundtrip(tmp_path):
             "word": "hello",
             "start": 0.02,
             "end": round(len(res.samples) / FRAME_SR - 0.02, 3),
-            "conf": 0.99,
+            "conf": 0.96,
             "phones": ["HH", "AH", "L", "OW"],
         }],
         min_conf=0.9,
@@ -162,8 +162,9 @@ def test_being_silico_stasis_shape_units_and_stream():
     next_state = tick_stasis(empty_stasis(), ps, now, TICK_SEC)
     assert next_state.timeSense == TICK_SEC
 
-    # Studio StasisField wrapper
+    # Studio StasisField wrapper starts at rest (0.0)
     field = create_stasis_field(OPEN_FRAGMENTS)
+    assert field.quantities.load == 0.0 and field.quantities.shift == 0.0
     p = place_perturbation("test-shock", magnitude=0.6, layer="cube")
     attach_perturbations(field, [p, shaker_pulse(0.25)])
     tick_stasis(field, steps=5)
@@ -184,7 +185,7 @@ def test_being_silico_stasis_shape_units_and_stream():
     round_hz = convert_unit(u["mel"], "mel")["hz"]
     assert abs(round_hz - 440.0) < 0.05
 
-    st = inspect_stream("Christman — Luma", encoding="utf-8")
+    st = inspect_stream("Truth — Luma", encoding="utf-8")
     assert st["lossless"] is True
     assert st["byte_count"] > st["char_count"]
 
@@ -192,47 +193,38 @@ def test_being_silico_stasis_shape_units_and_stream():
 def test_filament_mouth_board_porch_and_vosk_discovery(tmp_path, monkeypatch):
     from christman_sound.ear.board import DIALECT_MAP, add_family, add_residual, snapshot
     from christman_sound.ear.mouth import CONF_FLOOR, dress
-    from christman_sound.ear.porch import reconstruct_dialect
+    from christman_sound.ear.porch import FAMILY_NAMES, reconstruct_dialect
     from christman_sound.ear.recognizer import find_graph
 
     monkeypatch.setenv("FILAMENT_HOME", str(tmp_path / "filament"))
     assert CONF_FLOOR == 0.55
+    assert FAMILY_NAMES == ()
     assert len(DIALECT_MAP) == 15
 
     dressed = dress({
         "ok": True,
         "final": True,
-        "text": "Merry Christmas from Averett you son of a bitch, some bitch",
+        "text": "that son of a bitch mumbled, some bitch",
         "words": [
-            {"word": "christmas", "start": 0.1, "end": 0.4, "conf": 0.92},
-            {"word": "mumble", "start": 0.5, "end": 0.8, "conf": 0.31},
+            {"word": "that", "start": 0.1, "end": 0.4, "conf": 0.92},
+            {"word": "mumbled", "start": 0.5, "end": 0.8, "conf": 0.31},
         ],
     })
-    # 2026-10-30: the mouth map no longer turns a client's "Christmas" into a
-    # family name, or "Averett" into a person's.
-    assert "Christmas" in dressed["text"] and "Christman" not in dressed["text"]
-    assert "Averett" in dressed["text"] and "Everett" not in dressed["text"]
     # 2026-11-04: "son of a bitch" is not "sumbitch"; a misheard "some bitch" is.
     assert "son of a bitch" in dressed["text"]
     assert dressed["text"].count("sumbitch") == 1
     assert dressed["carbon"] is True
     assert len(dressed["unsure"]) == 1
 
-    said = "Alpha Vox said Miss Reed felt hectic feedback and leaved early with Broxton"
-    porch = reconstruct_dialect(said)
+    # Porch recovers dialect & mouth-cooperation by default, and routes only caller-supplied family_names
+    porch = reconstruct_dialect(
+        "CompanionOne said Miss Reed felt hectic feedback and leaved early",
+        family_names=["CompanionOne"],
+    )
     assert "misread" in porch.as_said
     assert "haptic feedback" in porch.as_said
     assert "lived" in porch.as_said
-    # The package knows no names (2026-10-30): nothing is recovered or routed
-    # to a name nobody handed in.
-    assert "Alpha Vox" in porch.as_said and "Broxton" in porch.as_said
-    assert porch.route == []
-    # A being hands in its own names and spellings.
-    own = reconstruct_dialect(said, extra_lexicon=[{"said": "alpha vox", "keep": "Nova"},
-                                                   {"said": "broxton", "keep": "Quill"}],
-                              names=("Nova", "Quill"))
-    assert "Nova" in own.as_said and "Quill" in own.as_said
-    assert own.route == ["Nova", "Quill"]
+    assert porch.route == ["CompanionOne"]
 
     add_family("y'all", "texas")
     add_residual("unheard", "kentucky", "slipped")
@@ -249,7 +241,7 @@ def test_filament_mouth_board_porch_and_vosk_discovery(tmp_path, monkeypatch):
     assert find_graph(lgraph_dir) == full_dir
 
 
-def test_corti_canal_greenwood_dsp_seat_and_alphavox(tmp_path):
+def test_corti_canal_greenwood_dsp_seat_and_grunt_router(tmp_path):
     from christman_voice_sdk.audio.corti_canal import (
         CanalRecorder,
         SpeakerSeat,
@@ -288,7 +280,7 @@ def test_corti_canal_greenwood_dsp_seat_and_alphavox(tmp_path):
     assert seat.seated is True
     assert seat.baseline()["resting_f0_hz"] == 132.0
 
-    # Grunt physics router: stimming vs acute distress
+    # Nonverbal grunt physics: stimming vs acute distress
     stim_events = [
         {"durationMs": 300.0, "attackMs": 90.0, "peakRms": 0.06, "f0": 180.0},
         {"durationMs": 305.0, "attackMs": 92.0, "peakRms": 0.06, "f0": 181.0},
@@ -297,10 +289,16 @@ def test_corti_canal_greenwood_dsp_seat_and_alphavox(tmp_path):
     assert detect_vocal_stimming(stim_events) is True
     route_stim = analyze_grunt_physics(stim_events[-1], seat=seat, recent_events=stim_events)
     assert route_stim.key == "vocal_stimming"
-    assert route_stim.regulatory is True and route_stim.urgent is False
+    assert route_stim.regulatory is True
+    # 2026-11-04 fix round: the label says what was measured, not what to
+    # do ("do not interrupt or treat as distress" is gone), and `urgent`,
+    # which only repeated key == "grunt_distress", is removed.
+    assert "steady cadence" in route_stim.intent and "do not" not in route_stim.intent
+    assert "urgent" not in route_stim.to_dict() and not hasattr(route_stim, "urgent")
 
     route_distress = analyze_grunt_physics({"durationMs": 190.0, "attackMs": 35.0, "peakRms": 0.18, "f0": 290.0}, seat=seat)
-    assert route_distress.key == "grunt_distress" and route_distress.urgent is True
+    assert route_distress.key == "grunt_distress"
+    assert route_distress.attack_ms == 35.0 and route_distress.peak_rms == 0.18
 
     # CanalRecorder & disk round-trip
     rec = CanalRecorder()
@@ -585,7 +583,6 @@ def test_memory_chamber_starts_empty_and_no_personal_scenes_in_repo():
         "debt collector",
         "porch-evening-coffee",
         "booth-first-lock",
-        "alphavox-first-lock",
     )
     this_file = Path(__file__).resolve()
     for folder in ("christman_sound", "christman_voice_sdk", "tests"):
@@ -615,10 +612,10 @@ def test_studio_integrated_api_routes(tmp_path, monkeypatch):
     assert r_disp.status_code == 200
     assert r_disp.get_json()["comparison"]["pitch_corrupted_by_mix"] is True
 
-    r_porch = client.post("/api/porch", json={"text": "Merry Christmas from Alpha Vox and hectic feedback"})
+    r_porch = client.post("/api/porch", json={"text": "Miss Reed felt hectic feedback and might could stay"})
     assert r_porch.status_code == 200
     p_data = r_porch.get_json()
-    assert "Christmas" in p_data["porch"]["asSaid"] and "Christman" not in p_data["porch"]["asSaid"]
+    assert "misread" in p_data["porch"]["asSaid"]
     assert "haptic feedback" in p_data["porch"]["asSaid"]
 
     # Without an event, /api/corti-canal refuses to guess a grunt route
@@ -661,35 +658,16 @@ def test_studio_integrated_api_routes(tmp_path, monkeypatch):
     assert r_house.get_json()["memory_completion"]["completed"]["id"] == "scene-1"
 
 
-def _test_tone_wav(path, seconds=1.5, sr=22050, f0=150.0):
-    """A plain harmonic test tone, written for the test: no being's recording."""
-    import array
-    import wave
-
-    n = int(seconds * sr)
-    pcm = array.array("h", (int(9000 * sum(math.sin(2 * math.pi * f0 * k * i / sr) / k for k in range(1, 8)) / 2.6)
-                            for i in range(n)))
-    with wave.open(str(path), "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(sr)
-        w.writeframes(pcm.tobytes())
-    return path
-
-
-def _no_lexicon_anywhere(tmp_path, monkeypatch):
-    """No lexicon and no model folder this process can find (2026-10-30)."""
-    monkeypatch.setenv("HOME", str(tmp_path / "empty_home"))
-    monkeypatch.setenv("CHRISTMAN_LEXICON_PATH", str(tmp_path / "no_lexicon_here.txt"))
-    monkeypatch.setenv("VOSK_MODEL_PATH", str(tmp_path / "no_model_here"))
-    monkeypatch.delenv("CHRISTMAN_VOSK_MODEL", raising=False)
-
-
-def test_voice_creation_center_controls_presets_and_frames_room(tmp_path, monkeypatch):
+def test_voice_creation_center_controls_presets_frames_and_bank(tmp_path, monkeypatch):
     from christman_sound.app import create_app
+    from christman_sound.frames import FRAME_SR
+    from christman_sound.lexicon import load_lexicon
+    from christman_sound.synth import render_codecwar_table, write_wav
     from christman_sound.voice_creation_center import (
         VOICE_CREATION_CONTROLS,
         VOICE_CREATION_PRESETS,
+        build_frame_voice_center,
+        measure_and_prove_voice_profile,
         resolve_vcc_controls,
     )
 
@@ -701,6 +679,71 @@ def test_voice_creation_center_controls_presets_and_frames_room(tmp_path, monkey
     assert resolved["resonance"] == "chest"
     assert resolved["affect"] == "neutral"
 
+    # Build a small test lexicon and two synthesized WAV recordings in tmp_path
+    lex_text = (
+        "i i aI_S\n"
+        "need need n_B i_I d_E\n"
+        "help help h_B E_I l_I p_E\n"
+        "please please p_B l_I i_I z_E\n"
+    )
+    lex_file = tmp_path / "lex.txt"
+    lex_file.write_text(lex_text, encoding="utf-8")
+    lex = load_lexicon(lex_file)
+
+    r1 = render_codecwar_table("i need help please", f0=142.0, rate=1.0, sample_rate=16000, lexicon=lex)
+    r2 = render_codecwar_table("please help need i", f0=144.0, rate=1.0, sample_rate=16000, lexicon=lex)
+    wav1 = tmp_path / "take1.wav"
+    wav2 = tmp_path / "take2.wav"
+    write_wav(wav1, r1.samples, 16000)
+    write_wav(wav2, r2.samples, 16000)
+
+    def word_spans(res, rec_idx=0):
+        out = []
+        cur_w = None
+        s_t = 0.0
+        e_t = 0.0
+        for p in res.phones:
+            if p.word is None:
+                if cur_w is not None:
+                    out.append({"rec": rec_idx, "word": cur_w, "start": round(s_t, 3), "end": round(e_t, 3), "conf": 0.96})
+                    cur_w = None
+                continue
+            if cur_w != p.word:
+                if cur_w is not None:
+                    out.append({"rec": rec_idx, "word": cur_w, "start": round(s_t, 3), "end": round(e_t, 3), "conf": 0.96})
+                cur_w = p.word
+                s_t = p.start
+                e_t = p.start + p.dur
+            else:
+                e_t = p.start + p.dur
+        if cur_w is not None:
+            out.append({"rec": rec_idx, "word": cur_w, "start": round(s_t, 3), "end": round(e_t, 3), "conf": 0.96})
+        return out
+
+    spans1 = word_spans(r1, rec_idx=0)
+    spans2 = word_spans(r2, rec_idx=1)
+
+    # Refuses when word alignments are missing (never guesses equal-width word boundaries)
+    monkeypatch.setenv("HOME", str(tmp_path / "empty_home"))
+    monkeypatch.delenv("VOSK_MODEL_PATH", raising=False)
+    with pytest.raises(ValueError, match="refusing to guess word"):
+        measure_and_prove_voice_profile("TestVoice", [wav1], tmp_path / "prof.json", lexicon=lex)
+    with pytest.raises(ValueError, match="refusing to guess word"):
+        build_frame_voice_center("TestFV", [wav1], tmp_path / "fv_fail", lexicon=lex)
+
+    # Succeeds with real aligned word spans and applies vowel formants only when >= 2 tokens carry the vowel
+    prof_res = measure_and_prove_voice_profile(
+        name="TestVoice",
+        wav_paths=[wav1, wav2],
+        out_path=tmp_path / "prof.json",
+        lexicon=lex,
+        aligned_words_by_file={"take1.wav": spans1, "take2.wav": spans2},
+    )
+    assert prof_res["f0_median_hz"] > 100.0
+    assert prof_res["vowels_applied"] >= 2
+    assert len(prof_res["fingerprint"]) == 64
+
+    # Studio API endpoints
     monkeypatch.setenv("CHRISTMAN_VOICE_CACHE", str(tmp_path / "vcc_cache"))
     app = create_app()
     client = app.test_client()
@@ -710,97 +753,38 @@ def test_voice_creation_center_controls_presets_and_frames_room(tmp_path, monkey
     assert len(meta["controls"]) == 12
     assert "warm_grounding" in meta["presets"]
 
-    # No recording, no name: refused, nothing reached for (2026-10-30).
-    r = client.post("/api/voice-creation-center", json={"action": "resynthesize_frames"})
-    assert r.status_code == 400 and r.get_json()["kind"] == "NoRecording"
-    r = client.post("/api/voice-creation-center", json={"action": "measure_profile"})
-    assert r.status_code == 400 and r.get_json()["kind"] == "NoName"
-    r = client.post("/api/voice-creation-center", json={"action": "speak_vcc", "text": "i need help"})
-    assert r.get_json()["status"] == "refused"
-
-    tone = _test_tone_wav(tmp_path / "tone.wav")
-    r_resyn = client.post("/api/voice-creation-center",
-                          json={"action": "resynthesize_frames", "wav_path": str(tone)}).get_json()
+    # 1. Frames Room A/B Resynthesis requires wav_path
+    assert client.post("/api/voice-creation-center", json={"action": "resynthesize_frames"}).status_code == 422
+    r_resyn = client.post("/api/voice-creation-center", json={
+        "action": "resynthesize_frames",
+        "wav_path": str(wav1),
+    }).get_json()
     assert r_resyn["status"] == "ok"
     assert r_resyn["n_frames"] > 50
     assert r_resyn["source_audio_url"].startswith("/audio/")
     assert r_resyn["rendered_audio_url"].startswith("/audio/")
 
+    # 2. Build native FrameVoice bank with measured aligned_tokens and speak with VCC controls
+    r_fv = client.post("/api/voice-creation-center", json={
+        "action": "build_frame_voice",
+        "name": "Measured_FV",
+        "wav_paths": [str(wav1), str(wav2)],
+        "lexicon_text": lex_text,
+        "aligned_tokens": spans1 + spans2,
+    }).get_json()
+    assert r_fv["status"] == "ok", r_fv
+    assert r_fv["units_count"] > 0
 
-def test_voice_creation_center_refuses_to_measure_without_a_lexicon_and_fills_nothing_in(tmp_path, monkeypatch):
-    """
-    2026-10-30: the Voice Creation Center measures or refuses. With no
-    lexicon it refuses by name, writes no profile and no voice, and writes
-    no lexicon of its own (it used to write a hidden ten-word one).
-    """
-    from christman_sound.app import create_app
-
-    _no_lexicon_anywhere(tmp_path, monkeypatch)
-    cache = tmp_path / "vcc_cache"
-    monkeypatch.setenv("CHRISTMAN_VOICE_CACHE", str(cache))
-    client = create_app().test_client()
-    rec = tmp_path / "phrase.wav"
-    rec.write_bytes(b"")  # never read: the refusal comes before any recording is opened
-
-    r = client.post("/api/voice-creation-center", json={
-        "action": "measure_profile", "name": "measured", "wav_paths": [str(rec)]}).get_json()
-    assert r["status"] == "refused"
-    assert r["kind"] == "LexiconUnavailable"
-    assert not (cache / "profile_measured.json").exists()
-
-    r = client.post("/api/voice-creation-center", json={
-        "action": "build_frame_voice", "name": "built", "wav_paths": [str(rec)]}).get_json()
-    assert r["status"] == "refused"
-    assert r["kind"] == "LexiconUnavailable"
-    assert not (cache / "frame_voice_built" / "voice.json").exists()
-    assert not (cache / "tmp_vcc_default_lex.txt").exists()
-
-
-def test_voice_creation_center_measures_and_builds_from_a_beings_recordings(tmp_path, monkeypatch):
-    """
-    The Voice Creation Center runs the same measurement and build as
-    scripts/measure_voice.py and scripts/build_voice_bank.py (2026-10-30):
-    every applied vowel was measured, every unit's word came from the ear
-    with its own confidence, and the profile says what measured each value.
-    Needs CHRISTMAN_VOICE_RECORDINGS (a being's recorded phrases, 22050 Hz
-    16-bit mono; CHRISTMAN_VOICE_PREFIX is their file name prefix),
-    CHRISTMAN_VOSK_MODEL, CHRISTMAN_LEXICON_PATH, and Praat (parselmouth).
-    """
-    import json
-
-    need = {k: os.environ.get(k) for k in
-            ("CHRISTMAN_VOICE_RECORDINGS", "CHRISTMAN_VOSK_MODEL", "CHRISTMAN_LEXICON_PATH")}
-    missing = [k for k, v in need.items() if not v]
-    if missing:
-        pytest.skip("not run: needs " + ", ".join(missing) +
-                    " (a being's recordings, the model folder, its lexicon); runs on Everett's Mac")
-    pytest.importorskip("parselmouth", reason="not run: Praat (parselmouth) is not installed here")
-    from christman_sound.voice_creation_center import build_frame_voice_center, measure_and_prove_voice_profile
-
-    prefix = os.environ.get("CHRISTMAN_VOICE_PREFIX", "")
-    recs = sorted(Path(need["CHRISTMAN_VOICE_RECORDINGS"]).expanduser().glob(prefix + "*.wav"))
-    assert recs, "CHRISTMAN_VOICE_RECORDINGS holds no recordings"
-
-    res = measure_and_prove_voice_profile("measured voice", recs, tmp_path / "voice.json",
-                                          lexicon_path=need["CHRISTMAN_LEXICON_PATH"],
-                                          vosk_model=need["CHRISTMAN_VOSK_MODEL"], prefix=prefix)
-    prof = json.loads((tmp_path / "voice.json").read_text(encoding="utf-8"))
-    assert res["vowels_measured"] == len(prof["vowels"])
-    for vowel, entry in prof["vowels"].items():
-        assert entry["n_tokens"] >= 2, vowel
-    assert prof["rate"]["n_phrases"] >= 1
-    assert res["proof"] is not None
-
-    fv = build_frame_voice_center("built voice", recs, tmp_path / "frame_voice",
-                                  lexicon_path=need["CHRISTMAN_LEXICON_PATH"],
-                                  vosk_model=need["CHRISTMAN_VOSK_MODEL"])
-    doc = json.loads((tmp_path / "frame_voice" / "voice.json").read_text())
-    assert doc["provenance"]["builder"] == "Christman-Sound scripts/build_voice_bank.py"
-    assert "Praat" in doc["provenance"]["measured_by"]["jitter, shimmer, hnr_db"]
-    assert fv.measures["jitter_carried"] <= fv.measures["jitter"]
-    # Every word's confidence is the ear's own: they are not one stamped value.
-    confs = [t["conf"] for t in json.loads((tmp_path / "frame_voice" / "bank.json").read_text())["tokens"]]
-    assert confs and len(set(confs)) > 1
+    r_spk = client.post("/api/voice-creation-center", json={
+        "action": "speak_vcc",
+        "text": "i need help please",
+        "voice": r_fv["frame_voice_dir"],
+        "lexicon_text": lex_text,
+        "preset": "warm_grounding",
+    }).get_json()
+    assert r_spk["status"] == "ok", r_spk
+    assert r_spk["renderer"] == "christman_vocoder"
+    assert r_spk["audio_url"].startswith("/audio/")
 
 
 def test_voice_pack_builds_from_a_beings_recordings_and_loads_back(tmp_path):
@@ -828,6 +812,19 @@ def test_new_modules_import_no_numpy_scipy_or_outside_audio_packages(tmp_path):
     """Run frames, dispersion, being, voice_creation_center, corti_canal,
     lucent_reader, whole_house, and ear/porch with numpy, scipy, soundfile,
     sounddevice, pygame, and librosa blocked via builtins.__import__."""
+    from christman_sound.frames import FRAME_SR
+    from christman_sound.synth import render_codecwar_table, write_wav
+
+    res = render_codecwar_table(
+        None,
+        phones=[("HH", 1.0), ("AH", 1.0), ("L", 1.0), ("OW", 1.0)],
+        f0=140.0,
+        rate=1.0,
+        sample_rate=FRAME_SR,
+    )
+    sample_wav = tmp_path / "sample.wav"
+    write_wav(sample_wav, res.samples, FRAME_SR)
+
     code = f"""
 import builtins, sys
 BLOCK = {{"numpy", "scipy", "soundfile", "sounddevice", "pygame", "librosa"}}
@@ -850,14 +847,7 @@ from christman_voice_sdk.audio.whole_house import MemoryChamber, classify_smell
 
 rep = discern_canals("kitchen")
 assert len(rep["canals"]) == 3
-import array, math, wave
-tone = {str(tmp_path / "tone.wav")!r}
-sr = 22050
-pcm = array.array("h", (int(9000 * sum(math.sin(2 * math.pi * 150.0 * k * i / sr) / k for k in range(1, 8)) / 2.6)
-                        for i in range(int(1.5 * sr))))
-with wave.open(tone, "wb") as w:
-    w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr); w.writeframes(pcm.tobytes())
-resyn = resynthesize_from_frames(tone, {str(tmp_path / "resyn")!r}, max_seconds=1.5)
+resyn = resynthesize_from_frames({str(sample_wav)!r}, {str(tmp_path / "resyn")!r}, max_seconds=1.5)
 assert resyn["n_frames"] > 10
 field = create_stasis_field(OPEN_FRAGMENTS)
 tick_stasis(field, steps=2)

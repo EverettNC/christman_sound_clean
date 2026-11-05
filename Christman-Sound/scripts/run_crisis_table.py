@@ -7,21 +7,29 @@
 Run Everett's crisis table through the hearing turn and print the numbers.
 
 The table lives in tests/test_harm_frame_gate.py (MUST CALL A HUMAN /
-MUST NOT CALL A HUMAN / his rulings). This script does not test the gate in
-isolation — it sends every sentence through `Hearing.hear(text=...)`, the
-same path a being uses, with a crisis callback that records whether a human
-was called, and reports:
+MUST NOT CALL A HUMAN / his rulings). The section names are his. This script
+does not test the gate in isolation — it sends every sentence through
+`Hearing.hear(text=...)`, the same path a being uses, and reports the safety
+reading's labels:
 
-    turn_status   decision.safety.status from the full hearing turn
-    gate_status   harm_frame_safety(sentence).status, the gate alone
-    human_called  the crisis callback was reached
+    turn_status / turn_reason   reading.safety from the full hearing turn
+    gate_status / gate_reason   harm_frame_safety(sentence), the gate alone
 
-Expected: MUST CALL -> hard_block and human_called; MUST NOT CALL -> neither.
+A sentence is ok when its section's expected status holds (MUST CALL ->
+hard_block; MUST NOT CALL -> anything else) and the hearing turn reads the
+same status and reason as the gate alone.
 
     python3 scripts/run_crisis_table.py            # table + counts, exit 1 on any mismatch
     python3 scripts/run_crisis_table.py --json out.json
 
-Run it on org main after a merge and diff the JSON against the PR's run.
+Run it on org main after a merge and diff the JSON against the PR's run: the
+reasons are pinned by that diff.
+
+WHAT CHANGED AND WHY (2026-11-04): this script passed a crisis_callback and
+counted a `human_called` column. The package no longer pages anyone; that is
+the being's (Everett, 2026-11-04: "It's up to the being to make those
+decisions, not something that just creates a voice."). The table now checks
+the reading: status and reason.
 """
 
 from __future__ import annotations
@@ -61,29 +69,30 @@ def _head() -> str:
 
 
 def run() -> Dict[str, Any]:
-    reached: List[str] = []
-
-    def human(result, context) -> bool:
-        reached.append(result.status)
-        return True          # a human was reached, so the turn may complete
-
-    ear = Hearing(crisis_callback=human)
+    ear = Hearing()
     rows: List[Dict[str, Any]] = []
-    for section, sentences, expect_call in SECTIONS:
+    for section, sentences, expect_hard_block in SECTIONS:
         for sentence in sentences:
-            reached.clear()
             turn = ear.hear(text=sentence)
-            turn_status = turn.decision.safety.status if turn.decision is not None else "no_text"
-            gate_status = harm_frame_safety(sentence).status
-            called = bool(reached)
-            ok = (called == expect_call) and ((turn_status == "hard_block") == expect_call)
+            gate = harm_frame_safety(sentence)
+            if turn.reading is None:
+                # No words (the table's empty sentence): the turn runs no
+                # gate, so only the section's expectation is checked.
+                turn_status, turn_reason = "no_text", ""
+                agrees = True
+            else:
+                turn_status = turn.reading.safety.status
+                turn_reason = turn.reading.safety.reason
+                agrees = turn_status == gate.status and turn_reason == gate.reason
+            ok = ((turn_status == "hard_block") == expect_hard_block) and agrees
             rows.append({
                 "section": section,
                 "sentence": sentence,
                 "turn_status": turn_status,
-                "gate_status": gate_status,
-                "human_called": called,
-                "expected_call": expect_call,
+                "turn_reason": turn_reason,
+                "gate_status": gate.status,
+                "gate_reason": gate.reason,
+                "expected_hard_block": expect_hard_block,
                 "ok": ok,
             })
 
@@ -93,7 +102,6 @@ def run() -> Dict[str, Any]:
         counts[section] = {
             "sentences": len(mine),
             "hard_block": sum(r["turn_status"] == "hard_block" for r in mine),
-            "human_called": sum(r["human_called"] for r in mine),
             "ok": sum(r["ok"] for r in mine),
             "mismatch": sum(not r["ok"] for r in mine),
         }
@@ -108,14 +116,15 @@ def main() -> int:
 
     result = run()
     print(f"commit {result['commit']}")
-    print(f"{'section':22} {'sentence':44} {'turn':14} {'gate':14} {'called':6} {'ok'}")
+    print(f"{'section':22} {'sentence':44} {'turn':14} {'reason':34} {'gate':14} {'ok'}")
     for r in result["rows"]:
         print(f"{r['section']:22} {r['sentence'][:44]!r:46} {r['turn_status']:14} "
-              f"{r['gate_status']:14} {str(r['human_called']):6} {'ok' if r['ok'] else 'MISMATCH'}")
+              f"{r['turn_reason']:34} {r['gate_status']:14} "
+              f"{'ok' if r['ok'] else 'MISMATCH'}")
     print()
     for section, c in result["counts"].items():
         print(f"{section:22} sentences={c['sentences']:2} hard_block={c['hard_block']:2} "
-              f"human_called={c['human_called']:2} ok={c['ok']:2} mismatch={c['mismatch']}")
+              f"ok={c['ok']:2} mismatch={c['mismatch']}")
     print(f"TOTAL {result['total']} sentences, {result['mismatches']} mismatch(es)")
 
     if args.json:

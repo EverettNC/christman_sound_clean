@@ -27,9 +27,11 @@ Every label wrong. Neutral speech reported as anger. Sadness reported as joy.
 
 christman_tone_engine_v2.py:31 declared ELEVEN. First two aligned by accident;
 `ang -> proud` and `sad -> teasing` did not, and indices 4-10 never received a
-probability — which includes `tremble` and `last_breath`, the ONLY two values
-that trigger `action_state = HOLD_SPACE`. The distress path in that file was
-structurally unreachable.
+probability — which included `tremble` and `last_breath`, the ONLY two values
+that triggered `action_state = HOLD_SPACE` there. The distress path in that
+file was structurally unreachable. (That route is gone: since 2026-11-04 the
+engine reads and routes nothing — no action_state, no HOLD_SPACE — and what
+a reading calls for is the being's decision.)
 
 THE RULE
 --------
@@ -259,7 +261,8 @@ def unavailable_classes(
 
     Call this at startup and log it. `christman_tone_engine_v2` wanted
     `tremble` and `last_breath` from a model that emits four classes, and
-    nothing said so — the HOLD_SPACE branch simply never fired.
+    nothing said so — the HOLD_SPACE branch it had then simply never fired.
+    (That branch was removed on 2026-11-04; the engine routes nothing now.)
     """
     available = set(labels.canonical) | set(n.lower() for n in labels.raw)
     return [w for w in wanted if w.lower() not in available]

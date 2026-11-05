@@ -3,11 +3,20 @@
 # The Christman AI Project — Luma Cognify AI
 # ==============================================================================
 """
-Nonverbal distress reaches the crisis gate and a human.
+Nonverbal distress reaches the crisis gate and is read there.
 
 Everett, 2026-10-29: "A nonverbal client's distress is just as important as a verbal client's."
 So the grunt, the help, pain and medicine symbols reach the crisis gate and
-a human.
+read hard_block, the same as the words would.
+
+WHAT CHANGED AND WHY (2026-11-04). Everett: "we can have this knowledge in
+the sound package, but it can't be making those decisions. It's up to the
+being to make those decisions, not something that just creates a voice."
+These tests pinned the package paging a human, raising when none was
+reached, blanking a danger signal's words (the silent alarm) and overriding
+the vote for distress. Each now pins the reading it rested on: status and
+reason, `danger`, the category label, `below_threshold`, and the client's
+words left in place. Whom to reach and what to voice are the being's.
 
 Measured before: nothing nonverbal reached Hearing at all. Only core.py used
 the nonverbal folder; with no text, fusion did not run; the acoustic key had
@@ -27,50 +36,44 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from christman_voice_sdk.audio.fusion_engine import (  # noqa: E402
-    MODE_SAFETY_HOLD,
-    CrisisNotDelivered,
-)
 from christman_voice_sdk.audio.hearing import Hearing  # noqa: E402
 from christman_voice_sdk.nonverbal.engine_temporal import (  # noqa: E402
+    TEMPORAL_HELP_INTENTS,
     TemporalNonverbalEngine,
 )
-from christman_voice_sdk.nonverbal.nonverbal_engine import NonverbalEngine  # noqa: E402
+from christman_voice_sdk.nonverbal.nonverbal_engine import (  # noqa: E402
+    NOT_LEARNED_REASON,
+    NonverbalEngine,
+)
 
 
-class Pager:
-    """A crisis callback that records what reached the human."""
-
-    def __init__(self):
-        self.calls = []
-
-    def __call__(self, result, context):
-        self.calls.append((result, context))
-        return True
-
-
-# Everett, 2026-10-29 (ruling I, the silent alarm): danger (the grunt, the
-# help symbol) goes to a human and is never spoken. Needs (pain, medicine)
-# go to a human and ARE spoken.
-@pytest.mark.parametrize("kwargs,says", [
-    ({"acoustic_key": "grunt_distress"}, None),
-    ({"nonverbal": {"symbol": "help"}}, None),
-    ({"nonverbal": {"symbol": "pain"}}, "I'm in pain."),
-    ({"nonverbal": {"symbol": "medicine"}}, "I need my medicine."),
+# Everett, 2026-10-29 (ruling I): danger (the grunt, the help symbol) is
+# help, scared, attacked. Needs (pain, medicine) are not danger. Both read
+# hard_block at the gate. Until 2026-11-04 a danger signal's words were
+# blanked (the silent alarm) and a human was paged; now the words stay, the
+# reading says `danger`, and the being decides whom to reach and what to
+# voice. The grunt key's built-in map has no words (ruling J), so it has none.
+@pytest.mark.parametrize("kwargs,says,danger", [
+    ({"acoustic_key": "grunt_distress"}, None, True),
+    ({"nonverbal": {"symbol": "help"}}, "I need help.", True),
+    ({"nonverbal": {"symbol": "pain"}}, "I'm in pain.", False),
+    ({"nonverbal": {"symbol": "medicine"}}, "I need my medicine.", False),
 ])
-def test_distress_pages_a_human_and_the_person_still_speaks(kwargs, says):
-    pager = Pager()
-    turn = Hearing(crisis_callback=pager).hear(**kwargs)
-    assert turn.decision is not None
-    assert turn.decision.mode == MODE_SAFETY_HOLD
-    assert turn.decision.safety.reason == "nonverbal_distress"
-    assert turn.decision.safety.delivered_to_human is True
-    assert len(pager.calls) == 1
-    # the human is shown what the person signalled
-    shown = [d["intent"] for d in pager.calls[0][1]["nonverbal_distress"]]
+def test_distress_reads_hard_block_and_the_persons_words_stay(kwargs, says, danger):
+    # Was test_distress_pages_a_human_and_the_person_still_speaks: the pager
+    # call is now the reading it rested on, status hard_block.
+    turn = Hearing().hear(**kwargs)
+    assert turn.reading is not None
+    assert turn.reading.safety.status == "hard_block"
+    assert turn.reading.safety.reason == "nonverbal_distress"
+    # what the person signalled is on the turn and in the flags
+    shown = [d["intent"] for d in turn.nonverbal_distress]
     assert shown and all(shown)
+    assert any(f.startswith("nonverbal:") for f in turn.reading.safety.flags)
+    # the client's words, never blanked; danger is a reading, never acted on
     assert turn.person_message == says
-    assert turn.decision.safety.silent_alarm is (says is None)
+    assert turn.reading.safety.danger is danger
+    assert "delivered_to_human" not in turn.reading.safety.to_dict()
 
 
 @pytest.mark.parametrize("kwargs", [
@@ -81,63 +84,76 @@ def test_distress_pages_a_human_and_the_person_still_speaks(kwargs, says):
     {"nonverbal": {"gesture": "wave"}},
 ])
 def test_no_page_without_distress(kwargs):
-    pager = Pager()
-    turn = Hearing(crisis_callback=pager).hear(**kwargs)
-    assert pager.calls == []
-    assert turn.decision is None
+    # Decision moved to the being 2026-11-04: see AlphaVox's WHAT_THE_BEING_DECIDES.md
+    # Nothing pages anyone now; the reading this rested on is that no gate
+    # reading is made and no distress is listed.
+    turn = Hearing().hear(**kwargs)
+    assert turn.reading is None
     assert turn.nonverbal_distress == []
 
 
 def test_stimming_is_self_regulation_and_unknown_is_silence():
-    h = Hearing(crisis_callback=Pager())
+    h = Hearing()
     # Ruling J: a built-in generic feeling from the microphone is not spoken.
     assert h.hear(acoustic_key="vocal_stimming").person_message is None
     assert h.hear(acoustic_key="unknown").person_message is None
 
 
 def test_distress_with_no_human_reachable_raises():
-    with pytest.raises(CrisisNotDelivered):
-        Hearing().hear(nonverbal={"symbol": "pain"})
+    # Decision moved to the being 2026-11-04: see AlphaVox's WHAT_THE_BEING_DECIDES.md
+    # The package reaches no one, so there is no "no human reachable" and
+    # nothing raises into the turn. The reading the raise rested on stands.
+    turn = Hearing().hear(nonverbal={"symbol": "pain"})
+    assert turn.reading.safety.status == "hard_block"
+    assert turn.reading.safety.reason == "nonverbal_distress"
+    assert turn.person_message == "I'm in pain."
 
 
-def test_distress_alongside_ordinary_words_still_pages():
-    pager = Pager()
-    turn = Hearing(crisis_callback=pager).hear(text="pass the salt",
-                                               nonverbal={"symbol": "pain"})
-    assert turn.decision.mode == MODE_SAFETY_HOLD
-    assert len(pager.calls) == 1
+def test_distress_alongside_ordinary_words_still_reads_hard_block():
+    # Was test_distress_alongside_ordinary_words_still_pages.
+    turn = Hearing().hear(text="pass the salt", nonverbal={"symbol": "pain"})
+    assert turn.reading.safety.status == "hard_block"
+    assert turn.reading.safety.reason == "nonverbal_distress"
+    # what the words alone read as is kept beside the signal
+    assert "nonverbal:symbol:pain:pain" in turn.reading.safety.flags
+    assert "words:clear:no_harm_frame" in turn.reading.safety.flags
 
 
-def test_spoken_crisis_and_the_grunt_both_reach_the_human():
-    pager = Pager()
-    turn = Hearing(crisis_callback=pager).hear(text="i want to kill myself",
-                                               acoustic_key="grunt_distress")
-    assert turn.decision.safety.reason == "harm_frame_speaker_at_risk"
-    flags = turn.decision.safety.flags
+def test_spoken_crisis_and_the_grunt_are_both_in_the_reading():
+    # Was test_spoken_crisis_and_the_grunt_both_reach_the_human.
+    turn = Hearing().hear(text="i want to kill myself", acoustic_key="grunt_distress")
+    assert turn.reading.safety.status == "hard_block"
+    assert turn.reading.safety.reason == "harm_frame_speaker_at_risk"
+    flags = turn.reading.safety.flags
     assert any(f.startswith("nonverbal:sound:grunt_distress") for f in flags)
-    assert len(pager.calls) == 1
+    assert turn.reading.safety.danger is True      # the grunt reads as help
 
 
-def test_distress_below_the_speaking_threshold_still_pages():
-    """The threshold never decides whether help comes (Everett, ruling B),
-    and a pressed symbol is not under it at all (ruling C)."""
+def test_distress_below_the_speaking_threshold_still_reads_hard_block():
+    """The threshold never decides whether a reading is distress (Everett,
+    ruling B), and a pressed symbol is not under it at all (ruling C).
+    Was test_distress_below_the_speaking_threshold_still_pages."""
     engine = NonverbalEngine(data_dir=None, confidence_threshold=0.95)
-    pager = Pager()
-    turn = Hearing(crisis_callback=pager, nonverbal_engine=engine).hear(
-        nonverbal={"symbol": "help"})
-    assert turn.person_message is None             # help is danger: silent (ruling I)
-    assert turn.decision.safety.silent_alarm is True
-    assert len(pager.calls) == 1                   # and a human is reached
-    pager = Pager()
-    turn = Hearing(crisis_callback=pager, nonverbal_engine=engine).hear(
+    turn = Hearing(nonverbal_engine=engine).hear(nonverbal={"symbol": "help"})
+    # help is danger: the reading says so, and the client's words stay
+    assert turn.person_message == "I need help."
+    assert turn.person_message_below_threshold is False     # a symbol is never under the bar
+    assert turn.reading.safety.danger is True
+    assert turn.reading.safety.status == "hard_block"
+    turn = Hearing(nonverbal_engine=engine).hear(
         nonverbal={"gesture": "point_up"})         # a camera's reading, 0.8 < 0.95
-    assert turn.person_message is None             # not spoken for the client
-    assert len(pager.calls) == 1                   # still reached a human
+    assert turn.person_message is None             # the built-in camera map has no words
+    [d] = turn.nonverbal_distress                  # listed as distress under the bar
+    assert d["below_threshold"] is True and d["confidence"] == 0.8 and d["threshold"] == 0.95
+    assert d["category"] == "danger" and d["danger"] is True
+    assert turn.reading.safety.status == "hard_block"
+    assert turn.reading.safety.reason == "nonverbal_distress"
+    assert turn.reading.safety.danger is True
 
 
 def test_unknown_nonverbal_input_name_is_an_error():
     with pytest.raises(ValueError, match="unknown nonverbal input"):
-        Hearing(crisis_callback=Pager()).hear(nonverbal={"blink": "x"})
+        Hearing().hear(nonverbal={"blink": "x"})
 
 
 # -- nonverbal_engine: the vote ----------------------------------------------
@@ -147,9 +163,19 @@ def _nv():
 
 
 def test_distress_is_not_outvoted():
+    # Decision moved to the being 2026-11-04: see AlphaVox's WHAT_THE_BEING_DECIDES.md
+    # The distress override of the vote is gone. A nod and a distress grunt
+    # at equal confidence are a tie, reported as a tie, and the distress is
+    # reported beside it: not outvoted, and not chosen for the being.
     r = _nv().process_multimodal_input(gesture="nod", sound="grunt_distress")
-    assert r["intent"] == "help"
-    assert r["message"] is None and r["silent_alarm"] is True   # ruling I
+    assert r["status"] == "tie"
+    assert r["intent"] is None and r["tied_intents"] == ["affirm", "help"]
+    assert r["tallies"] == {"affirm": 0.9, "help": 0.9}
+    assert r["distress_present"] is True and r["danger_present"] is True
+    [d] = r["distress"]
+    assert d["input"] == "grunt_distress" and d["category"] == "danger"
+    assert d["danger"] is True and d["danger_term"] == "help"
+    assert r["message"] is None                    # the grunt has no built-in words
 
 
 def test_winning_intent_speaks_only_from_a_learned_reading(tmp_path):
@@ -157,8 +183,11 @@ def test_winning_intent_speaks_only_from_a_learned_reading(tmp_path):
                                        sound="click")
     assert r["intent"] == "select"
     # Ruling J covers sounds too (Everett, 2026-10-29): a built-in click says
-    # nothing. Until this review it said "I choose this option.".
-    assert r["speakable"] is False and r["message"] is None
+    # nothing. Until this review it said "I choose this option.". (The
+    # `speakable` flag went 2026-11-04; the reading is the missing words and
+    # the reason.)
+    assert r["message"] is None
+    assert r["primary"]["reason"] == NOT_LEARNED_REASON
     # Learned for this client, in the client's own sound map, the click
     # speaks the client's words.
     (tmp_path / "sound_patterns_model.json").write_text(json.dumps({"click": {
@@ -167,7 +196,7 @@ def test_winning_intent_speaks_only_from_a_learned_reading(tmp_path):
     r = NonverbalEngine(data_dir=str(tmp_path)).process_multimodal_input(
         gesture="wave", eye_data={"region": "center"}, sound="click")
     assert r["intent"] == "select"
-    assert r["speakable"] is True and r["message"] == "That one."
+    assert r["message"] == "That one." and r["primary"]["input"] == "click"
 
 
 @pytest.mark.parametrize("key", ["hum", "click", "soft", "loud", "short_vowel", "repeated_sound",
@@ -176,7 +205,8 @@ def test_the_microphones_built_in_sounds_are_reported_with_no_wording(key):
     # Ruling J covers sounds, tics and clicks: the reading is reported, not spoken.
     r = _nv().process_multimodal_input(sound=key)
     assert r["status"] == "ok" and r["intent"]
-    assert r["message"] is None and r["speakable"] is False
+    assert r["message"] is None
+    assert r["primary"]["reason"] == NOT_LEARNED_REASON
 
 
 @pytest.mark.parametrize("kwargs", [{"gesture": "wave"}, {"gesture": "nod"},
@@ -185,7 +215,7 @@ def test_the_cameras_built_in_readings_are_reported_with_no_wording(kwargs):
     # Ruling J: the camera speaks only meanings learned for that client.
     r = _nv().process_multimodal_input(**kwargs)
     assert r["status"] == "ok" and r["intent"]            # the reading is still reported
-    assert r["message"] is None and r["speakable"] is False
+    assert r["message"] is None
     assert "no meaning learned for this client" in r["primary"]["reason"]
 
 
@@ -214,22 +244,58 @@ def _post(port, path, body):
         conn.close()
 
 
-@pytest.mark.parametrize("pager,status", [(Pager(), 200), (None, 503)])
-def test_receiver_takes_the_clients_acoustic_key(pager, status):
+def test_receiver_takes_the_clients_acoustic_key():
+    # 2026-11-04: until then a distress key answered {"received": true} (the
+    # silent alarm) with a pager, and 503 crisis_not_delivered without one.
+    # Fix round, 2026-11-04: the full turn goes to the being through on_turn
+    # only; the device gets one fixed receipt for every key, whatever it
+    # was read as.
     from christman_voice_sdk.audio import corti_receiver as cr
-    server, receiver, _ = cr.start_in_thread(port=0, hearing=Hearing(crisis_callback=pager))
+    turns = []
+    server, receiver, _ = cr.start_in_thread(port=0, hearing=Hearing(), on_turn=turns.append)
     try:
         port = server.server_address[1]
         code, body = _post(port, cr.ACOUSTIC_PATH, {"key": "grunt_distress"})
-        assert code == status, body
-        if status == 200:
-            # The silent alarm: the device that sent the key is told nothing.
-            assert body == {"received": True}
-            assert receiver.state.ring[0].decision.mode == MODE_SAFETY_HOLD
-        else:
-            assert body["error"] == "crisis_not_delivered"
+        assert code == 200, body
+        assert body == {"received": True, "key": "grunt_distress"}
+        # The being got the full turn, the safety reading included.
+        safety = turns[0].reading.safety
+        assert safety.status == "hard_block" and safety.reason == "nonverbal_distress"
+        assert safety.danger is True
+        assert turns[0].acoustic.input_data == "grunt_distress"
+        assert receiver.state.ring[0] is turns[0]
+        assert receiver.state.keys_received == 1
+        code, body = _post(port, cr.ACOUSTIC_PATH, {"key": "grunt_acknowledge"})
+        assert code == 200 and body == {"received": True, "key": "grunt_acknowledge"}
+        assert turns[1].reading is None                   # no distress; same receipt
         code, _ = _post(port, cr.ACOUSTIC_PATH, {"nokey": 1})
         assert code == 400
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.mark.parametrize("key", ["grunt_distress", "grunt_acknowledge", "vocal_stimming",
+                                 "not_a_live_key"])
+def test_receiver_with_no_being_attached_refuses_every_key_loudly(key):
+    # Fix round, 2026-11-04 (Rule 6): with no on_turn handler (AlphaVox
+    # starts the receiver that way) the turn would ring with nobody to read
+    # it and the client's key would vanish without a sound. Every key is
+    # refused alike, before it is heard: 503, counted in keys_rejected.
+    from christman_voice_sdk.audio import corti_receiver as cr
+    server, receiver, _ = cr.start_in_thread(port=0, hearing=Hearing())
+    try:
+        port = server.server_address[1]
+        code, body = _post(port, cr.ACOUSTIC_PATH, {"key": key})
+        assert code == 503
+        assert body == {"error": "no being is attached to receive turns"}
+        assert receiver.state.keys_rejected == 1
+        assert receiver.state.keys_received == 0 and len(receiver.state.ring) == 0
+        health = receiver.health()
+        assert health["keys_rejected"] == 1 and health["being_attached"] is False
+        with pytest.raises(cr.NoBeingAttached):
+            receiver.take_key(key)
+        assert receiver.state.keys_rejected == 2
     finally:
         server.shutdown()
         server.server_close()
@@ -299,8 +365,9 @@ def test_temporal_learned_gesture_speaks_alone_without_a_prefix(tmp_path):
     r = t.process_multimodal_sequence(gesture_features=np.zeros(4))
     assert r["primary_result"]["expression"] == "Wave Right"
     assert r["message"] == "I want the next one."
-    assert r["system_note"] == "I see your gesture."
-    assert r["system_note"] not in r["message"]
+    # The system's own sentence ("I see your gesture.") and the system_note
+    # key are deleted (2026-11-04): only the client's words are returned.
+    assert "system_note" not in r
 
 
 @pytest.mark.parametrize("index,expression", [(1, "Wave Left"), (2, "Wave Right")])
@@ -318,15 +385,21 @@ def test_temporal_built_in_gesture_is_reported_with_no_wording(index, expression
 
 
 def test_temporal_hand_up_is_the_silent_alarm():
-    # Ruling I: help is the silent alarm. Hand Up is never spoken.
+    # Decision moved to the being 2026-11-04: see AlphaVox's WHAT_THE_BEING_DECIDES.md
+    # Ruling I: help is danger. The silent alarm (words held, a page sent)
+    # was the package deciding; the reading it rested on is category
+    # "danger" with the matched intent. The built-in map has no words.
     t = TemporalNonverbalEngine(sequence_length=10)
     t.models["gesture"] = CentroidModel([[_seq(0.0)], [_seq(50.0)], [_seq(100.0)], [_seq(150.0)]])
     for frame in _seq(0.0)[:-1]:
         t.add_gesture_features(frame)
     r = t.process_multimodal_sequence(gesture_features=np.zeros(4))
     assert r["primary_result"]["expression"] == "Hand Up"
-    assert r["message"] is None and r["system_note"] is None
-    assert r["silent_alarm"] is True and r["primary_result"]["pages"] is True
+    assert r["message"] is None and "system_note" not in r
+    assert r["primary_result"]["category"] == "danger"
+    assert r["primary_result"]["danger"] is True
+    assert r["primary_result"]["danger_term"] == "Request attention"
+    assert r["danger_present"] is True and r["distress_present"] is True
 
 
 def test_temporal_face_reading_is_observed_not_spoken():
@@ -338,7 +411,9 @@ def test_temporal_face_reading_is_observed_not_spoken():
     r = t.process_multimodal_sequence(emotion_features=np.zeros(4))
     assert r["primary_result"]["expression"] == "Neutral"
     assert r["message"] is None            # never "I'm fine."
-    assert "reported, not spoken" in r["primary_result"]["reason"]
+    # The reason says what is true: the built-in map holds no words for it.
+    # (Until the 2026-11-04 fix round it said "reported, not spoken".)
+    assert "built-in map holds no words" in r["primary_result"]["reason"]
 
 
 def test_temporal_low_confidence_does_not_speak():
@@ -349,13 +424,133 @@ def test_temporal_low_confidence_does_not_speak():
         t.add_gesture_features(frame)
     r = t.process_multimodal_sequence(gesture_features=np.zeros(4))
     assert r["status"] == "no_usable_reading"
-    assert r["all_results"]["gesture"]["status"] == "below_threshold"
-    assert r["all_results"]["gesture"]["message"] is None
+    gesture = r["all_results"]["gesture"]
+    assert gesture["status"] == "below_threshold" and gesture["below_threshold"] is True
+    assert gesture["confidence"] == pytest.approx(0.25)
+    # The built-in map holds no words (ruling J), so there are none to keep;
+    # a reading under the bar is labelled, never blanked (2026-11-04).
+    assert gesture["message"] is None
     assert r["message"] is None
 
 
+def test_temporal_below_the_bar_keeps_the_clients_words(tmp_path):
+    # 2026-11-04: under the bar, the client's own words stay on the reading,
+    # labelled below_threshold with the confidence. Until then they were
+    # blanked.
+    path = tmp_path / "language_map.json"
+    path.write_text(json.dumps({"Wave Right": {"intent": "Next mode",
+                                               "message": "I want the next one."}}),
+                    encoding="utf-8")
+    t = TemporalNonverbalEngine(sequence_length=10, language_map_path=str(path))
+    # Wave Right (index 2) is nearest the input, the other three only a
+    # little further: it wins, at a confidence under the 0.6 bar.
+    t.models["gesture"] = CentroidModel([[_seq(0.2)], [_seq(0.2)], [_seq(0.1)], [_seq(0.2)]])
+    for frame in _seq(0.0)[:-1]:
+        t.add_gesture_features(frame)
+    r = t.process_multimodal_sequence(gesture_features=np.zeros(4))
+    gesture = r["all_results"]["gesture"]
+    assert gesture["expression"] == "Wave Right"
+    assert gesture["status"] == "below_threshold" and gesture["below_threshold"] is True
+    assert gesture["confidence"] < t.confidence_threshold
+    assert gesture["message"] == "I want the next one."
+    assert r["status"] == "no_usable_reading"      # under the bar, it does not lead
+
+
+def test_the_turn_keeps_the_clients_words_when_the_reading_is_under_the_bar(tmp_path):
+    # 2026-11-04: found by the test rewrite. When no reading cleared the bar,
+    # the engine's combined message is None and the words sit only on the
+    # reading, so the turn came back with no words at all. Through Hearing,
+    # the turn now carries the one reading's words, marked below the bar.
+    path = tmp_path / "language_map.json"
+    path.write_text(json.dumps({"Wave Right": {"intent": "Next mode",
+                                               "message": "I want the next one."}}),
+                    encoding="utf-8")
+    t = TemporalNonverbalEngine(sequence_length=10, language_map_path=str(path))
+    t.models["gesture"] = CentroidModel([[_seq(0.2)], [_seq(0.2)], [_seq(0.1)], [_seq(0.2)]])
+    for frame in _seq(0.0)[:-1]:
+        t.add_gesture_features(frame)
+    turn = Hearing(temporal_engine=t).hear(temporal={"gesture_features": np.zeros(4)})
+    assert turn.temporal["status"] == "no_usable_reading"
+    assert turn.person_message == "I want the next one."
+    assert turn.person_message_below_threshold is True
+
+
+# -- the "pages" field in a client's own map ---------------------------------
+# Everett, 2026-11-05: "Why would it read it as danger? Call caregiver, that
+# doesn't fucking constitute danger." The public package passes a map entry's
+# "pages": true through as map_pages, exactly as the map wrote it, and reads
+# nothing into it. What the mark means for a client is decided by the being's
+# own copy of the package or the being's own code.
+# Rewritten 2026-11-05: these two tests pinned the 2026-11-04 reading
+# (category "danger", danger True, Hearing hard_block "nonverbal_distress").
+
+def _centred_on_wave_right(confidence):
+    """CentroidModel over the four gesture labels, Wave Right (index 2) at 0
+    and the other three at one distance chosen so the softmax gives Wave
+    Right `confidence` for an input of zeros."""
+    import math
+    flat = math.sqrt(10 * 4)                               # 10 frames x 4 features
+    distance = math.log(3 * confidence / (1 - confidence))
+    v = distance / flat
+    return CentroidModel([[_seq(v)], [_seq(v)], [_seq(0.0)], [_seq(v)]])
+
+
+@pytest.mark.parametrize("confidence,status", [(0.9, "ok"), (0.4, "below_threshold")])
+def test_a_pages_mark_in_the_clients_own_map_is_passed_through_not_read_as_danger(
+        tmp_path, confidence, status):
+    path = tmp_path / "language_map.json"
+    path.write_text(json.dumps({"Wave Right": {"intent": "Call caregiver", "pages": True}}),
+                    encoding="utf-8")
+    t = TemporalNonverbalEngine(sequence_length=10, language_map_path=str(path))
+    t.models["gesture"] = _centred_on_wave_right(confidence)
+    for frame in _seq(0.0)[:-1]:
+        t.add_gesture_features(frame)
+    turn = Hearing(temporal_engine=t).hear(temporal={"gesture_features": np.zeros(4)})
+    gesture = turn.temporal["all_results"]["gesture"]
+    assert gesture["expression"] == "Wave Right" and gesture["status"] == status
+    assert gesture["confidence"] == pytest.approx(confidence)
+    assert gesture["intent"] == "Call caregiver"
+    assert gesture["map_pages"] is True                     # passed through as written
+    assert gesture["category"] == "other"                   # from the intent alone
+    assert gesture["danger"] is False and gesture["danger_term"] is None
+    assert turn.nonverbal_distress == []
+    assert turn.reading is None                             # no words, no distress: nothing for the gate
+
+
+@pytest.mark.parametrize("confidence,status", [(0.9, "ok"), (0.4, "below_threshold")])
+def test_a_pages_mark_reads_the_same_in_the_nonverbal_engine(tmp_path, confidence, status):
+    (tmp_path / "gestures_model.json").write_text(json.dumps({
+        "wave": {"intent": "call_caregiver", "confidence": confidence, "expression": "urgent",
+                 "emotion_tier": "moderate", "message": None, "pages": True},
+        "nod": {"intent": "yes", "confidence": confidence, "expression": "positive",
+                "emotion_tier": "mild", "message": None}}), encoding="utf-8")
+    engine = NonverbalEngine(data_dir=str(tmp_path))
+    turn = Hearing(nonverbal_engine=engine).hear(nonverbal={"gesture": "wave"})
+    [reading] = turn.nonverbal["all_results"]
+    assert reading["status"] == status
+    assert reading["map_pages"] is True
+    assert reading["category"] == "other"
+    assert reading["danger"] is False and reading["danger_term"] is None
+    assert reading["message"] is None
+    assert turn.nonverbal_distress == [] and turn.reading is None
+    # An entry without the field carries map_pages False.
+    assert engine.classify_gesture("nod").to_dict()["map_pages"] is False
+
+
+def test_a_wordless_entry_in_the_clients_own_map_says_so(tmp_path):
+    # Item 7 of the fix round: NOT_LEARNED_REASON said "no meaning learned
+    # for this client" for a wordless entry in the client's own map too.
+    from christman_voice_sdk.nonverbal.nonverbal_engine import NO_WORDS_IN_CLIENT_MAP_REASON
+    (tmp_path / "gestures_model.json").write_text(json.dumps({"wave": {
+        "intent": "greet", "confidence": 0.9, "expression": "positive",
+        "emotion_tier": "mild", "message": None}}), encoding="utf-8")
+    r = NonverbalEngine(data_dir=str(tmp_path)).classify_gesture("wave")
+    assert r.message is None and r.reason == NO_WORDS_IN_CLIENT_MAP_REASON
+    assert NonverbalEngine(data_dir=None).classify_gesture("wave").reason == NOT_LEARNED_REASON
+
+
 def test_soul_mirror_vector_carries_whose_clause_it_is():
-    turn = Hearing(crisis_callback=Pager()).hear(text="my moms in pain im scared")
+    turn = Hearing().hear(text="my moms in pain im scared")
     fv = turn.face_vector.to_dict()
     assert fv["output"] == "soul_mirror"
     # The person's exact words, cut at the clause, every letter kept.
@@ -367,22 +562,52 @@ def test_soul_mirror_vector_carries_whose_clause_it_is():
     assert fv["any_measured"] is False      # no emotion classifier on this path
 
 
-# -- 2026-10-29: Everett: Hand Up ("Request attention") pages a human.
+# -- 2026-10-29: Everett: Hand Up ("Request attention") is a call for help.
 
 def test_hand_up_is_the_one_temporal_signal_that_pages():
+    # Decision moved to the being 2026-11-04: see AlphaVox's WHAT_THE_BEING_DECIDES.md
+    # The `pages` field is gone; Hand Up is the one built-in label whose
+    # intent is help, and it reads category "danger".
     from christman_voice_sdk.nonverbal.engine_temporal import DEFAULT_LANGUAGE_MAP
-    paging = sorted(k for k, e in DEFAULT_LANGUAGE_MAP.items() if e.get("pages") is True)
-    assert paging == ["Hand Up"]
+    help_labels = sorted(k for k, e in DEFAULT_LANGUAGE_MAP.items()
+                         if e.get("intent") in TEMPORAL_HELP_INTENTS)
+    assert help_labels == ["Hand Up"]
+    assert all("pages" not in e for e in DEFAULT_LANGUAGE_MAP.values())
 
 
 def test_a_hand_up_reading_reaches_a_human():
     """The gate, given the reading Hearing builds from a Hand Up result. The
-    trained model that produces the reading is not on this machine."""
+    trained model that produces the reading is not on this machine.
+    Decision moved to the being 2026-11-04: see AlphaVox's WHAT_THE_BEING_DECIDES.md.
+    The gate reads it hard_block with `danger`; nothing is held or paged."""
     from christman_voice_sdk.audio.hearing import harm_frame_safety
     hand_up = {"modality": "temporal:gesture", "input": "Hand Up",
                "intent": "Request attention", "message": None,
-               "confidence": 0.9, "silent_alarm": True}
+               "confidence": 0.9, "category": "danger", "danger": True}
     r = harm_frame_safety("", {"nonverbal_distress": [hand_up]})
     assert r.status == "hard_block" and r.reason == "nonverbal_distress"
-    assert r.silent_alarm is True and r.hold_marker == ""     # ruling I
+    assert r.danger is True                                    # ruling I, as a reading
+    assert "nonverbal:temporal:gesture:Hand Up:Request attention" in r.flags
 
+
+
+def test_the_temporal_buffers_carry_from_one_turn_to_the_next():
+    # Item 7 of the 2026-11-04 fix round (Rule 13): Hearing's docstring said
+    # nothing carried from one turn to the next. The temporal engine's
+    # sequence buffers do, by design: a turn's sequence reading is made over
+    # the last sequence_length frames, sent on this turn or earlier ones.
+    t = TemporalNonverbalEngine(sequence_length=3)
+    t.models["gesture"] = CentroidModel([[_seq(0.0, n=3)], [_seq(50.0, n=3)],
+                                         [_seq(100.0, n=3)], [_seq(150.0, n=3)]])
+    hearing = Hearing(temporal_engine=t)
+    first = hearing.hear(temporal={"gesture_features": np.zeros(4)})
+    assert first.temporal["all_results"] == {}            # 1 of 3 frames: not ready
+    hearing.hear(temporal={"gesture_features": np.zeros(4)})
+    third = hearing.hear(temporal={"gesture_features": np.zeros(4)})
+    # Ready on the third turn, over frames sent on all three.
+    assert third.temporal["all_results"]["gesture"]["expression"] == "Hand Up"
+    assert len(t.gesture_buffer) == 3
+    import inspect
+    doc = " ".join(inspect.getdoc(Hearing).split())
+    assert "nothing from one turn changes how the next is read" not in doc
+    assert "temporal engine's sequence buffers" in doc

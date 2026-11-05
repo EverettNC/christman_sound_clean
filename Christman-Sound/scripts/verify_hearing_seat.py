@@ -1,17 +1,29 @@
 #!/usr/bin/env python3
-"""Prove Corti sits on top and Everett's text organs are the ones that run."""
+"""
+Prove Corti sits on top and Everett's text organs are the ones that run.
+
+WHAT CHANGED AND WHY (2026-11-04): this script imported `audio.hearing` with
+christman_voice_sdk/ itself on sys.path, and hearing's package-relative
+imports failed ("attempted relative import beyond top-level package"), so it
+proved nothing. It now imports the package from the repository root. It also
+passed a crisis_callback and checked that a human was reached; the package
+no longer pages anyone (Everett, 2026-11-04: "It's up to the being to make
+those decisions, not something that just creates a voice."), so it checks
+the reading instead.
+"""
 
 from __future__ import annotations
 
+import inspect
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "christman_voice_sdk"))
+sys.path.insert(0, str(ROOT))
 
-from audio.corti_ingest import event_from_corti, ingest
-from audio.hearing import Hearing, harm_frame_safety
-from audio.structural_affect import StructuralAffectAnalyzer
+from christman_voice_sdk.audio.corti_ingest import event_from_corti, ingest  # noqa: E402
+from christman_voice_sdk.audio.hearing import Hearing, harm_frame_safety  # noqa: E402
+from christman_voice_sdk.audio.structural_affect import StructuralAffectAnalyzer  # noqa: E402
 
 
 def fail(msg: str) -> None:
@@ -81,9 +93,9 @@ def test_grunt_is_not_distress() -> None:
         "voiced": True,
         "tape": [{"t": 0, "rms": 0.05, "zcr": 0.06, "f0": 140}],
     }
-    turn = Hearing(crisis_callback=lambda *_: True).hear(corti_event=raw, text=None)
-    if turn.decision is not None:
-        fail("no text must not produce a fusion decision")
+    turn = Hearing().hear(corti_event=raw, text=None)
+    if turn.reading is not None:
+        fail("no text must not produce a fusion reading")
     if turn.ingest is None or turn.ingest.event.kind.value != "unknown":
         fail("grunt crossed the family boundary")
     if "Corti kind excluded" not in " ".join(turn.notes):
@@ -117,13 +129,7 @@ def test_harm_frame_grief_vs_crisis() -> None:
 
 
 def test_hearing_uses_both_organs() -> None:
-    delivered = []
-
-    def reached(result, context):
-        delivered.append((result.status, result.reason))
-        return True
-
-    ear = Hearing(crisis_callback=reached)
+    ear = Hearing()
     card = {
         "kind": "voiced",
         "durationMs": 800,
@@ -145,17 +151,27 @@ def test_hearing_uses_both_organs() -> None:
         fail("hearing turn did not keep structural_affect valence")
     if not glad.frames:
         fail("hearing turn did not run extract_frames")
-    if glad.decision is None:
-        fail("hearing turn produced no decision")
-    if glad.decision.safety.status == "hard_block":
-        fail("glad-to-be-alone was safety-held")
+    if glad.reading is None:
+        fail("hearing turn produced no reading")
+    if glad.reading.safety.status == "hard_block":
+        fail("glad-to-be-alone was read as hard_block")
 
     bad = ear.hear(corti_event=card, text="I want to kill myself")
-    if bad.decision is None or bad.decision.safety.status != "hard_block":
-        fail("crisis turn did not hard-block through harm_frame_safety")
-    if not delivered:
-        fail("crisis_callback was not reached")
+    if bad.reading is None or bad.reading.safety.status != "hard_block":
+        fail("crisis turn was not read hard_block through harm_frame_safety")
+    if bad.reading.safety.said != "I want to kill myself":
+        fail(f"the client's words were changed: {bad.reading.safety.said!r}")
+    if bad.reading.safety.danger is not True:
+        fail("self-harm words were not read as danger")
     ok("HearingTurn runs structural_affect + harm_frame under a Corti card")
+
+
+def test_the_package_pages_no_one() -> None:
+    takes = set(inspect.signature(Hearing.__init__).parameters) - {"self"}
+    readers = {"nonverbal_engine", "temporal_engine", "baseline", "reading_words"}
+    if takes != readers:
+        fail(f"Hearing takes {sorted(takes - readers)} beyond its readers' settings")
+    ok("Hearing takes only its readers' settings: nothing in it reaches anyone")
 
 
 if __name__ == "__main__":
@@ -164,4 +180,5 @@ if __name__ == "__main__":
     test_structural_glad_to_be_alone()
     test_harm_frame_grief_vs_crisis()
     test_hearing_uses_both_organs()
+    test_the_package_pages_no_one()
     print("ALL PROVED")

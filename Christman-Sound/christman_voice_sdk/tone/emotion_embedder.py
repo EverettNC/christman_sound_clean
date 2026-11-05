@@ -52,6 +52,20 @@ WHAT CHANGED AND WHY
    measured one. And `from_tonescore` mapped names like "anger"/"joy" that the
    actual classifier does not emit — see emotion_labels.py. Both fixed: missing
    intensity raises, and the name map is explicit with no silent fallback.
+
+WHAT CHANGED AND WHY (2026-11-04)
+---------------------------------
+
+6. NO RESPONSE EMOTION CHOSEN HERE. Everett's ruling, 2026-11-04: "we can
+   have this knowledge in the sound package, but it can't be making those
+   decisions. It's up to the being to make those decisions, not something
+   that just creates a voice."
+
+   `get_response_mode_emotion` took a tone score and picked the emotion the
+   being should answer in (neutral above 75, sweetheart or happy below 35).
+   That is a decision about how the being responds. It is gone. The being
+   names the emotion it wants and calls `embed_emotion` (or `from_signal`)
+   with it; this module turns that choice into synthesis parameters.
 """
 
 from __future__ import annotations
@@ -59,7 +73,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Mapping, Optional, Union
+from typing import Any, Dict, List, Mapping, Union
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
@@ -354,30 +368,6 @@ class EmotionEmbedder:
                 "substitute a mid-range default."
             )
         return self.embed_emotion(state.value, float(raw_intensity) / 100.0)
-
-    def get_response_mode_emotion(
-        self, tonescore: Optional[float]
-    ) -> Optional[EmotionEmbedding]:
-        """
-        Response emotion for a composite score.
-
-        Returns None when `tonescore` is None. The predecessor took a bare
-        float and had no branch for a missing score, so an unmeasured tone fell
-        through to the standard mode.
-        """
-        if tonescore is None:
-            logger.warning("No tone score — no response emotion selected.")
-            return None
-        if tonescore > 75:
-            return self.embed_emotion("neutral", 0.6)
-        if tonescore < 35:
-            target = (
-                "sweetheart"
-                if EmotionalState.SWEETHEART in self.available_emotions
-                else "happy"
-            )
-            return self.embed_emotion(target, 0.5)
-        return self.embed_emotion("neutral", 0.7)
 
     @staticmethod
     def interpolate_emotions(

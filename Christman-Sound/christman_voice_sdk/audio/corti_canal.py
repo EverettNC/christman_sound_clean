@@ -11,6 +11,20 @@ everettnc/thewholehouse src/lib/audio/* & src/lib/sound/*).
 
 Pure Python standard library + christman_dsp.so only. No numpy, no scipy.
 An unmeasured value stays None; nothing here fills in a missing measurement.
+
+WHAT CHANGED AND WHY (2026-11-04)
+---------------------------------
+Everett's ruling, in his words: "we can have this knowledge in the sound
+package, but it can't be making those decisions. It's up to the being to make
+those decisions, not something that just creates a voice."
+
+Two places in the grunt router told the being what to do. The vocal-stimming
+route's intent read "(do not interrupt or treat as distress)", an
+instruction inside a label; it now says what was measured: a steady cadence
+of pitch and duration across the recent vocalizations. `GruntPhysicsRoute.
+urgent` was True exactly when the key was grunt_distress: it measured
+nothing the key and the measurements beside it (attack_ms, peak_rms, f0_hz,
+physics_note) do not already carry, and it named an action, so it is removed.
 """
 
 from __future__ import annotations
@@ -216,22 +230,11 @@ def _resample_cycle(cyc: Sequence[float], target_len: int) -> List[float]:
     return out
 
 
-def voice_quality_dsp(
-    samples: Sequence[float],
+def _measure_single_voiced_window(
+    x: List[float],
     sr: int,
-    f0: Optional[float] = None,
-) -> Dict[str, Optional[float]]:
-    x = [float(v) for v in samples]
-    if len(x) < 256 or sr <= 0:
-        return {"jitter": None, "shimmer": None, "hnr_db": None}
-    dsp = get_dsp()
-    if f0 is None:
-        if dsp.available:
-            raw_f0 = float(dsp.yin(x, sr))
-            f0 = raw_f0 if 55.0 <= raw_f0 <= 500.0 else None
-    if f0 is None or f0 <= 0.0:
-        return {"jitter": None, "shimmer": None, "hnr_db": None}
-
+    f0: float,
+) -> Optional[Dict[str, float]]:
     t0 = sr / float(f0)
     min_lag = max(4, int(round(t0 * 0.75)))
     max_lag = int(round(t0 * 1.25))
@@ -253,7 +256,7 @@ def voice_quality_dsp(
         pos = best_idx
 
     if len(peaks) < 5:
-        return {"jitter": None, "shimmer": None, "hnr_db": None}
+        return None
 
     periods: List[float] = []
     amps: List[float] = []
@@ -270,38 +273,87 @@ def voice_quality_dsp(
         cycles.append(_resample_cycle(cyc, target_len))
 
     if len(periods) < 4:
-        return {"jitter": None, "shimmer": None, "hnr_db": None}
+        return None
 
     mean_p = statistics.fmean(periods)
     mean_a = statistics.fmean(amps)
-    jitter = (
-        statistics.fmean(abs(periods[i] - periods[i - 1]) for i in range(1, len(periods))) / mean_p
-        if mean_p > 1e-9
-        else None
-    )
-    shimmer = (
-        statistics.fmean(abs(amps[i] - amps[i - 1]) for i in range(1, len(amps))) / mean_a
-        if mean_a > 1e-9
-        else None
-    )
+    if mean_p <= 1e-9 or mean_a <= 1e-9:
+        return None
+    jitter = statistics.fmean(abs(periods[i] - periods[i - 1]) for i in range(1, len(periods))) / mean_p
+    shimmer = statistics.fmean(abs(amps[i] - amps[i - 1]) for i in range(1, len(amps))) / mean_a
 
     n_cyc = len(cycles)
     template = [sum(cycles[c][k] for c in range(n_cyc)) / n_cyc for k in range(target_len)]
     sig_pow = sum(v * v for v in template) / target_len
+    if sig_pow <= 1e-12:
+        return None
     resid_sq_sum = 0.0
     for cyc in cycles:
         for k in range(target_len):
             d = cyc[k] - template[k]
             resid_sq_sum += d * d
     noise_pow = max(1e-12, resid_sq_sum / (n_cyc * target_len))
-    hnr_db: Optional[float] = None
-    if sig_pow > 1e-12:
-        hnr_db = round(min(60.0, 10.0 * math.log10(sig_pow / noise_pow)), 2)
+    hnr_db = min(60.0, 10.0 * math.log10(sig_pow / noise_pow))
+    return {
+        "jitter": float(jitter),
+        "shimmer": float(shimmer),
+        "hnr_db": float(hnr_db),
+    }
+
+
+def voice_quality_dsp(
+    samples: Sequence[float],
+    sr: int,
+    f0: Optional[float] = None,
+) -> Dict[str, Optional[float]]:
+    x = [float(v) for v in samples]
+    if len(x) < 256 or sr <= 0:
+        return {"jitter": None, "shimmer": None, "hnr_db": None}
+    dsp = get_dsp()
+    if f0 is not None and f0 > 0.0:
+        res = _measure_single_voiced_window(x, sr, float(f0))
+        if res is not None:
+            return {
+                "jitter": round(res["jitter"], 5),
+                "shimmer": round(res["shimmer"], 5),
+                "hnr_db": round(res["hnr_db"], 2),
+            }
+
+    if not dsp.available:
+        return {"jitter": None, "shimmer": None, "hnr_db": None}
+
+    if len(x) <= 4096:
+        raw_f0 = float(dsp.yin(x, sr))
+        if 55.0 <= raw_f0 <= 500.0:
+            res = _measure_single_voiced_window(x, sr, raw_f0)
+            if res is not None:
+                return {
+                    "jitter": round(res["jitter"], 5),
+                    "shimmer": round(res["shimmer"], 5),
+                    "hnr_db": round(res["hnr_db"], 2),
+                }
+        return {"jitter": None, "shimmer": None, "hnr_db": None}
+
+    win_len = 2048
+    hop_len = 1024
+    win_results: List[Dict[str, float]] = []
+    for start in range(0, len(x) - win_len + 1, hop_len):
+        seg = x[start : start + win_len]
+        if float(dsp.rms(seg)) <= 1e-6:
+            continue
+        seg_f0 = float(dsp.yin(seg, sr))
+        if 55.0 <= seg_f0 <= 500.0:
+            r = _measure_single_voiced_window(seg, sr, seg_f0)
+            if r is not None:
+                win_results.append(r)
+
+    if not win_results:
+        return {"jitter": None, "shimmer": None, "hnr_db": None}
 
     return {
-        "jitter": round(float(jitter), 5) if jitter is not None else None,
-        "shimmer": round(float(shimmer), 5) if shimmer is not None else None,
-        "hnr_db": hnr_db,
+        "jitter": round(float(statistics.median(r["jitter"] for r in win_results)), 5),
+        "shimmer": round(float(statistics.median(r["shimmer"] for r in win_results)), 5),
+        "hnr_db": round(float(statistics.median(r["hnr_db"] for r in win_results)), 2),
     }
 
 
@@ -467,10 +519,13 @@ class Corpus:
 
 @dataclass(frozen=True)
 class GruntPhysicsRoute:
+    """What the router read from a vocalization's measured envelope. A
+    reading: `key` and `intent` name what the physics matched, the
+    measurements are beside them, and nothing here acts on it."""
+
     key: str
     intent: Optional[str]
     regulatory: bool
-    urgent: bool
     confidence: Optional[float]
     physics_note: str
     duration_ms: Optional[float] = None
@@ -483,7 +538,6 @@ class GruntPhysicsRoute:
             "key": self.key,
             "intent": self.intent,
             "regulatory": self.regulatory,
-            "urgent": self.urgent,
             "confidence": None if self.confidence is None else round(self.confidence, 4),
             "duration_ms": None if self.duration_ms is None else round(self.duration_ms, 2),
             "attack_ms": None if self.attack_ms is None else round(self.attack_ms, 2),
@@ -586,9 +640,9 @@ def analyze_grunt_physics(
         if stim_ok and stim_conf is not None and f0_cv is not None and dur_cv is not None:
             return GruntPhysicsRoute(
                 key="vocal_stimming",
-                intent="Self-regulation / rhythmic vocal stimming (do not interrupt or treat as distress)",
+                intent=("Rhythmic vocal stimming (self-regulation): a steady cadence of "
+                        "pitch and duration across the recent vocalizations"),
                 regulatory=True,
-                urgent=False,
                 confidence=stim_conf,
                 physics_note=f"measured rhythmic cadence across {len(list(recent_events)[-4:])} vocalizations (F0 CV {f0_cv:.4f} <= {STIMMING_MAX_F0_CV}, duration CV {dur_cv:.4f} <= {STIMMING_MAX_DURATION_CV})",
             )
@@ -598,7 +652,6 @@ def analyze_grunt_physics(
             key="unknown",
             intent=None,
             regulatory=False,
-            urgent=False,
             confidence=None,
             physics_note="could not measure: no vocal event provided",
         )
@@ -626,7 +679,6 @@ def analyze_grunt_physics(
             key="unknown",
             intent=None,
             regulatory=False,
-            urgent=False,
             confidence=None,
             duration_ms=dur_ms,
             attack_ms=attack_ms,
@@ -667,7 +719,6 @@ def analyze_grunt_physics(
             key="grunt_distress",
             intent="Immediate discomfort, pain, or acute distress",
             regulatory=False,
-            urgent=True,
             confidence=measured_conf,
             duration_ms=dur_ms,
             attack_ms=attack_ms,
@@ -684,7 +735,6 @@ def analyze_grunt_physics(
             key="grunt_frustration",
             intent="Effortful groan / frustration / need for assistance",
             regulatory=False,
-            urgent=False,
             confidence=measured_conf,
             duration_ms=dur_ms,
             attack_ms=attack_ms,
@@ -698,7 +748,6 @@ def analyze_grunt_physics(
             key="unknown",
             intent=None,
             regulatory=False,
-            urgent=False,
             confidence=None,
             duration_ms=dur_ms,
             attack_ms=attack_ms,
@@ -716,7 +765,6 @@ def analyze_grunt_physics(
         key="grunt_acknowledge",
         intent="Calm vocal check-in / acknowledgment / presence",
         regulatory=False,
-        urgent=False,
         confidence=measured_conf,
         duration_ms=dur_ms,
         attack_ms=attack_ms,

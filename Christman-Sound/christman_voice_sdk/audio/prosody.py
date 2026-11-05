@@ -38,7 +38,24 @@ So the division is:
 
 The third is the most useful and the most honest. When the words say fine and
 the voice says strained, the correct output is not a number. It is "these
-disagree, do not act confidently on either."
+disagree", with the values that disagree.
+
+WHAT CHANGED AND WHY (2026-11-04)
+---------------------------------
+Everett's ruling, in his words: "we can have this knowledge in the sound
+package, but it can't be making those decisions. It's up to the being to make
+those decisions, not something that just creates a voice."
+
+`Reconciliation.defer_to_human` told the being what to do with a
+disagreement ("a person should look"), and every Reading and face reading
+carried that instruction. It is replaced by the readings it rested on:
+`channels_disagree` (the words and the voice point different ways),
+`voice_elevated` (the measured arousal is above CONFLICT_AROUSAL; None with
+no arousal), `text_is_self_distress`, and `arousal_bar` (the CONFLICT_AROUSAL
+the comparison used), beside `text_valence` and `prosody_arousal` as before.
+The old flag was True exactly when `channels_disagree` is True, or when
+there is no text reading and `voice_elevated` is True. Whom to bring in is
+the being's.
 
 WHAT THE EAR ACTUALLY EMITS — and what that rules out
 -----------------------------------------------------
@@ -599,7 +616,7 @@ class ProsodyAnalyzer:
 
 class Agreement(str, Enum):
     AGREE = "agree"                # words and voice point the same way
-    CONFLICT = "conflict"          # they disagree — do not act confidently
+    CONFLICT = "conflict"          # they disagree
     TEXT_ONLY = "text_only"        # no usable prosody
     PROSODY_ONLY = "prosody_only"  # no usable text reading
     UNKNOWN = "unknown"            # neither resolved
@@ -608,17 +625,24 @@ class Agreement(str, Enum):
 @dataclass(frozen=True)
 class Reconciliation:
     """
-    Text and voice, compared.
+    Text and voice, compared. A reading; it tells no one what to do.
 
-    `defer_to_human` is the output that matters. When the words and the voice
-    disagree, no single number is the right answer — the right answer is that
-    something is off and a person should look.
+    When the words and the voice disagree, no single number is the right
+    answer: `channels_disagree` says they disagree, and the values that
+    disagree are here beside it. What to do about it is the being's.
     """
 
     agreement: Agreement
     text_valence: Optional[float]
     prosody_arousal: Optional[float]
-    defer_to_human: bool
+    #: The words and the voice point different ways (agreement CONFLICT).
+    channels_disagree: bool
+    #: The measured arousal is above `arousal_bar`. None with no arousal.
+    voice_elevated: Optional[bool]
+    #: The structural reading read the words as the speaker's own distress.
+    text_is_self_distress: bool
+    #: The arousal bar the comparison used (CONFLICT_AROUSAL).
+    arousal_bar: float
     reason: str
     notes: List[str] = field(default_factory=list)
 
@@ -627,7 +651,10 @@ class Reconciliation:
             "agreement": self.agreement.value,
             "text_valence": self.text_valence,
             "prosody_arousal": self.prosody_arousal,
-            "defer_to_human": self.defer_to_human,
+            "channels_disagree": self.channels_disagree,
+            "voice_elevated": self.voice_elevated,
+            "text_is_self_distress": self.text_is_self_distress,
+            "arousal_bar": self.arousal_bar,
             "reason": self.reason,
             "notes": list(self.notes),
         }
@@ -652,11 +679,17 @@ def reconcile(
         prosody: A ProsodyReading, or None when no voice was captured.
 
     Returns:
-        Reconciliation. `defer_to_human` is True whenever the two channels
+        Reconciliation. `channels_disagree` is True whenever the two channels
         disagree, because that is precisely when a single number would be a
-        guess wearing a decimal point.
+        guess wearing a decimal point. The values that disagree are on it.
     """
     arousal = prosody.arousal if prosody is not None else None
+    voice_elevated = None if arousal is None else arousal > CONFLICT_AROUSAL
+    measured = dict(
+        voice_elevated=voice_elevated,
+        text_is_self_distress=bool(text_is_self_distress),
+        arousal_bar=CONFLICT_AROUSAL,
+    )
 
     if text_valence is None and arousal is None:
         # Both channels silent. This is the worst case, not a benign one:
@@ -668,7 +701,8 @@ def reconcile(
             agreement=Agreement.UNKNOWN,
             text_valence=None,
             prosody_arousal=None,
-            defer_to_human=False,
+            channels_disagree=False,
+            **measured,
             reason=(
                 "Neither channel produced a reading. Nothing is known about "
                 "this utterance's affect."
@@ -678,7 +712,7 @@ def reconcile(
                 "benign. Words with no lexicon entry and no captured voice "
                 "produce exactly this result whether they were said warmly or "
                 "in anger.",
-                "Do not let a downstream default treat this as neutral.",
+                "It is not a neutral reading.",
             ],
         )
 
@@ -687,14 +721,15 @@ def reconcile(
             agreement=Agreement.TEXT_ONLY,
             text_valence=text_valence,
             prosody_arousal=None,
-            defer_to_human=False,
+            channels_disagree=False,
+            **measured,
             reason=(
                 "No usable prosody. "
                 + (prosody.notes[0] if prosody and prosody.notes else "No voice captured.")
             ),
             notes=[
                 "Text alone cannot separate a friendly insult from a hostile "
-                "one. Treat any hostility judgement as unavailable."
+                "one. No hostility reading is available."
             ],
         )
 
@@ -703,7 +738,8 @@ def reconcile(
             agreement=Agreement.PROSODY_ONLY,
             text_valence=None,
             prosody_arousal=arousal,
-            defer_to_human=arousal > CONFLICT_AROUSAL,
+            channels_disagree=False,
+            **measured,
             reason=(
                 "Voice shows elevated activation with no resolved text reading."
                 if arousal > CONFLICT_AROUSAL
@@ -719,7 +755,8 @@ def reconcile(
             agreement=Agreement.AGREE,
             text_valence=text_valence,
             prosody_arousal=arousal,
-            defer_to_human=False,
+            channels_disagree=False,
+            **measured,
             reason="Words and voice both indicate elevated distress.",
         )
 
@@ -728,15 +765,16 @@ def reconcile(
             agreement=Agreement.CONFLICT,
             text_valence=text_valence,
             prosody_arousal=arousal,
-            defer_to_human=True,
+            channels_disagree=True,
+            **measured,
             reason=(
                 "Words do not read as distress but the voice shows markedly "
                 "elevated activation. These disagree."
             ),
             notes=[
                 "This is the case text alone gets wrong: the same sentence "
-                "said warmly and said in anger. Do not resolve it with a "
-                "number — surface it.",
+                "said warmly and said in anger. No single number "
+                "resolves it.",
             ],
         )
 
@@ -745,7 +783,8 @@ def reconcile(
             agreement=Agreement.CONFLICT,
             text_valence=text_valence,
             prosody_arousal=arousal,
-            defer_to_human=True,
+            channels_disagree=True,
+            **measured,
             reason=(
                 "Words read as distress but the voice is within its reference "
                 "range. These disagree."
@@ -760,7 +799,8 @@ def reconcile(
         agreement=Agreement.AGREE,
         text_valence=text_valence,
         prosody_arousal=arousal,
-        defer_to_human=False,
+        channels_disagree=False,
+        **measured,
         reason="Words and voice both within ordinary range.",
     )
 

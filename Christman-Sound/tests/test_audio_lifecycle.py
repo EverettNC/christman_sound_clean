@@ -8,6 +8,10 @@ Lifecycle honesty in the audio package, pinned.
 Measured 2026-10-11 before the fixes:
   - a help request that could not reach a human was logged and the loop
     kept running (thread alive, callbacks received: [])
+    (2026-11-04: the service no longer reaches anyone. The help request now
+    reaches the being's callback as a reading, category "danger", with the
+    client's words, and the loop keeps listening. Everett: "It's up to the
+    being to make those decisions, not something that just creates a voice.")
   - start_listening() returned True with only a recognizer attached and
     nothing polling it
   - a second utterance overwrote an unpolled distress detection; a stale one
@@ -21,6 +25,7 @@ import os
 import sys
 import time
 
+import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -29,10 +34,22 @@ from christman_voice_sdk.audio.enhanced_speech_recognition import (  # noqa: E40
     EnhancedSpeechRecognition,
 )
 from christman_voice_sdk.audio.sound_recognition_service import (  # noqa: E402
-    EscalationNotDelivered,
+    IntentClassification,
     SoundDetection,
     SoundRecognitionService,
 )
+
+
+def _needs_soundfile(what):
+    """NOT RUN, with the reason, where soundfile (a declared dependency in
+    pyproject.toml) is not installed: `what` imports audio_processor, which
+    imports it at module top. Measured 2026-11-04 in the build container:
+    soundfile is the only import missing on these paths."""
+    try:
+        import soundfile  # noqa: F401
+    except ImportError:
+        pytest.skip(f"not run: soundfile is not installed here; {what} imports "
+                    "audio_processor, which imports it at module top")
 
 
 class _Backend:
@@ -71,29 +88,39 @@ class _SpeechEngine:
         return True
 
 
-def test_undelivered_help_request_stops_the_loop_and_is_reported():
+def test_help_request_reaches_the_being_as_a_danger_reading_and_the_loop_listens_on():
+    # Was test_undelivered_help_request_stops_the_loop_and_is_reported. The
+    # escalation (EscalationNotDelivered, the loop's fatal stop) is now the
+    # category label it rested on: help is "danger", reported to the being's
+    # callback with the client's words. Decision moved to the being
+    # 2026-11-04: see AlphaVox's WHAT_THE_BEING_DECIDES.md
     from christman_voice_sdk.audio.recognition_result import RecognitionResult
 
     engine = _SpeechEngine()
-    svc = SoundRecognitionService(speech_engine=engine, escalation_callback=None)
+    svc = SoundRecognitionService(speech_engine=engine)
     esr = EnhancedSpeechRecognition(sound_service=svc)
     seen = []
-    esr.fatal_callback = seen.append
-    assert esr.start_listening() is True
+    assert esr.start_listening(sound_pattern_callback=seen.append) is True
     assert engine.callback is not None, "service must register its speech bridge"
 
-    # The real path: recognized speech "help me" -> distress -> help intent ->
-    # escalation -> nobody configured to receive it.
+    # The real path: recognized speech "help me" -> distress -> help intent,
+    # category "danger" -> the being's callback.
     engine.callback(RecognitionResult.recognized("help me", 0.9, source="test"))
 
     deadline = time.time() + 5
-    while esr.is_listening and time.time() < deadline:
+    while not seen and time.time() < deadline:
         time.sleep(0.05)
-    assert esr.is_listening is False, "loop must stop after EscalationNotDelivered"
-    assert isinstance(esr.fatal_error, EscalationNotDelivered), esr.fatal_error
-    assert seen and isinstance(seen[0], EscalationNotDelivered)
-    assert esr.get_recognition_status()["fatal_error"], "status must report it"
-    esr.stop_listening(wait=True)
+    assert seen, "the help reading must reach the being's callback"
+    [reading] = seen
+    assert isinstance(reading, IntentClassification)
+    assert reading.pattern == "distress" and reading.intent == "help"
+    assert reading.category == "danger"
+    assert reading.detection_confidence == 0.9
+    assert reading.metadata["transcript"] == "help me"
+    assert reading.metadata["matched_tokens"] == ["help"]
+    assert esr.is_listening is True, "a reading never stops the loop"
+    assert "fatal_error" not in esr.get_recognition_status()
+    assert esr.stop_listening(wait=True) is True
 
 
 def test_start_with_only_a_recognizer_is_refused():
@@ -107,8 +134,7 @@ def test_start_with_only_a_recognizer_is_refused():
 
 
 def test_distress_is_never_overwritten_or_dropped_for_age():
-    svc = SoundRecognitionService(backend=_Backend([]), detection_ttl_seconds=0.5,
-                                  escalation_callback=lambda c: True)
+    svc = SoundRecognitionService(backend=_Backend([]), detection_ttl_seconds=0.5)
     old = time.time() - 5.0
     svc._queue_pending(_distress(ts=old))
     svc._queue_pending(_hum(ts=old))
@@ -121,7 +147,7 @@ def test_distress_is_never_overwritten_or_dropped_for_age():
 
 
 def test_backend_crash_is_counted_not_silent():
-    svc = SoundRecognitionService(backend=_Crashing(), escalation_callback=lambda c: True)
+    svc = SoundRecognitionService(backend=_Crashing())
     assert svc.detect_sound_pattern(b"audio") is None
     st = svc.get_status()
     assert st["backend_failures"] == 1
@@ -294,14 +320,14 @@ def test_speech_engine_that_fails_to_start_is_raised_not_false():
         def start_listening(self, callback=None):
             raise OSError("no input device")
 
-    svc = SoundRecognitionService(speech_engine=Broken(), escalation_callback=lambda c: True)
+    svc = SoundRecognitionService(speech_engine=Broken())
     try:
         svc.start_listening()
     except RuntimeError as exc:
         assert "failed to start" in str(exc) and "no input device" in str(exc)
     else:
         raise AssertionError("a failed start must not read as 'nothing attached'")
-    assert SoundRecognitionService(escalation_callback=lambda c: True).start_listening() is False
+    assert SoundRecognitionService().start_listening() is False
 
 
 def test_unreadable_music_memory_is_raised_and_not_replaced():
@@ -328,6 +354,7 @@ def test_voicepack_that_cannot_load_says_why():
     import zipfile
     from pathlib import Path
 
+    _needs_soundfile("voicepack (through timbre_modeler)")
     from christman_voice_sdk.timbre.voicepack import VoicepackBuilder, VoicepackInvalid
 
     saved_home = os.environ.get("CHRISTMAN_AI_HOME")
@@ -353,6 +380,7 @@ def test_voicepack_that_cannot_load_says_why():
 def test_noise_reduction_failure_is_raised_not_passed_as_clean():
     import numpy as np
 
+    _needs_soundfile("this test")
     from christman_voice_sdk.audio import audio_processor as ap
 
     class Broken:

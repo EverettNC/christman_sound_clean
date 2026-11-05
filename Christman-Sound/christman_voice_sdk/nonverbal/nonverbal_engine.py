@@ -52,9 +52,10 @@ WHAT CHANGED AND WHY
 
    One occurrence in 938 lines — the assignment. Nothing was ever gated on it
    and there was no way for the client to reject or undo a reading. It is now
-   enforced in one place, `_gate()`, which every public entry point passes
+   read in one place, `_gate()`, which every public entry point passes
    through, and `reject_last()` gives the client an undo that also records the
-   correction.
+   correction. (Since 2026-11-04, item 9, the bar labels a reading; it no
+   longer takes the client's words away.)
 
 4. THE LEARNING SYSTEM WAS INERT, NOT DECAYING.
 
@@ -107,6 +108,48 @@ WHAT CHANGED AND WHY
    for every application that imported this file. Removed; a module logger
    with a NullHandler, per the SDK convention.
 
+9. WHAT CHANGED AND WHY (2026-11-04): THE ENGINE READS; THE BEING DECIDES.
+   Everett's ruling, in his words:
+
+       "we can have this knowledge in the sound package, but it can't be
+       making those decisions. It's up to the being to make those
+       decisions, not something that just creates a voice."
+       "it can't make decisions that counteract the being, because the
+       being is the one that has all of the work to make those decisions
+       properly."
+
+   Before this, the engine took the client's mapped words away in two
+   places. A reading under the confidence bar came back with message None.
+   A danger reading (help, scared, attacked, any map entry whose words
+   speak of fear or attack) came back with message None and `silent_alarm`
+   True, and the rest of the package read that as an order to reach a
+   human and say nothing. `Interpretation.speakable` told the caller
+   whether to voice a reading. In a multimodal input a distress intent
+   overrode the measured vote, and one danger reading anywhere blanked the
+   message for the whole input.
+
+   Now the engine reports what it read, and the being decides:
+     - The client's mapped words are always on the reading. Under the bar
+       the reading is labelled BELOW_THRESHOLD (`below_threshold` True)
+       and carries its confidence, the threshold and its words.
+     - A danger meaning is reported, not acted on: `danger` True and
+       `danger_term`, the intent or the word in the message that matched.
+     - Every recognized reading carries `category`: "danger", "need" or
+       "other" (None when nothing was recognized), read from the intent
+       and the words alone. An entry in the client's own map that carries
+       `"pages": true` is passed through as `map_pages` True, exactly as the
+       map wrote it, and gives the reading no other meaning (Everett,
+       2026-11-05: "Why would it read it as danger? Call caregiver, that doesn't fucking constitute danger."). The intent sets stay as
+       knowledge, named for what they are: DANGER_CATEGORY_INTENTS (was
+       DANGER_INTENTS), NEED_CATEGORY_INTENTS (was the need list named for
+       paging, same members), DISTRESS_INTENTS (both).
+     - `silent_alarm` and `speakable` are removed from Interpretation.
+     - Multimodal reports the tallies, the measured winner (or the tie, when
+       the top tallies are equal), `distress_present` and `danger_present`.
+       Nothing overrides the vote and nothing blanks the message.
+   `is_danger`, `danger_term` and `distress_readings` are queries. The
+   package does nothing with their answers.
+
 KEPT DELIBERATELY
 -----------------
 `get_emotional_indicators` maps `stimming` and `vocal_stimming` to
@@ -128,7 +171,7 @@ import tempfile
 import threading
 import time
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Deque, Dict, List, Optional
@@ -166,7 +209,7 @@ MIN_CONFIRMED_SAMPLES = 10
 #: How far confidence may move in one update. Stated, not emergent.
 #: 0.05: a chosen starting value, held until client data replaces it. Reason:
 #: a 0.9 symbol needs 6 confirmed-wrong updates to fall below the 0.6 floor,
-#: so one update can never silence a signal.
+#: so one update can never drop a signal under the bar.
 CONFIDENCE_STEP = 0.05
 
 #: Floor and ceiling on a learned confidence. A prior may not learn its way to
@@ -177,38 +220,40 @@ CONFIDENCE_STEP = 0.05
 CONFIDENCE_FLOOR = 0.20
 CONFIDENCE_CEILING = 0.95
 
-#: Intents that mean a person needs a human. Everett, 2026-10-29: "A
-#: nonverbal client's distress is just as important as a verbal client's."
-#: So the grunt, the help, pain and medicine symbols reach the crisis gate
-#: and a human. The grunt key, the
-#: "distress" sound and the point_up gesture map to "help"; the symbols map
-#: to need_help, pain and need_medicine. A fixed list of intents: add an
-#: intent here and it pages. (The quotation is Everett's own words, as he
-#: gave them 2026-10-29, ruling AF; the handoff's wording is replaced.)
-#: DANGER. Everett, 2026-10-29 (ruling I, the silent alarm): a danger
-#: signal (help, scared, being attacked, "I'm scared for my safety"), from any
-#: channel, is NEVER spoken aloud and NEVER announced. It goes straight to a
-#: human, silently. His reason: saying it out loud can get the client hurt
-#: worse and the device taken. These intents are danger; so is any learned
-#: entry whose words speak of fear, danger or attack (DANGER_WORDS).
-DANGER_INTENTS = frozenset({
+#: CATEGORY LABELS (2026-11-04). Every recognized reading carries one:
+#: "danger", "need" or "other". The label is knowledge about the reading.
+#: What happens next is the being's decision, not this package's.
+CATEGORY_DANGER = "danger"
+CATEGORY_NEED = "need"
+CATEGORY_OTHER = "other"
+CATEGORIES = (CATEGORY_DANGER, CATEGORY_NEED, CATEGORY_OTHER)
+
+#: Intents read as category "danger": help and danger. Everett, 2026-10-29
+#: (ruling I) grouped them: a danger signal is help, scared, being attacked,
+#: "I'm scared for my safety", from any channel. His reason for treating it
+#: apart: saying it out loud can get the client hurt worse and the device
+#: taken. That reason is the being's to act on; this set only names the
+#: intents. The grunt key, the "distress" sound and the point_up gesture map
+#: to "help"; the help symbol maps to "need_help". Any entry whose words
+#: speak of fear, danger or attack (DANGER_WORDS) is read as danger too.
+#: Everett, 2026-10-29 (ruling AF): "A nonverbal client's distress is just
+#: as important as a verbal client's."
+DANGER_CATEGORY_INTENTS = frozenset({
     "help", "need_help", "danger", "scared", "afraid", "fear", "unsafe",
     "attacked", "attack", "threat", "emergency",
 })
 
-#: Signals that reach a human and ARE spoken as normal (ruling I). Everett,
-#: 2026-10-29: pain is not a need, "It's a feeling", the client's own, and
-#: it pages every time ("someone on hospice or with a chronic illness that
-#: causes pain, then hell yes, that pages the caregiver every time").
-#: Medicine is a need that pages, so the caregiver is reached. The typed
-#: words page the same way (hearing.PAIN_TERMS, ruling C). Thirst, hunger
-#: and the bathroom are spoken and page only when the client asks for help
-#: in the same turn (hearing.NEED_INTENTS). Hand Up's request attention
-#: pages through engine_temporal's PAGING_INTENTS, ruling 5, and is help,
-#: so it is the silent alarm there and never spoken, ruling I.
-NEED_PAGING_INTENTS = frozenset({"pain", "need_medicine"})
+#: Intents read as category "need". The same members the need list held
+#: before 2026-11-04: pain and need_medicine. Everett, 2026-10-29: pain is
+#: not a need, "It's a feeling", the client's own; medicine is a need. The
+#: label "need" on pain is carried from the old list, and what to call it
+#: is Everett's call. Thirst, hunger and the
+#: bathroom are not in this set (hearing.NEED_INTENTS lists them apart), so
+#: they read "other" here.
+NEED_CATEGORY_INTENTS = frozenset({"pain", "need_medicine"})
 
-DISTRESS_INTENTS = DANGER_INTENTS | NEED_PAGING_INTENTS
+#: Both categories together: the intents read as distress.
+DISTRESS_INTENTS = DANGER_CATEGORY_INTENTS | NEED_CATEGORY_INTENTS
 
 #: Words in a map entry's message that make it a danger meaning, whatever its
 #: intent is called. Matched as words.
@@ -217,61 +262,110 @@ DANGER_WORDS = re.compile(
     r"attacked|attacking|safety)\b", re.I)
 
 
+def danger_term(intent: Optional[str], message: Optional[str] = None) -> Optional[str]:
+    """
+    What makes a meaning danger, or None.
+
+    The intent itself when it is in DANGER_CATEGORY_INTENTS; otherwise the
+    first DANGER_WORDS match in the message, exactly as written there. A
+    reading only: nothing is done with it here.
+    """
+    if (intent or "") in DANGER_CATEGORY_INTENTS:
+        return intent
+    found = DANGER_WORDS.search(message or "")
+    return found.group(0) if found else None
+
+
 def is_danger(intent: Optional[str], message: Optional[str] = None) -> bool:
-    """A danger meaning: it pages a human and is never spoken (ruling I)."""
-    return (intent or "") in DANGER_INTENTS or bool(DANGER_WORDS.search(message or ""))
+    """True when the meaning reads as danger (see danger_term). A query only."""
+    return danger_term(intent, message) is not None
 
 
-#: SILENT OR VOCAL (Everett, 2026-10-29, rulings I, J and L). A map entry
-#: carries its meaning, not a fixed speak/silent flag: "every situation is
-#: conditional, to be either kept silent or vocal." The conditions:
-#:   - danger is silent (ruling I; for a nonverbal channel, always);
-#:   - a pressed symbol is the client's own word and is spoken (ruling C);
+def category_of(intent: Optional[str], message: Optional[str] = None) -> Optional[str]:
+    """
+    The category label for a meaning: "danger", "need" or "other".
+
+    None when there is no meaning at all (no intent and no words): nothing
+    was recognized, so nothing is labelled.
+    """
+    if not intent and not message:
+        return None
+    if is_danger(intent, message):
+        return CATEGORY_DANGER
+    if intent in NEED_CATEGORY_INTENTS:
+        return CATEGORY_NEED
+    return CATEGORY_OTHER
+
+
+#: WHERE THE WORDS COME FROM (Everett, 2026-10-29, rulings C, J and L). A
+#: map entry carries its meaning, not a speak/silent flag. The engine
+#: returns whatever words the map holds for a reading, and reports every
+#: reading whether or not it has words:
+#:   - a pressed symbol is the client's own word (ruling C);
 #:   - a meaning in the client's OWN map, read from data_dir, is a meaning
-#:     learned for that client and is spoken (ruling J);
-#:   - THE CAMERA SPEAKS ONLY MEANINGS LEARNED FOR THAT CLIENT (Everett,
-#:     ruling J). The built-in gesture and eye-region maps carry no wording
-#:     at all (message None): a wave, a nod, a thumbs up, a held centre gaze
-#:     is reported as a reading (key, intent, confidence) and says nothing.
-#:     Until 2026-10-29's review, a built-in wave said "Hello there!", a nod
-#:     "Yes, I agree.", a thumbs up "I like this." and a centre gaze "I
-#:     select this option." for the client. Those sentences are removed;
-#:   - RULING J COVERS SOUNDS TOO (Everett, 2026-10-29): a built-in sound,
-#:     tic or click meaning speaks nothing. The built-in sound map carries
-#:     no wording; the reading is reported, and it speaks only once it is
-#:     learned for that client. (Before, only the generic-feeling intents
-#:     below were held back, and a built-in click still said "I choose this
-#:     option.") GENERIC_FEELING_INTENTS is kept for callers that read it.
-#: An older map with no such fields works exactly as before, for every
-#: meaning that is not danger.
+#:     learned for that client (ruling J);
+#:   - THE CAMERA'S BUILT-IN MAPS CARRY NO WORDING (ruling J). The built-in
+#:     gesture and eye-region maps hold message None: a wave, a nod, a thumbs
+#:     up, a held centre gaze is reported as a reading (key, intent,
+#:     confidence) with no words. Until 2026-10-29's review, a built-in wave
+#:     said "Hello there!", a nod "Yes, I agree.", a thumbs up "I like
+#:     this." and a centre gaze "I select this option." for the client.
+#:     Those sentences are removed from the data;
+#:   - RULING J COVERS SOUNDS TOO (Everett, 2026-10-29): the built-in sound
+#:     map carries no wording; a sound, tic or click has words only once
+#:     they are learned for that client, in the client's own map. (Before, a
+#:     built-in click said "I choose this option.") GENERIC_FEELING_INTENTS
+#:     is kept for callers that read it.
+#: An older map with no such fields reads exactly as before.
 GENERIC_FEELING_INTENTS = frozenset({
     "self_regulate", "overwhelmed", "thinking", "unsure", "excited",
     "frustrated", "focus", "searching",
 })
-GENERIC_SILENT_REASON = ("a generic reading, not a meaning learned for this client; "
-                         "observed, not spoken")
-#: A camera, eye or sound reading with no meaning learned for this client (ruling J).
-NOT_LEARNED_REASON = ("no meaning learned for this client: the reading is reported, "
-                      "not spoken")
-SILENT_ALARM_REASON = ("danger: goes to a human silently; never spoken, never "
-                       "announced (silent alarm)")
+#: A camera, eye or sound reading from a BUILT-IN map (ruling J): the
+#: built-in maps hold no words, so the reading carries none.
+NOT_LEARNED_REASON = ("no meaning learned for this client: the built-in map holds no "
+                      "words for this reading, so it carries none")
+#: A camera, eye or sound reading from the CLIENT'S OWN map whose entry has
+#: no words. The meaning is the client's; the map holds no words for it.
+#: Until 2026-11-04 these readings carried NOT_LEARNED_REASON, which said no
+#: meaning was learned for the client, and that was not true of them.
+NO_WORDS_IN_CLIENT_MAP_REASON = ("the client's own map holds no words for this "
+                                 "meaning, so the reading carries none")
+
+#: THE `pages` FIELD IN A CLIENT'S OWN MAP. A map entry may carry
+#: `"pages": true`, e.g. {"intent": "Call caregiver", "pages": true}. The
+#: package passes it through on the reading as `map_pages`, exactly as the
+#: map wrote it, and reads nothing into it: not danger, not need, not who is
+#: reached. What the mark means for a client is decided by the being's own
+#: copy of this package or the being's own code. Everett, 2026-11-05:
+#: "Why would it read it as danger? Call caregiver, that doesn't fucking constitute danger."
+#: (From 2026-11-04 until this change the package read the field as
+#: category "danger"; at 2ad3ac0 engine_temporal read it as nonverbal
+#: distress that paged a human.)
+PAGES_FIELD = "pages"
+
+
+def carries_pages_mark(entry: Any) -> bool:
+    """True when a map entry carries `"pages": true` (exactly True). Passed
+    through as written; the package gives it no meaning."""
+    return isinstance(entry, dict) and entry.get(PAGES_FIELD) is True
 
 
 def distress_readings(readings: "List[Interpretation]") -> "List[Interpretation]":
     """
-    The readings that must reach a human.
+    The recognized readings whose category is "danger" or "need".
 
-    Everett, 2026-10-29: "A nonverbal client's distress is just as important
-    as a verbal client's." A recognized distress reading counts at ANY confidence: the
-    confidence bar never decides whether help comes. The bar decides only
-    whether the engine may put words in someone's mouth for a reading it
-    could have got wrong. Unrecognized input never counts — nothing is
-    invented.
+    A query. Everett, 2026-10-29: "A nonverbal client's distress is just as
+    important as a verbal client's." So a recognized distress reading is
+    listed at ANY confidence, under the bar or over it: the bar never
+    decides whether a reading is distress. Unrecognized input never counts;
+    nothing is invented. The package does nothing with the answer; the being
+    decides.
     """
     return [
         r for r in readings
         if r.status in (Status.OK, Status.BELOW_THRESHOLD)
-        and (r.intent in DISTRESS_INTENTS or r.silent_alarm)
+        and (r.intent in DISTRESS_INTENTS or r.danger)
     ]
 
 
@@ -292,8 +386,11 @@ class Interpretation:
     `confidence_is_prior` says so on every result. It is None whenever there
     is nothing to be confident about.
 
-    `message` is what the system would say aloud. It is None unless status is
-    OK — the engine does not put words in someone's mouth on any other path.
+    `message` is the client's words for this reading, exactly as the map
+    holds them. It is None when the map entry carries no words (the built-in
+    camera and microphone maps, ruling J) or when nothing was recognized. It
+    is never taken away because of the bar or because the reading is danger:
+    whether to voice it is the being's decision (2026-11-04).
     """
 
     modality: Modality
@@ -308,12 +405,20 @@ class Interpretation:
     threshold: Optional[float] = None
     confirmed_samples: int = 0
     interaction_id: Optional[str] = None
-    #: A danger meaning: it pages a human and is never spoken (ruling I).
-    silent_alarm: bool = False
+    #: "danger", "need" or "other" for a recognized reading; None otherwise.
+    category: Optional[str] = None
+    #: The meaning reads as danger (help or danger). Reported, never acted on.
+    danger: bool = False
+    #: What matched: the intent, or the word in the message. None if not danger.
+    danger_term: Optional[str] = None
+    #: The client's own map entry carries `"pages": true`, passed through as
+    #: written. The package gives it no meaning (PAGES_FIELD).
+    map_pages: bool = False
 
     @property
-    def speakable(self) -> bool:
-        return self.status is Status.OK and bool(self.message)
+    def below_threshold(self) -> bool:
+        """The reading is under the confidence bar. Its words are still on it."""
+        return self.status is Status.BELOW_THRESHOLD
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -331,8 +436,11 @@ class Interpretation:
             "threshold": self.threshold,
             "confirmed_samples": self.confirmed_samples,
             "interaction_id": self.interaction_id,
-            "speakable": self.speakable,
-            "silent_alarm": self.silent_alarm,
+            "below_threshold": self.below_threshold,
+            "category": self.category,
+            "danger": self.danger,
+            "danger_term": self.danger_term,
+            "map_pages": self.map_pages,
         }
 
 
@@ -358,8 +466,8 @@ class MapValidationError(ValueError):
 #   0.7  a signal that is often made without meaning to: stimming, rapid
 #        blinking, corner glances, a click, a short vowel.
 #   0.6  a sound that often carries no message at all: a hum, a soft sound.
-#        Set AT the floor: it still speaks (the test is "below 0.6"), and it
-#        loses any vote against a stronger reading.
+#        Set AT the floor: it is not labelled below the bar (the test is
+#        "below 0.6"), and it loses any vote against a stronger reading.
 #
 # Checked entry by entry (2026-10-29). These do not fit the reasons above,
 # and no reason of their own was ever written, so they are listed here as
@@ -370,21 +478,22 @@ class MapValidationError(ValueError):
 #   eye region at 0.8: long_stare. At 0.7: rapid_scan.
 #   vocal_stimming at 0.9, while the stimming gesture is 0.7.
 #
-# THE SYMBOLS' NUMBERS ARE NOT A SPEAKING GATE (Everett's ruling C,
+# THE SYMBOLS' NUMBERS ARE NOT UNDER THE BAR (Everett's ruling C,
 # 2026-10-29: a symbol or key the client pressed counts like a spoken
 # word). The bar
 # (confidence_threshold) is for readings this package could get wrong: a
 # camera's gesture, an eye region, a sound the microphone classified. A
-# pressed symbol is not a guess, so its number never decides whether it
-# speaks (see NonverbalEngine._gate). The number stays on the reading and
-# still weighs in a multimodal vote. And no number, on any channel, decides
-# whether a distress reading reaches a human: that happens at any confidence.
+# pressed symbol is not a guess, so it is never labelled below the bar (see
+# NonverbalEngine._gate). The number stays on the reading and still weighs
+# in a multimodal vote. And no number, on any channel, decides whether a
+# reading is labelled distress: category and danger are read at any
+# confidence.
 # -----------------------------------------------------------------------------
 
 # THE CAMERA'S BUILT-IN MAPS CARRY NO WORDING (Everett, ruling J): the
-# camera speaks only meanings learned for that client. A gesture or eye
-# region here is a reading (intent, confidence, tier) with message None; the
-# client's own map in data_dir is where a spoken meaning comes from.
+# camera has words only for meanings learned for that client. A gesture or
+# eye region here is a reading (intent, confidence, tier) with message None;
+# the client's own map in data_dir is where a meaning's words come from.
 DEFAULT_GESTURES: Dict[str, Dict[str, Any]] = {
     "nod":         {"intent": "affirm",        "confidence": 0.9, "expression": "positive", "emotion_tier": "moderate", "message": None},
     "shake":       {"intent": "deny",          "confidence": 0.9, "expression": "negative", "emotion_tier": "moderate", "message": None},
@@ -428,8 +537,8 @@ DEFAULT_EYE_REGIONS: Dict[str, Dict[str, Any]] = {
 
 # THE MICROPHONE'S BUILT-IN SOUND MAP CARRIES NO WORDING EITHER (Everett,
 # 2026-10-29: ruling J covers sounds too). A hum, a click, a grunt is a
-# reading (intent, confidence, tier) and says nothing; a sound meaning is
-# spoken only once it is learned for that client, in the client's own map.
+# reading (intent, confidence, tier) with no words; a sound meaning has
+# words only once it is learned for that client, in the client's own map.
 # Until this review a built-in click said "I choose this option.", a short
 # vowel "I acknowledge that." and a repeated sound "Please pay attention to
 # this." for the client. Those sentences are removed.
@@ -513,6 +622,21 @@ def validate_map(name: str, table: Dict[str, Any], strict: bool = False) -> Dict
     return clean
 
 
+#: Two tallies closer than this are equal. 1e-9: a chosen value. Reason:
+#: weighted sums of the same priors can differ in the last float bits
+#: (0.8 x 0.9 against 0.72), and the smallest real difference the maps can
+#: make is far larger (priors move in steps of 0.05, weighted 0.8 at least).
+TIE_TOLERANCE = 1e-9
+
+
+def _leaders(tallies: Dict[str, float]) -> List[str]:
+    """Every key that shares the top tally, sorted. More than one is a tie."""
+    if not tallies:
+        return []
+    top = max(tallies.values())
+    return sorted(k for k, v in tallies.items() if abs(v - top) <= TIE_TOLERANCE)
+
+
 def _atomic_write_json(path: str, payload: Any) -> None:
     """
     Write JSON atomically.
@@ -553,8 +677,8 @@ class NonverbalEngine:
         data_dir: Optional[str] = "data/learning",
         # 0.6: a chosen starting value, not a measurement. Held until client
         # data replaces it. Reason: above the 0.5 coin-flip line, and below
-        # every deliberate signal in the maps (0.7-0.9), so the floor stops
-        # guesses without silencing a pressed symbol.
+        # every deliberate signal in the maps (0.7-0.9), so the floor labels
+        # guesses without ever labelling a pressed symbol.
         confidence_threshold: float = 0.6,
         strict_maps: bool = False,
     ) -> None:
@@ -564,8 +688,9 @@ class NonverbalEngine:
                 only inside an explicit save. Importing this module and
                 constructing the engine touch no disk. None means no disk at
                 all: built-in maps, nothing read, `save` refuses.
-            confidence_threshold: readings below this are returned as
-                BELOW_THRESHOLD and are not speakable.
+            confidence_threshold: readings below this are labelled
+                BELOW_THRESHOLD, with their confidence, this threshold and
+                their words. The being decides what to do with them.
             strict_maps: raise on a malformed map entry instead of dropping it.
         """
         if not 0.0 <= confidence_threshold <= 1.0:
@@ -685,10 +810,13 @@ class NonverbalEngine:
 
     def _gate(self, interp: Interpretation) -> Interpretation:
         """
-        The single place the threshold is enforced.
+        The single place the threshold is read.
 
-        Everything that can speak passes through here. The predecessor had a
-        threshold attribute and no gate at all.
+        A reading under the bar is labelled BELOW_THRESHOLD and keeps its
+        words, its confidence, its category and its danger reading; the
+        threshold goes with it. Nothing is taken away. The predecessor had a
+        threshold attribute and no gate at all; until 2026-11-04 this gate
+        blanked the words of a reading under the bar.
         """
         if interp.status is not Status.OK:
             return interp
@@ -697,30 +825,19 @@ class NonverbalEngine:
         # exists for readings this package could get wrong: a camera's
         # gesture, an eye region, a sound the microphone classified. A symbol
         # is not a reading; the client chose it. So the typed confidence in
-        # the symbol map never decides whether a pressed symbol speaks. It is
+        # the symbol map never labels a pressed symbol below the bar. It is
         # still carried on the reading, and still weighs in a multimodal vote.
         if interp.modality is Modality.SYMBOL:
             return interp
         if interp.confidence is None or interp.confidence < self.confidence_threshold:
-            return Interpretation(
-                modality=interp.modality,
+            return replace(
+                interp,
                 status=Status.BELOW_THRESHOLD,
-                input_data=interp.input_data,
-                intent=interp.intent,
-                expression=interp.expression,
-                emotion_tier=interp.emotion_tier,
-                confidence=interp.confidence,
-                message=None,                      # NOT spoken
-                # Ruling M: the package never holds anything for
-                # confirmation. The reading is reported; the being asks.
                 reason=(
                     f"confidence {interp.confidence} is below the "
-                    f"{self.confidence_threshold} threshold: reported, not spoken"
+                    f"{self.confidence_threshold} threshold"
                 ),
                 threshold=self.confidence_threshold,
-                confirmed_samples=interp.confirmed_samples,
-                interaction_id=interp.interaction_id,
-                silent_alarm=interp.silent_alarm,
             )
         return interp
 
@@ -746,19 +863,18 @@ class NonverbalEngine:
                 threshold=self.confidence_threshold,
             )
 
-        # What may be said (rulings I and J). The meaning itself is kept on
-        # the reading either way: a silent danger reading still pages.
+        # The client's words, exactly as the map holds them. Never taken
+        # away: not for danger, not for the bar (2026-11-04). The built-in
+        # camera and microphone maps hold no words (ruling J), so a built-in
+        # gesture, eye or sound reading has message None and says why; so
+        # does an entry in the client's own map that holds no words.
         message: Optional[str] = entry["message"]
-        silent_reason: Optional[str] = None
-        if is_danger(entry["intent"], entry["message"]):
-            message, silent_reason = None, SILENT_ALARM_REASON
-        elif (modality in (Modality.GESTURE, Modality.EYE, Modality.SOUND)
-              and (self.map_source.get(modality) != "client" or not message)):
-            # Ruling J: the camera and the microphone speak only meanings
-            # learned for that client. A built-in gesture, eye or sound
-            # reading has no wording. A pressed symbol is the client's own
-            # word and is not held here (ruling C).
-            message, silent_reason = None, NOT_LEARNED_REASON
+        reason: Optional[str] = None
+        if modality in (Modality.GESTURE, Modality.EYE, Modality.SOUND) and not message:
+            reason = (NO_WORDS_IN_CLIENT_MAP_REASON
+                      if self.map_source.get(modality) == "client" else NOT_LEARNED_REASON)
+        term = danger_term(entry["intent"], message)
+        category = category_of(entry["intent"], message)
         interp = Interpretation(
             modality=modality,
             status=Status.OK,
@@ -768,11 +884,14 @@ class NonverbalEngine:
             emotion_tier=entry["emotion_tier"],
             confidence=entry["confidence"],     # the prior, unjittered
             message=message,
-            reason=silent_reason,
+            reason=reason,
             threshold=self.confidence_threshold,
             confirmed_samples=confirmed,
             interaction_id=self._next_id(),
-            silent_alarm=silent_reason == SILENT_ALARM_REASON,
+            category=category,
+            danger=term is not None,
+            danger_term=term,
+            map_pages=carries_pages_mark(entry),
         )
         interp = self._gate(interp)
         self._record(interp)
@@ -801,11 +920,19 @@ class NonverbalEngine:
         symbol: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Combine modalities.
+        Combine modalities and report what the vote measured.
 
-        Only readings that PASSED the gate vote. A below-threshold or
-        unrecognized reading contributes nothing — the predecessor let a
-        fabricated 0.3 "unknown" vote alongside a real 0.9 gesture.
+        Only readings at or over the bar vote. A below-threshold or
+        unrecognized reading adds nothing to the tallies — the predecessor
+        let a fabricated 0.3 "unknown" vote alongside a real 0.9 gesture.
+        Every reading, under the bar or over it, is in `all_results` with its
+        words.
+
+        Nothing overrides the vote (2026-11-04). When two or more intents
+        share the top tally the status is "tie" and `tied_intents` names
+        them; the engine does not pick one. Distress anywhere in the input is
+        reported (`distress`, `distress_present`, `danger_present`), never
+        acted on.
 
         Returns a dict rather than an Interpretation because it carries the
         per-modality breakdown alongside the combined reading.
@@ -821,22 +948,33 @@ class NonverbalEngine:
                 parts.append(fn(value))  # type: ignore[operator]
 
         usable = [p for p in parts if p.status is Status.OK and p.confidence is not None]
+        distress = distress_readings(parts)
+        readings = {
+            "all_results": [p.to_dict() for p in parts],
+            # Recognized danger or need readings, under the bar or over it.
+            "distress": [p.to_dict() for p in distress],
+            "distress_present": bool(distress),
+            "danger_present": any(p.danger for p in parts),
+            "threshold": self.confidence_threshold,
+        }
 
         if not usable:
             return {
                 "status": "no_usable_reading",
                 "primary": None,
-                "silent_alarm": any(p.silent_alarm for p in parts),
-                "all_results": [p.to_dict() for p in parts],
-                # Below the speaking bar is not below the paging bar.
-                "distress": [p.to_dict() for p in distress_readings(parts)],
-                "speakable": False,
+                "intent": None,
+                "tied_intents": [],
+                "confidence": None,
+                "message": None,
+                "tallies": {},
+                "tier_tallies": {},
+                **readings,
                 "note": (
                     "No modality produced a reading at or above the confidence "
-                    "threshold. This is NOT a neutral or calm state — nothing "
-                    "was recognized."
+                    "threshold. This is NOT a neutral or calm state. A reading "
+                    "under the bar is in all_results, labelled below_threshold, "
+                    "with its words."
                 ),
-                "threshold": self.confidence_threshold,
             }
 
         # Eye input is weighted below the others; that weighting is a stated
@@ -844,66 +982,87 @@ class NonverbalEngine:
         # 0.8 for eye: a chosen starting value, held until client data
         # replaces it. Reason: a glance is more often unintended than a
         # pressed symbol, a gesture or a sound, so an eye reading must not tie
-        # one of those at equal confidence. 0.8 x 0.9 = 0.72 still clears the
-        # 0.6 floor, so a deliberate eye choice on its own is never silenced.
+        # one of those at equal confidence. The weight applies to the tally
+        # only; the bar is read on each reading's own confidence.
         # 1.0 for the others: no reason yet to rank them against each other.
         WEIGHT = {Modality.GESTURE: 1.0, Modality.SYMBOL: 1.0,
                   Modality.SOUND: 1.0, Modality.EYE: 0.8}
 
-        intent_votes: Dict[str, float] = {}
-        tier_votes: Dict[str, float] = {t: 0.0 for t in VALID_TIERS}
+        tallies: Dict[str, float] = {}
+        tier_tallies: Dict[str, float] = {t: 0.0 for t in VALID_TIERS}
         for p in usable:
             w = (p.confidence or 0.0) * WEIGHT.get(p.modality, 1.0)
-            intent_votes[p.intent or ""] = intent_votes.get(p.intent or "", 0.0) + w
+            tallies[p.intent or ""] = tallies.get(p.intent or "", 0.0) + w
             # Tier is guaranteed valid by validate_map — no KeyError path.
-            tier_votes[p.emotion_tier or "mild"] += w
+            tier_tallies[p.emotion_tier or "mild"] += w
 
-        # Distress is not outvoted. 2026-10-29, measured before: gesture
-        # "nod" + sound "grunt_distress" spoke "Yes, I agree." and nothing
-        # else. A person who needs help and also nodded needs help.
-        distress_votes = {k: v for k, v in intent_votes.items() if k in DISTRESS_INTENTS}
-        votes = distress_votes or intent_votes
-        best_intent = max(votes, key=lambda k: votes[k])
-        best_tier = max(tier_votes, key=lambda k: tier_votes[k])
-
-        # 2026-10-29: the message came from the single strongest reading
-        # overall, and was dropped whenever that reading had lost the vote.
-        # Measured before: gesture "wave" + eye "center" + sound "click" —
-        # "select" won the vote, "wave" was strongest, message None,
-        # speakable False. The person was understood and silenced. The
-        # message now comes from the strongest reading OF the winning intent.
-        silent = any(p.silent_alarm for p in parts)
-        agreeing = [p for p in usable if p.intent == best_intent]
-        # Ruling J left the camera's built-in readings with no wording. Of the
-        # readings that agree, one that carries words outranks one that does
-        # not (as engine_temporal does), so a clicked choice is still said
-        # when a wordless eye reading agreed with it.
-        speaking = [p for p in agreeing if p.message]
-        winner = max(speaking or agreeing, key=lambda p: p.confidence or 0.0)
+        # The measured winner, and nothing over it. Until 2026-11-04 any
+        # distress intent here overrode the vote (added 2026-10-29, when
+        # gesture "nod" + sound "grunt_distress" said "Yes, I agree." and
+        # nothing else). Measured on 2ad3ac0, before this change: nod +
+        # grunt_distress tie at 0.9 each; the override reported "help", and
+        # the tier vote, also tied, reported "moderate" by table order. Now a
+        # tie is reported as a tie, and the distress is reported beside it.
+        leaders = _leaders(tallies)
+        tier_leaders = _leaders(tier_tallies)
         strongest = max(usable, key=lambda p: p.confidence or 0.0)
-        combined_confidence = sum(p.confidence or 0.0 for p in agreeing) / len(agreeing)
 
         key = "+".join(sorted(p.input_data or "" for p in usable))
         self._record_raw(Modality.MULTIMODAL, key)
 
+        measured = {
+            "tallies": tallies,
+            "tier_tallies": tier_tallies,
+            "emotion_tier": tier_leaders[0] if len(tier_leaders) == 1 else None,
+            "tied_tiers": tier_leaders if len(tier_leaders) > 1 else [],
+            "strongest_overall": strongest.to_dict(),
+            "confidence_is_prior": True,
+            "modalities": [p.modality.value for p in usable],
+            **readings,
+        }
+
+        if len(leaders) > 1:
+            return {
+                "status": "tie",
+                "primary": None,
+                "intent": None,
+                "tied_intents": leaders,
+                "confidence": None,
+                "message": None,
+                **measured,
+                "note": (
+                    "The top tallies are equal; tied_intents names them. Each "
+                    "reading, with its words, is in all_results. The engine "
+                    "does not pick one."
+                ),
+            }
+
+        best_intent = leaders[0]
+        # 2026-10-29: the message came from the single strongest reading
+        # overall, and was dropped whenever that reading had lost the vote.
+        # Measured before: gesture "wave" + eye "center" + sound "click" —
+        # "select" won the vote, "wave" was strongest, message None. The
+        # person was understood and their words lost. The message now comes
+        # from the strongest reading OF the winning intent.
+        agreeing = [p for p in usable if p.intent == best_intent]
+        # Ruling J left the camera's built-in readings with no wording. Of the
+        # readings that agree, one that carries words outranks one that does
+        # not (as engine_temporal does), so a clicked choice keeps its words
+        # when a wordless eye reading agreed with it.
+        worded = [p for p in agreeing if p.message]
+        winner = max(worded or agreeing, key=lambda p: p.confidence or 0.0)
+        combined_confidence = sum(p.confidence or 0.0 for p in agreeing) / len(agreeing)
+
         return {
             "status": "ok",
             "primary": winner.to_dict(),
-            "strongest_overall": strongest.to_dict(),
             "intent": best_intent,
-            "emotion_tier": best_tier,
+            "tied_intents": [],
             "confidence": combined_confidence,
-            "confidence_is_prior": True,
-            "message": None if silent else winner.message,
-            "modalities": [p.modality.value for p in usable],
-            "all_results": [p.to_dict() for p in parts],
-            "distress": [p.to_dict() for p in distress_readings(parts)],
-            "speakable": bool(winner.message) and not silent,
-            # A danger reading anywhere in the input: the whole input is
-            # silent (ruling I). The danger still reaches a human through
-            # "distress".
-            "silent_alarm": silent,
-            "threshold": self.confidence_threshold,
+            # The winning reading's words, exactly as mapped, or None when
+            # that reading carries none. Never taken away.
+            "message": winner.message,
+            **measured,
         }
 
 
@@ -1090,7 +1249,8 @@ class NonverbalEngine:
                 "data_dir": self.data_dir,
                 "adds_random_noise": False,
                 "speaks_for_unrecognized_input": False,
-                "threshold_enforced": True,
+                # The bar labels readings; it never takes words away.
+                "threshold_withholds_words": False,
             }
 
 
@@ -1111,9 +1271,13 @@ __all__ = [
     "MapValidationError", "validate_map", "get_nonverbal_engine",
     "DEFAULT_GESTURES", "DEFAULT_SYMBOLS", "DEFAULT_EYE_REGIONS",
     "DEFAULT_SOUNDS", "EMOTIONAL_INDICATORS", "VALID_TIERS",
-    "MIN_CONFIRMED_SAMPLES", "CONFIDENCE_STEP",
-    "DISTRESS_INTENTS", "distress_readings", "DANGER_INTENTS", "NEED_PAGING_INTENTS",
-    "is_danger", "DANGER_WORDS", "GENERIC_FEELING_INTENTS",
+    "MIN_CONFIRMED_SAMPLES", "CONFIDENCE_STEP", "TIE_TOLERANCE",
+    "DISTRESS_INTENTS", "distress_readings",
+    "DANGER_CATEGORY_INTENTS", "NEED_CATEGORY_INTENTS",
+    "CATEGORY_DANGER", "CATEGORY_NEED", "CATEGORY_OTHER", "CATEGORIES",
+    "is_danger", "danger_term", "category_of", "DANGER_WORDS",
+    "GENERIC_FEELING_INTENTS", "NOT_LEARNED_REASON",
+    "NO_WORDS_IN_CLIENT_MAP_REASON", "PAGES_FIELD", "carries_pages_mark",
 ]
 
 # ==============================================================================
