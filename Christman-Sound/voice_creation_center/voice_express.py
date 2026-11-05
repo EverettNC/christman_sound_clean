@@ -4,7 +4,7 @@ FILE: voice_express.py
 PROJECT: Christman Voice Creation Center — Express Service
 AUTHOR: The Christman AI Project | Luma Cognify AI
 CREATED: 2026
-PATENT PENDING: TCAP-2026-001 | TCAP-2026-002
+PATENT PENDING
 --------------------------------------------------------------------------------
 PURPOSE:
     The Express Lane of the Christman Voice Creation Center.

@@ -3,7 +3,7 @@
 FILE: studio/recorder.py
 PROJECT: Christman Voice Creation Center — Live Studio Phase 2
 AUTHOR: The Christman AI Project | Luma Cognify AI
-PATENT PENDING: TCAP-2026-001 | TCAP-2026-002
+PATENT PENDING
 --------------------------------------------------------------------------------
 PURPOSE:
     Real microphone capture for the Christman Voice Creation Center.
@@ -619,7 +619,7 @@ class Recorder:
 # ==============================================================================
 # © 2026 Everett Nathaniel Christman & The Christman AI Project
 # Luma Cognify AI — "How can we help you love yourself more?"
-# Patent Pending TCAP-2026-001 | TCAP-2026-002
+# Patent pending
 # Cardinal Rule 1: It has to actually work.
 # Cardinal Rule 6: Fail loud.
 # Cardinal Rule 13: No fake recording. No phantom files.

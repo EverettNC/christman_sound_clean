@@ -1,6 +1,6 @@
 # Christman Voice Creation Center
 ### The Christman AI Project | Luma Cognify AI
-**Patent Pending: TCAP-2026-001 | TCAP-2026-002**
+**Patent pending**
 
 ---
 
@@ -49,7 +49,7 @@ French — in her voice. Not a generic French TTS. Hers.
 
 **3. Quality Control**
 The registry watches every pack continuously. When quality begins to 
-drift — before any user ever notices — the pack is automatically 
+drift — before any client ever notices — the pack is automatically 
 pulled back into the factory for a refresh. Proactive. Never reactive.
 
 **4. Express Service**
@@ -77,7 +77,7 @@ christman_voice_center/
 ├── core/
 │   ├── voice_engine.py          # Master synthesis orchestrator
 │   ├── voice_registry.py        # Quality control manager
-│   ├── voice_profile.py         # Per-user personalization
+│   ├── voice_profile.py         # Per-client personalization
 │   └── voice_session.py         # Session-aware voice context
 │
 ├── engines/
@@ -107,7 +107,7 @@ christman_voice_center/
 │   └── rtl_support.py           # Right-to-left language support
 │
 ├── accessibility/
-│   ├── aac_voice_bridge.py      # Symbol → voice for nonverbal users
+│   ├── aac_voice_bridge.py      # Symbol → voice for nonverbal clients
 │   ├── affect_controller.py     # Emotional tone modulation
 │   ├── speed_controller.py      # Adaptive pacing
 │   └── frequency_guardian.py   # Frequency safety filtering
@@ -220,7 +220,7 @@ Every synthesis request is protected by multiple layers:
 
 - **Content Validation** — harmful content blocked before synthesis
 - **Frequency Guardian** — hard floor 80Hz, hard ceiling 8000Hz
-- **Population Awareness** — each being's safety profile matches their users
+- **Population Awareness** — each being's safety profile matches their clients
 - **Full Audit Trail** — every request logged, every safety event recorded
 - **Cardinal Rule 14** — dignity always. No exceptions.
 
@@ -230,7 +230,7 @@ Every synthesis request is protected by multiple layers:
 
 | Being | Population | Voice Profile |
 |-------|-----------|---------------|
-| The AAC being | Nonverbal / AAC users | Warm, clear, patient |
+| The AAC being | Nonverbal / AAC clients | Warm, clear, patient |
 | The dementia-care being | Dementia care | Calm, slow, steady |
 | The PTSD being | PTSD / Anxiety | Grounding, low, anchoring |
 | The child-protection being | Child protection | Alert, clear, reassuring |
@@ -262,7 +262,7 @@ that is genuinely theirs back out.
 
 © 2026 The Christman AI Project LLC | Luma Cognify AI  
 All Rights Reserved  
-Patent Pending: TCAP-2026-001 | TCAP-2026-002  
+Patent pending  
 Wyoming LLC | Everett Christman, Founder & CEO  
 
 *"How can we help you love yourself more?"*

@@ -4,7 +4,7 @@ FILE: voice_registry.py
 PROJECT: Christman Voice Creation Center
 AUTHOR: The Christman AI Project | Luma Cognify AI
 CREATED: 2026
-PATENT PENDING: TCAP-2026-001 | TCAP-2026-002
+PATENT PENDING
 --------------------------------------------------------------------------------
 PURPOSE:
     The Quality Control Manager of the Christman Voice Creation Center.
@@ -272,7 +272,7 @@ class VoiceRegistry:
                     "last_updated": datetime.now(timezone.utc).isoformat(),
                     "total_packs": len(self._packs),
                     "project": "Christman Voice Creation Center",
-                    "patent_pending": "TCAP-2026-001 | TCAP-2026-002"
+                    "patent_pending": True  # the README's format; no docket number in written data
                 },
                 "packs": [r.to_dict() for r in self._packs.values()],
                 "learn_queue": [r.to_dict() for r in self._learn_queue]
