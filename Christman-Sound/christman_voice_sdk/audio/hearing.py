@@ -81,7 +81,6 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from ..nonverbal.acoustic_live import deliver_acoustic_key
 from ..nonverbal.engine_temporal import TemporalNonverbalEngine
 from ..nonverbal.nonverbal_engine import (
-    DISTRESS_INTENTS,
     Interpretation,
     Modality,
     NonverbalEngine,
@@ -839,9 +838,8 @@ def _words_gate(original: str, previous_turn: str = "") -> SafetyResult:
     #     it doesn't matter who is involved");
     #   - harm happening now to anyone: hard_block, flagged emergency;
     #   - past harm to the client (ruling H: "he choked me", "she stabbed me
-    #     last week") reads soft_redirect, "because they may be in the
-    #     vicinity" is the being's to weigh, and hard_block with a request
-    #     for help in the same turn;
+    #     last week") reads soft_redirect, and hard_block with a request for
+    #     help in the same turn (Everett: "they may be in the vicinity");
     #   - past harm to someone else stays ruling D, below.
     # Self-harm (ruling A) is not moved: the client acting on the client.
     threats: List[Tuple[HarmFrame, str]] = []
@@ -1149,15 +1147,14 @@ def _words_gate(original: str, previous_turn: str = "") -> SafetyResult:
     reading_for_owner = (_CLAUSE_READER.analyze(original, previous_turn=previous_turn)
                          if original else None)
     unclear = whose_feeling_unclear(reading_for_owner) if reading_for_owner else []
-    if unclear and not between_beings:
+    if unclear:
         # Ruling P: whose feeling it is cannot be told from the words.
-        # Nothing is concluded; the being asks, e.g. "Who's scared?". If the
-        # client asked for help in the same turn, a human is reached all the
-        # same, as for an unclear person (ruling AA) and an observation
-        # (ruling D). Before the 2026-10-29 review the person list made
-        # "mom is not okay can you get someone" an observation that paged;
-        # with the list gone (ruling AA) it is whose-unclear, and it still
-        # pages.
+        # Nothing is concluded; the owner is unclear. If the client asked for
+        # help in the same turn it reads hard_block, as for an unclear person
+        # (ruling AA) and an observation (ruling D). Before the 2026-10-29
+        # review the person list made "mom is not okay can you get someone"
+        # an observation; with the list gone (ruling AA) it is whose-unclear,
+        # and it still reads hard_block.
         request = asked_for_help(original)
         if request is not None:
             return SafetyResult(
@@ -1167,36 +1164,25 @@ def _words_gate(original: str, previous_turn: str = "") -> SafetyResult:
                 flags=[f"whose:{t}" for t in unclear] + other_flags
                 + [f"asked_for_help:{request}"],
                 flagged_terms=unclear,
-                hold_marker=HOLD_ASKED_FOR_HELP,
+                unclear="owner",
+                about=unclear[0],
             )
         return SafetyResult(
             status="soft_redirect",
             reason="whose_feeling_unclear",
             said=original,
-            flags=[f"whose:{t}" for t in unclear] + other_flags + ["follow_up:ask_whose"],
+            flags=[f"whose:{t}" for t in unclear] + other_flags,
             flagged_terms=unclear,
-            follow_up=ASK_WHOSE,
-            follow_up_about=unclear[0],
+            unclear="owner",
+            about=unclear[0],
         )
 
     unsure = person_unclear(reading_for_owner) if reading_for_owner else []
-    if unsure and between_beings:
-        # Ruling F: two beings talking, nothing pages. Ruling AA left "my mom
-        # is not okay" as "who?", where the person list used to make it an
-        # observation; between beings it is recorded and flagged the same
-        # way an observation is, and nothing is asked.
-        return SafetyResult(
-            status="soft_redirect",
-            reason="person_unclear",
-            said=original,
-            flags=[f"unclear_who:{w}" for _, w in unsure] + other_flags + ["between_beings"],
-            flagged_terms=[t for t, _ in unsure],
-        )
     if unsure:
         # Ruling AA: "my teacher is sad" — whether "teacher" is a person in
         # this client's life is learned per client, not read off a list.
-        # Nothing is concluded; the being asks. If the client asked for help
-        # in the same turn, a human is reached all the same.
+        # Nothing is concluded; the person is unclear. If the client asked
+        # for help in the same turn it reads hard_block.
         request = asked_for_help(original)
         if request is not None:
             return SafetyResult(
@@ -1206,159 +1192,155 @@ def _words_gate(original: str, previous_turn: str = "") -> SafetyResult:
                 flags=[f"unclear_who:{w}" for _, w in unsure] + other_flags
                 + [f"asked_for_help:{request}"],
                 flagged_terms=[t for t, _ in unsure],
-                hold_marker=HOLD_ASKED_FOR_HELP,
+                unclear="person",
+                about=unsure[0][1],
             )
         return SafetyResult(
             status="soft_redirect",
             reason="person_unclear",
             said=original,
-            flags=[f"unclear_who:{w}" for _, w in unsure] + other_flags + ["follow_up:ask_who"],
+            flags=[f"unclear_who:{w}" for _, w in unsure] + other_flags,
             flagged_terms=[t for t, _ in unsure],
-            follow_up=ASK_WHO,
-            follow_up_about=unsure[0][1],
+            unclear="person",
+            about=unsure[0][1],
         )
 
     loose = reading_for_owner.unanchored_fragments if reading_for_owner else []
-    if loose and not between_beings:
+    if loose:
         # Ruling X: "it hurts", "this is scary", "everything hurts" are
         # usually answers to something said to the client. With no turn
-        # before to anchor it, it is unclear; the being asks.
+        # before to anchor it, what it is about is unclear.
         return SafetyResult(
             status="soft_redirect",
             reason="fragment_unclear",
             said=original,
-            flags=[f"fragment:{t}" for t in loose] + other_flags + ["follow_up:ask_what"],
+            flags=[f"fragment:{t}" for t in loose] + other_flags,
             flagged_terms=loose,
-            follow_up=ASK_WHAT,
-            follow_up_about=loose[0],
+            unclear="fragment",
+            about=loose[0],
         )
 
     thanked = any(h.term in THANKS for h in hits)
     felt = [h.term for h in hits
             if h.base_weight < 0 and h.final_weight < 0 and h.when == "now"
             and h.attribution is Attribution.SELF]
-    if (thanked and felt and not between_beings and reading_for_owner is not None
+    if (thanked and felt and reading_for_owner is not None
             and reading_for_owner.certainty is AffectCertainty.AMBIGUOUS):
         # Ruling W: "thank you, I'm scared" stays unclear (main's reading).
-        # Nothing is concluded; the being answers the thanks and asks.
+        # Nothing is concluded; what the thanks and the feeling are about
+        # together is unclear.
         return SafetyResult(
             status="soft_redirect",
             reason="thanks_unclear",
             said=original,
-            flags=[f"unclear:{t}" for t in felt] + other_flags
-            + ["thanked", "follow_up:ask_what_about"],
+            flags=[f"unclear:{t}" for t in felt] + other_flags + ["thanked"],
             flagged_terms=felt,
-            follow_up=ASK_WHAT_ABOUT,
-            follow_up_about=felt[0],
+            unclear="what",
+            about=felt[0],
         )
 
     own_now = [h.term for h in hits
                if h.attribution is Attribution.SELF and h.when == "now"
                and h.final_weight < 0 and not h.past_tense]
-    if own_now and not between_beings and _WHY_SELF.search(
-            normalize_apostrophes(original).lower()):
+    if own_now and _WHY_SELF.search(normalize_apostrophes(original).lower()):
         # Ruling Y: "Why am I so sad?" is the speaker's own sadness (the
-        # subject after the verb), and someone reaching out. The being
-        # engages: "What's making you so sad?". No page on its own.
+        # subject after the verb), and someone reaching out. What it comes
+        # from is unclear. soft_redirect on its own.
         return SafetyResult(
             status="soft_redirect",
             reason="reaching_out",
             said=original,
-            flags=[f"reaching_out:{t}" for t in own_now] + other_flags + ["follow_up:ask_what"],
+            flags=[f"reaching_out:{t}" for t in own_now] + other_flags,
             flagged_terms=own_now,
-            follow_up=ASK_WHAT_IS_MAKING,
-            follow_up_about=own_now[0],
+            unclear="cause",
+            about=own_now[0],
         )
 
     worse = [h.term for h in hits
              if h.term in _FEAR_TERMS and h.attribution is Attribution.SELF
              and h.when == "now" and h.final_weight < 0 and not h.past_tense]
-    if worse and not between_beings and any("escalation" in h.note for h in hits):
+    if worse and any("escalation" in h.note for h in hits):
         # Ruling Z: "I was scared and now I'm terrified" is fear present now
         # and getting worse, read from the whole sentence. Being terrified
-        # is not by itself a danger signal: danger and the silent alarm come
-        # from context (rulings I, K, O). The being is inquisitive.
+        # is not by itself danger: danger comes from context (rulings I, K,
+        # O). What the fear is of is unclear.
         return SafetyResult(
             status="soft_redirect",
             reason="fear_getting_worse",
             said=original,
-            flags=[f"fear:{t}" for t in worse] + other_flags + ["follow_up:ask_what"],
+            flags=[f"fear:{t}" for t in worse] + other_flags,
             flagged_terms=worse,
-            follow_up=ASK_WHAT_OF,
-            follow_up_about=worse[-1],
+            unclear="cause",
+            about=worse[-1],
         )
 
     fear = fear_without_context(original, hits)
-    if fear and not between_beings:
-        # Ruling O: not enough to tell. Nothing is concluded and nothing is
-        # spoken for the client; the being asks. Rulings W and Z (Everett,
-        # 2026-10-29): it asks what the fear is about ("What are you scared
-        # about?"), not whether the client is safe. Danger in the turn has
-        # already paged above (ruling O); this is fear with no danger in it.
+    if fear:
+        # Ruling O: not enough to tell. Nothing is concluded. Rulings W and Z
+        # (Everett, 2026-10-29): what is unclear is what the fear is about,
+        # not whether the client is safe. Danger in the turn has already
+        # read hard_block above (ruling O); this is fear with no danger in it.
         return SafetyResult(
             status="soft_redirect",
             reason="fear_without_context",
             said=original,
-            flags=[f"fear:{t}" for t in fear] + other_flags + ["follow_up:ask_what_about"],
+            flags=[f"fear:{t}" for t in fear] + other_flags,
             flagged_terms=fear,
-            follow_up=ASK_WHAT_ABOUT,
-            follow_up_about=fear[0],
+            unclear="cause",
+            about=fear[0],
         )
 
     inability = reading_for_owner.inability if reading_for_owner else []
-    if inability and not between_beings:
+    if inability:
         # Ruling R: "I can't be happy" is an inability and a signal, not the
-        # feeling and not its absence. Nothing is concluded; the being asks
-        # why. It does not page on its own; everything above still applies.
+        # feeling and not its absence. Nothing is concluded; the inability is
+        # unclear. soft_redirect on its own; everything above still applies.
         return SafetyResult(
             status="soft_redirect",
             reason="inability_signal",
             said=original,
-            flags=[f"inability:{t}" for t in inability] + other_flags + ["follow_up:ask_why"],
+            flags=[f"inability:{t}" for t in inability] + other_flags,
             flagged_terms=inability,
-            follow_up=ASK_WHY_CANT,
-            follow_up_about=inability[0],
+            unclear="inability",
+            about=inability[0],
         )
 
     judged = reading_for_owner.judged if reading_for_owner else []
-    if judged and not between_beings:
+    if judged:
         # Ruling T: "I shouldn't be this angry" — the anger is there, the
-        # speaker's own; the being asks "Why are you so angry?".
+        # speaker's own; what it comes from is unclear.
         return SafetyResult(
             status="soft_redirect",
             reason="feeling_judged",
             said=original,
-            flags=[f"judged:{t}" for t in judged] + other_flags + ["follow_up:ask_why"],
+            flags=[f"judged:{t}" for t in judged] + other_flags,
             flagged_terms=judged,
-            follow_up=ASK_WHY,
-            follow_up_about=judged[0],
+            unclear="cause",
+            about=judged[0],
         )
 
     alone = [h.term for h in hits
              if h.term in _ALONE_TERMS and h.attribution is Attribution.SELF
              and h.when == "now" and h.final_weight < 0]
-    if alone and not between_beings:
-        # Ruling V: "I'm not happy, I'm alone" is an opening. The being is
-        # there and listening, so the client is not alone in that moment; it
-        # asks a simple question or offers something to do. Asked, never
-        # told. No page on its own; everything above still applies.
+    if alone:
+        # Ruling V: "I'm not happy, I'm alone" is an opening. Nothing in the
+        # words is unclear; what the being does with the opening is its own.
+        # soft_redirect on its own; everything above still applies.
         return SafetyResult(
             status="soft_redirect",
             reason="alone_opening",
             said=original,
-            flags=[f"alone:{t}" for t in alone] + other_flags + ["follow_up:offer"],
+            flags=[f"alone:{t}" for t in alone] + other_flags,
             flagged_terms=alone,
-            follow_up=ASK_OR_OFFER,
-            follow_up_about=alone[0],
+            about=alone[0],
         )
 
     wish = [h.term for h in hits
             if h.volitional and h.attribution is Attribution.SELF
             and h.when == "now" and h.base_weight < 0]
-    if wish and not between_beings:
+    if wish:
         # Ruling V: "I feel like being alone" is a stated wish, the client's
-        # own choice, and it is respected. The being may ask a simple
-        # question, but does not push: no question is written for it here.
+        # own choice. clear; nothing in it is unclear.
         return SafetyResult(
             status="clear",
             reason="stated_wish",
@@ -1367,7 +1349,7 @@ def _words_gate(original: str, previous_turn: str = "") -> SafetyResult:
         )
 
     anchored = [h for h in hits if h.anchored_to and h.when == "now"]
-    if anchored and not between_beings:
+    if anchored:
         # Ruling X: a fragment read against the turn before it. "Did you like
         # that haunted house?" / "Yeah, this is scary" is about the haunted
         # house, not danger. "Is there something wrong with your leg?" /
@@ -1409,19 +1391,18 @@ def _words_gate(original: str, previous_turn: str = "") -> SafetyResult:
         )
 
     bounded = reading_for_owner.negated_for_a_time if reading_for_owner else []
-    if bounded and not between_beings:
+    if bounded:
         # Ruling T: "I haven't been scared since Monday" is no fear since
-        # Monday: a statement, nothing concluded. The being MAY ask a plain
-        # question about the time the client named.
+        # Monday: a statement, nothing concluded. When the client named a
+        # time, what happened then is unclear, and the time is `about`.
         named = next((t for _, t in bounded if t), "")
         return SafetyResult(
             status="clear",
             reason="feeling_negated_for_a_time",
             said=original,
-            flags=[f"negated_for_a_time:{term}:{t}" for term, t in bounded]
-            + (["follow_up:may_ask_what_happened"] if named else []),
-            follow_up=ASK_WHAT_HAPPENED if named else "",
-            follow_up_about=named,
+            flags=[f"negated_for_a_time:{term}:{t}" for term, t in bounded],
+            unclear="what_happened" if named else None,
+            about=named or None,
         )
 
     return SafetyResult(status="clear", reason="no_harm_frame", said=original)
@@ -1429,14 +1410,24 @@ def _words_gate(original: str, previous_turn: str = "") -> SafetyResult:
 
 @dataclass(frozen=True)
 class HearingTurn:
-    """One utterance, heard and (if there is text) read. Not spoken."""
+    """
+    One utterance, heard and (if there is text or a distress signal) read.
+    Not spoken, and nothing decided: what to say, whom to reach and whether
+    anything is voiced are the being's.
+
+    WHAT CHANGED AND WHY (2026-11-04): `decision` is now `reading` (a
+    Reading). `voice_held` (a danger sentence held back and released when the
+    client asked aloud) and `signal_voiced` (a signal's words released under
+    the same rule) are gone with the silent alarm; `person_message` is no
+    longer blanked by it (Everett's 2026-11-04 ruling, module docstring).
+    """
 
     ingest: Optional[CortiIngest]
     prosody: Optional[ProsodyReading]
     affect: Optional[AffectReading]
     frames: List[HarmFrame] = field(default_factory=list)
     face: Optional[FaceReading] = None
-    decision: Optional[Decision] = None
+    reading: Optional[Reading] = None
     source: str = "corti"
     notes: List[str] = field(default_factory=list)
     #: The client's acoustic key, looked up. None when no key was sent.
@@ -1445,40 +1436,46 @@ class HearingTurn:
     nonverbal: Optional[Dict[str, Any]] = None
     #: engine_temporal.process_multimodal_sequence result, or None.
     temporal: Optional[Dict[str, Any]] = None
-    #: Every reading that went to the crisis gate as nonverbal distress.
+    #: Every reading that went to the safety gate as nonverbal distress.
     nonverbal_distress: List[Dict[str, Any]] = field(default_factory=list)
     #: The Soul Mirror's 8-slot vector, with its measured mask and clauses.
     face_vector: Optional[FaceVector] = None
-    #: The client's earlier danger sentence, exactly as said, released to be
-    #: voiced because the client now asked for it out loud (ruling K).
-    voice_held: Optional[str] = None
-    #: The client's own words for a nonverbal danger signal (a pressed help
-    #: symbol, a meaning learned for that client), voiced because the client
-    #: asked for it aloud or the setting is public (rulings K and L). None
-    #: otherwise: under the silent alarm nothing is said.
-    signal_voiced: Optional[str] = None
+    #: The client's own words for the nonverbal distress readings on this
+    #: turn: a pressed symbol's words, or a meaning learned for that client.
+    #: A built-in camera, eye or sound reading has no words (ruling J), so
+    #: it adds none. Empty when there are none.
+    signal_words: List[str] = field(default_factory=list)
+
+    def _person_message(self) -> Tuple[Optional[str], bool]:
+        """(words, below the confidence bar) from the first channel with words."""
+        if self.nonverbal and self.nonverbal.get("message"):
+            return (self.nonverbal.get("message"),
+                    self.nonverbal.get("status") == "below_threshold")
+        if self.acoustic is not None and self.acoustic.message:
+            return self.acoustic.message, self.acoustic.status.value == "below_threshold"
+        if self.temporal and self.temporal.get("message"):
+            return (self.temporal.get("message"),
+                    self.temporal.get("below_threshold") is True
+                    or self.temporal.get("status") == "below_threshold")
+        return None, False
 
     @property
     def person_message(self) -> Optional[str]:
         """
         What the PERSON said through a nonverbal channel, from the map — or
-        None. Never the being's reply, and never held by a safety hold.
-
-        Under the silent alarm (ruling I) it is None: a danger meaning from
-        any channel is paged and never spoken.
+        None when no channel on the turn carries words. Never the being's
+        reply. Always the client's words, whatever the safety reading says;
+        whether they are voiced is the being's. A reading under the
+        confidence bar keeps its words: see `person_message_below_threshold`.
         """
-        if self.signal_voiced:
-            return self.signal_voiced
-        if self.decision is not None and self.decision.safety.silent_alarm \
-                and self.nonverbal_distress and any(d.get("silent_alarm") for d in self.nonverbal_distress):
-            return None
-        if self.nonverbal and self.nonverbal.get("speakable"):
-            return self.nonverbal.get("message")
-        if self.acoustic is not None and self.acoustic.speakable:
-            return self.acoustic.message
-        if self.temporal and self.temporal.get("message"):
-            return self.temporal.get("message")
-        return None
+        return self._person_message()[0]
+
+    @property
+    def person_message_below_threshold(self) -> bool:
+        """True when `person_message` came from a reading under the confidence
+        bar: the words are the map's for what was recognized, and the
+        recognition was not confident."""
+        return self._person_message()[1]
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -1490,20 +1487,24 @@ class HearingTurn:
             "frames": [f.to_dict() for f in self.frames],
             "face": None if self.face is None else self.face.to_dict(),
             "face_vector": None if self.face_vector is None else self.face_vector.to_dict(),
-            "decision": None if self.decision is None else self.decision.to_dict(),
+            "reading": None if self.reading is None else self.reading.to_dict(),
             "acoustic": None if self.acoustic is None else self.acoustic.to_dict(),
             "nonverbal": self.nonverbal,
             "temporal": self.temporal,
             "nonverbal_distress": list(self.nonverbal_distress),
             "person_message": self.person_message,
-            "voice_held": self.voice_held,
-            "signal_voiced": self.signal_voiced,
+            "person_message_below_threshold": self.person_message_below_threshold,
+            "signal_words": list(self.signal_words),
             "notes": list(self.notes),
         }
 
 
 #: The nonverbal inputs Hearing accepts, by name.
 NONVERBAL_INPUTS = ("gesture", "symbol", "eye_data", "sound")
+
+#: Temporal reading categories that go to the safety gate as nonverbal
+#: distress (engine_temporal's category label).
+_TEMPORAL_DISTRESS_CATEGORIES = frozenset({"danger", "need"})
 
 
 def _with_client_words(method: Callable[..., Any]) -> Callable[..., Any]:
@@ -1518,15 +1519,24 @@ def _with_client_words(method: Callable[..., Any]) -> Callable[..., Any]:
 
 class Hearing:
     """
-    Corti in, Decision out.
+    Corti in, Reading out.
 
-    Pass a crisis_callback that returns True only when a human was reached.
-    Detection without delivery raises CrisisNotDelivered — same law as Aegis.
+    Reads; decides nothing. It reaches no one, holds nothing back, and never
+    raises because of what it read. Each turn stands on its own: nothing
+    from one turn changes how the next is read, except what the being passes
+    in (`previous_turn`, `answering`).
+
+    WHAT CHANGED AND WHY (2026-11-04): `crisis_callback` (a human paged on
+    every hard block, `CrisisNotDelivered` raised when none was reached),
+    `awaiting_answer` (the package's own question carried to the next turn)
+    and `held_words` (a danger sentence held for one turn) are gone, by
+    Everett's 2026-11-04 ruling (module docstring). The arguments are
+    keyword-only, so a caller still passing a callback fails loudly.
     """
 
     def __init__(
         self,
-        crisis_callback: Optional[Callable[[SafetyResult, Dict[str, Any]], bool]] = None,
+        *,
         nonverbal_engine: Optional[NonverbalEngine] = None,
         temporal_engine: Optional[TemporalNonverbalEngine] = None,
         baseline: Optional[SpeakerBaseline] = None,
@@ -1534,7 +1544,6 @@ class Hearing:
     ) -> None:
         """
         Args:
-            crisis_callback: returns True only when a human was reached.
             nonverbal_engine: the map for gestures, symbols, eye regions and
                 sounds. Default: the built-in map; reads nothing from disk
                 unless its data_dir holds learned maps.
@@ -1557,16 +1566,7 @@ class Hearing:
         self.fusion = FusionEngine(
             analyzer=self.affect,
             safety_callback=harm_frame_safety,
-            crisis_callback=crisis_callback,
         )
-        #: The question the being asked on the last turn with words, if any.
-        #: The client's next words are read as the answer to it, once.
-        self.awaiting_answer: Optional[str] = None
-        #: A danger sentence the client typed or said that was paged and not
-        #: voiced (the silent alarm). If the client's next words ask for it
-        #: to be said out loud, it is handed back, exactly, to be voiced
-        #: (ruling K). Held for one turn only.
-        self.held_words: Optional[str] = None
 
     @_with_client_words
     def hear(
@@ -1578,7 +1578,8 @@ class Hearing:
         temporal: Optional[Dict[str, Any]] = None,
         between_beings: bool = False,
         previous_turn: Optional[str] = None,
-        public_setting: Optional[bool] = None,
+        *,
+        answering: Optional[str] = None,
     ) -> HearingTurn:
         """
         Consume one Corti emit, optional transcript, and optional nonverbal
@@ -1594,38 +1595,32 @@ class Hearing:
             temporal: gesture_features= / eye_features= / emotion_features=
                 frames for the trained sequence models.
             between_beings: True only when two beings are talking to each
-                other and no client is in the conversation. Then someone
-                else at risk is flagged, not paged. False by default: a
-                client is always assumed to be there.
+                other and no client is in the conversation. Echoed on the
+                safety reading (`between_beings`, and the flag of the same
+                name); the words are read exactly as if a client were there.
             previous_turn: what was said to the client just before this
                 turn, including the being's own question (Everett,
                 2026-10-29, ruling X). A subjectless fragment ("it hurts",
-                "this is scary") is read against it, never alone. The
-                being's question is passed here in the words the being
-                used; without it, the fragment is unclear and the being
-                asks.
-            public_setting: the being's own perception of where the client
-                is (Everett, ruling K). A danger sentence the client typed
-                or said is the silent alarm: paged, not voiced. It is voiced
-                only when the client asks for it aloud, or when this is
-                exactly True. None (unknown), False, or any other value:
-                silent. Carried into the fusion engine's live_state and so
-                into harm_frame_safety's context.
+                "this is scary") is read against it, never alone. Without
+                it, the fragment reads as unclear.
+            answering: the question the being actually asked, in its own
+                words, when this turn is the client's answer to it. Passed
+                into the safety gate as context["answering"] and echoed on
+                the reading. The words are read on their own either way;
+                a bare "no" or "yes" is read as `short_answer`.
 
         Every argument may be missing. Missing is reported as missing.
-        Raises CrisisNotDelivered when distress was read and no human could
-        be reached.
+        Nothing here raises because of what was read.
         """
         notes: List[str] = []
-        voice_held: Optional[str] = None
         taken: Optional[CortiIngest] = None
-        reading: Optional[ProsodyReading] = None
+        prosody_reading: Optional[ProsodyReading] = None
 
         if corti_event is None:
             notes.append("no Corti emit — this is not hearing from the ear")
         else:
             taken = ingest(corti_event)
-            reading = self.prosody.analyze(taken.event)
+            prosody_reading = self.prosody.analyze(taken.event)
             notes.append(
                 "Corti kind excluded — client label, not family Sound"
             )
@@ -1635,7 +1630,7 @@ class Hearing:
         if acoustic_key is not None:
             acoustic = deliver_acoustic_key(acoustic_key, engine=self.nonverbal)
             if acoustic.status.value == "unrecognized":
-                notes.append(f"acoustic key {acoustic_key!r} not a live key — silent")
+                notes.append(f"acoustic key {acoustic_key!r} not a live key — no reading")
 
         multimodal: Optional[Dict[str, Any]] = None
         if nonverbal:
@@ -1665,30 +1660,30 @@ class Hearing:
             distress += list(multimodal.get("distress") or [])
             if text and asked_for_help(text) is not None:
                 # A pressed need (food, drink, bathroom) with a request for
-                # help in the same turn pages, the same as the typed need
-                # (ruling C; Everett, 2026-10-29).
+                # help in the same turn reads as distress, the same as the
+                # typed need (ruling C; Everett, 2026-10-29).
                 distress += [r for r in (multimodal.get("all_results") or [])
                              if isinstance(r, dict) and r.get("modality") == "symbol"
                              and r.get("intent") in NEED_INTENTS and r.get("status") == "ok"]
         if sequences is not None:
             for result in (sequences.get("all_results") or {}).values():
-                # Hand Up pages (Everett, 2026-10-29), as do the distress intents.
-                if (result.get("pages") or result.get("intent") in DISTRESS_INTENTS
-                        or result.get("silent_alarm")) \
-                        and result.get("status") in ("ok", "below_threshold"):
+                # Hand Up and the distress intents (Everett, 2026-10-29):
+                # engine_temporal labels them category "danger" or "need".
+                if (result.get("category") in _TEMPORAL_DISTRESS_CATEGORIES
+                        and result.get("status") in ("ok", "below_threshold")):
                     distress.append({"modality": f"temporal:{result.get('modality')}",
                                      "input": result.get("expression"),
                                      "intent": result.get("intent"),
                                      "message": result.get("message"),
                                      "confidence": result.get("confidence"),
-                                     "silent_alarm": bool(result.get("silent_alarm"))})
+                                     "category": result.get("category"),
+                                     "danger": result.get("danger") is True})
 
         live_state: Dict[str, Any] = {}
         if between_beings:
             live_state["between_beings"] = True
-        if public_setting is not None:
-            # Passed as given; harm_frame_safety voices only on exactly True.
-            live_state["public_setting"] = public_setting
+        if answering is not None:
+            live_state["answering"] = answering
         if acoustic is not None or multimodal is not None or sequences is not None:
             live_state["nonverbal_active"] = True
         if distress:
@@ -1697,72 +1692,52 @@ class Hearing:
         # -- Words -----------------------------------------------------------
         frames: List[HarmFrame] = []
         affect: Optional[AffectReading] = None
-        decision: Optional[Decision] = None
+        reading: Optional[Reading] = None
         if text:
             frames = extract_frames(text)
             before = previous_turn or ""
             if before:
                 live_state["previous_turn"] = before
             affect = self.affect.analyze(text, previous_turn=before)
-            if self.awaiting_answer:
-                live_state["answering_follow_up"] = self.awaiting_answer
-            if self.held_words is not None and asked_aloud(text):
-                voice_held = self.held_words
-            decision = self.fusion.fuse(text, live_state=live_state, prosody=reading)
-            self.awaiting_answer = decision.safety.follow_up or None
-            self.held_words = (text if decision.safety.silent_alarm
-                               and not decision.safety.voice_aloud else None)
+            reading = self.fusion.fuse(text, live_state=live_state, prosody=prosody_reading)
         else:
             notes.append("no text — structural_affect and harm_frame not run")
             if distress:
-                # No words, and a person signalled they need someone. The
-                # gate runs on the signal alone.
-                decision = self.fusion.fuse("", live_state=live_state, prosody=reading)
+                # No words, and a person signalled distress. The gate reads
+                # the signal alone.
+                reading = self.fusion.fuse("", live_state=live_state, prosody=prosody_reading)
 
-        # Rulings K and L: a nonverbal danger signal is voiced, in the
-        # client's own words for it, when asked aloud or in public; held for
-        # one turn otherwise, the same as a typed danger sentence.
-        signal_voiced: Optional[str] = None
-        if decision is not None and decision.safety.silent_alarm and distress:
-            signal_words = self._signal_words(distress)
-            if signal_words and decision.safety.voice_aloud:
-                signal_voiced = signal_words
-            elif signal_words and not text:
-                self.held_words = signal_words
-
-        face = build_face_reading(affect=affect, prosody=reading)
+        face = build_face_reading(affect=affect, prosody=prosody_reading)
         # No emotion classifier runs on this path, so joy/sadness/anger stay
         # unmeasured and say so; the vector carries valence, arousal, whose
         # state it is, and the clauses.
-        face_vector = build_face_vector(affect=affect, prosody=reading)
+        face_vector = build_face_vector(affect=affect, prosody=prosody_reading)
 
         return HearingTurn(
             ingest=taken,
-            prosody=reading,
+            prosody=prosody_reading,
             affect=affect,
             frames=frames,
             face=face,
-            decision=decision,
+            reading=reading,
             notes=notes,
             acoustic=acoustic,
             nonverbal=multimodal,
             temporal=sequences,
             nonverbal_distress=distress,
             face_vector=face_vector,
-            voice_held=voice_held,
-            signal_voiced=signal_voiced,
+            signal_words=self._signal_words(distress),
         )
 
-    def _signal_words(self, distress: List[Dict[str, Any]]) -> Optional[str]:
+    def _signal_words(self, distress: List[Dict[str, Any]]) -> List[str]:
         """
-        The client's own words for the danger signals in `distress`: a pressed
-        symbol's words, or a meaning learned for that client. A built-in
-        camera, eye or sound reading has no words (ruling J), so nothing.
+        The client's own words for the distress readings in `distress`: a
+        pressed symbol's words, or a meaning learned for that client. A
+        built-in camera, eye or sound reading has no words (ruling J), so
+        nothing. Reads only.
         """
         words: List[str] = []
         for d in distress:
-            if not d.get("silent_alarm"):
-                continue
             modality, key = str(d.get("modality") or ""), d.get("input")
             if modality.startswith("temporal:"):
                 if getattr(self.temporal, "language_map_source", "built_in") != "client":
@@ -1779,15 +1754,13 @@ class Hearing:
             message = entry.get("message")
             if isinstance(message, str) and message.strip() and message not in words:
                 words.append(message)
-        return " ".join(words) or None
+        return words
 
 
-__all__ = ["Hearing", "HearingTurn", "harm_frame_safety", "CrisisNotDelivered",
+__all__ = ["Hearing", "HearingTurn", "harm_frame_safety",
            "NONVERBAL_INPUTS", "asked_for_help", "HELP_REQUEST_PATTERNS",
            "CLIENT_DISTRESS_TERMS", "body_harm", "BodyHarm", "BODY_PARTS",
-           "ASK_IF_SAFE", "ASK_IF_HELP_NEEDED", "ASK_WHOSE", "ASK_WHO", "ASK_WHAT",
-           "ASK_WHAT_ABOUT", "ASK_WHAT_IS_MAKING", "ASK_WHAT_OF", "ASK_WHY_CANT",
-           "ASK_WHY", "ASK_WHAT_HAPPENED", "ASK_OR_OFFER", "ASK_MARKS",
-           "answered_follow_up",
-           "danger_sentences", "asked_aloud", "DANGER_SENTENCE_PATTERNS", "ALOUD_PATTERNS",
+           "short_answer", "DANGER_REASONS",
+           "danger_sentences", "danger_sentences_as_said", "asked_aloud",
+           "DANGER_SENTENCE_PATTERNS", "ALOUD_PATTERNS",
            "fear_without_context", "whose_feeling_unclear", "anchor_from"]

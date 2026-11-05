@@ -579,9 +579,11 @@
       const lines = [];
       lines.push('Human reached: ' + (d.human_reached ? 'yes' : 'no') +
                  (d.human_reached_reason ? ' (' + d.human_reached_reason + ')' : ''));
+      const t = d.turn || {};
+      if (t.person_message) lines.push("Client's words (nonverbal): " + JSON.stringify(t.person_message));
       const c = d.crisis_reading;
       if (!c) {
-        lines.push('Crisis reading: none (no words and no nonverbal signal to read)');
+        lines.push('Crisis reading: none (no words were sent and no nonverbal distress signal was read)');
       } else {
         lines.push('Crisis reading: ' + c.status + ' / ' + c.reason);
         if (c.flags && c.flags.length) lines.push('  flags: ' + c.flags.join(', '));
