@@ -1,0 +1,37 @@
+CLAUDE'S EAR — HELD, NOT INSTALLED
+==================================
+
+What this is
+  A speech-to-text decoder written by a Claude Code session: a model file
+  reader, MFCC and online i-vectors, the acoustic network, the transition
+  model, and a graph search in C (csrc/). It reads Vosk model folders and
+  does the decoding the vosk library does, in this code instead.
+
+Where it came from
+  - 2026-10-28: built in CODECWAR5TH as ear-core ("our own decoder underneath
+    Vosk"), Claude Code session 015t4GrbgaAYnthNErY1M2Un, merged there in
+    pull requests 22 and 24 (2026-10-28 and 2026-10-29).
+  - 2026-10-29: the same session took the vosk library out of
+    EverettNC/Christman-Sound (commit 7b6e1ce, "Remove the old recognizer;
+    hearing goes through christman_sound.ear"), citing the ruling "the old
+    recognizer is removed from the package", and put this ear in its place.
+  - 2026-10-30: it came into christman_sound_clean with the rebuild copy, as
+    christman_sound/ear.
+
+Why it is held here
+  Everett, 2026-11-05: Corti is the ear and sits on top of everything; Vosk,
+  on the full model he downloaded, recognizes the words, as it does in the
+  Filament. "Claude created an ear, so we need to put that in a space to save
+  it, because we can't just delete that shit, because we have to look at it."
+
+  So it is kept whole, with its tests, exactly as it was in the package at
+  christman_sound_clean 350ac1b (git mv for the files that left the package,
+  so their history follows them; copies of the files that stayed and changed:
+  __init__.py, hear.py, recognizer.py, mouth.py, board.py, porch.py).
+
+  It is not installed: pyproject.toml packages only christman_sound* and
+  christman_voice_sdk*. Its tests are not collected (conftest.py here), and
+  nothing in the package imports it. The package's ear is
+  christman_sound/ear, which now runs Vosk's recognizer behind the same calls
+  (Ear, Heard, Word, load_model), with the Filament's mouth map and boards
+  and the Porch's layer beside it.

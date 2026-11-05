@@ -3,12 +3,12 @@
 # The Christman AI Project — Luma Cognify AI
 # ==============================================================================
 """
-The ear the voice tests are judged by (2026-10-29).
+The ear the voice tests are judged by.
 
-Everett ruled the old recognizer out of this package. The voice tests used to
-hand their renderings to the `vosk` Python package in a second Python; they
-are now heard by christman_sound.ear, this package's own ear, in this
-process, on the same model folder. Nothing is played.
+The voice tests are heard by christman_sound.ear, Vosk's recognizer (2026-11-05,
+Everett: Vosk is the ear), in this process, on the model folder given. From
+2026-10-29 to 2026-11-05 they were heard by a decoder of the package's own,
+now held in held/claude-ear-2026-10-28. Nothing is played.
 
 The ear hears 16-bit mono PCM at 16 kHz. A rendering at another rate is
 resampled to 16 kHz with scipy's polyphase filter, and half a second of

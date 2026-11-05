@@ -18,7 +18,7 @@ rendered, written as a WAV, and heard by each ear given:
 
   filament   the Filament door (--filament), the ear the house uses; a
              local door only (127.0.0.1, localhost or ::1), else refused
-  ear        christman_sound.ear on --vosk-model, this package's own ear
+  ear        Vosk's recognizer through christman_sound.ear on --vosk-model
 
 A word counts as heard when it is matched in order in what the ear heard
 (difflib's longest matching blocks), the same count the voice tests make by

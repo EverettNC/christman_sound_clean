@@ -332,3 +332,33 @@ def test_one_version_everywhere():
     assert christman_voice_sdk.__version__ == declared
     assert (root / "VERSION.txt").read_text().strip() == declared
     assert create_app().test_client().get("/api/status").get_json()["version"] == declared
+
+
+def test_status_says_why_a_list_is_empty_and_names_the_ear(monkeypatch):
+    """Rule 6 (2026-11-05): the profile list that cannot be read says why.
+    Before, a failed import left "profiles": [] with no reason, the same answer
+    as a machine with no profiles saved."""
+    monkeypatch.setitem(sys.modules, "christman_voice_sdk.integration.voice_capture_client", None)
+    st = create_app().test_client().get("/api/status").get_json()
+    assert st["profiles"] == []
+    assert st["profiles_error"] and "voice_capture_client" in st["profiles_error"]
+    assert st["dsp"]["phones_error"] is None
+    assert st["ear"]["engine"] == "vosk"
+    assert set(st["ear"]) >= {"vosk_installed", "vosk_error", "vosk_model_path", "vosk_model_present"}
+    if not st["ear"]["vosk_installed"]:
+        assert st["ear"]["vosk_error"], "an ear that cannot hear says why"
+
+
+def test_a_voice_name_that_cannot_be_looked_up_is_refused_plainly(tmp_path, monkeypatch):
+    """Rule 6 (2026-11-05): a voice given by name when the saved profiles cannot
+    be read is answered 503 with the reason. Before, the lookup's error was
+    passed over and the name went on to fail somewhere less plain."""
+    monkeypatch.setenv("CHRISTMAN_VOICE_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setitem(sys.modules, "christman_voice_sdk.integration.voice_capture_client", None)
+    r = create_app().test_client().post("/api/synthesize", json={
+        "text": "hello", "voice": "no such voice here", "lexicon_text": FIXTURE_LEXICON,
+    })
+    body = r.get_json()
+    assert r.status_code == 503, body
+    assert body["kind"] == "ProfilesUnavailable"
+    assert "no such voice here" in body["reason"]

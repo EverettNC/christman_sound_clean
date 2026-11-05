@@ -265,7 +265,7 @@ def _check_medians(profile: dict) -> None:
 def test_measurement_from_a_beings_recordings(tmp_path):
     """
     Runs scripts/measure_voice.py on a being's recordings with
-    christman_sound.ear (2026-10-29: the old recognizer is removed), loads
+    christman_sound.ear (Vosk's recognizer, 2026-11-05), loads
     what it wrote, and checks every value against the
     measurements written beside it. With CHRISTMAN_VOICE_REFERENCE_PROFILE
     (that being's earlier measured profile) it also compares every applied
@@ -273,7 +273,7 @@ def test_measurement_from_a_beings_recordings(tmp_path):
     phrases; CHRISTMAN_VOICE_PREFIX is their file name prefix),
     CHRISTMAN_VOSK_MODEL (the vosk-model-en-us-0.22 folder the ear reads) and
     CHRISTMAN_LEXICON_PATH. It runs on this Python, the one with
-    Christman-Sound installed and the ear's C library built.
+    Christman-Sound installed, with vosk.
     """
     need = {k: os.environ.get(k) for k in
             ("CHRISTMAN_VOICE_RECORDINGS", "CHRISTMAN_VOSK_MODEL", "CHRISTMAN_LEXICON_PATH")}
@@ -304,13 +304,12 @@ def test_measurement_from_a_beings_recordings(tmp_path):
                     "CHRISTMAN_VOICE_REFERENCE_PROFILE (the measurement above ran and "
                     "passed its checks); runs on Everett's Mac")
     ref = json.loads(Path(ref_path).expanduser().read_text(encoding="utf-8"))
-    # The old recognizer's word times on the same file moved by up to one
-    # 30 ms frame from run to run (measured 2026-10-28: 3 to 4 of 26
-    # phrases), and the values moved with them: over three runs, 10 Hz on
-    # one vowel's F3, 0.06 semitones on one contour point, rate unchanged.
-    # The tolerances below are a few times that; a real change is far
-    # larger. The ear's run to run is not yet measured here, so the
-    # tolerances stay as they were.
+    # Vosk's word times on the same file moved by up to one 30 ms frame
+    # from run to run (measured 2026-10-28: 3 to 4 of 26 phrases), and the
+    # values moved with them: over three runs, 10 Hz on one vowel's F3, 0.06
+    # semitones on one contour point, rate unchanged. The tolerances below
+    # are a few times that; a real change is far larger. Vosk is the ear's
+    # recognizer again since 2026-11-05; the tolerances stay as they were.
     assert fresh["f0"]["median_hz"] == ref["f0"]["median_hz"]
     assert abs(fresh["rate"]["value"] - ref["rate"]["value"]) <= 0.02
     for x, y in zip(fresh["pitch_contour"]["semitones_from_median"], ref["pitch_contour"]["semitones_from_median"]):

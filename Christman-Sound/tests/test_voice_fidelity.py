@@ -17,8 +17,8 @@ voice is judged two ways, and neither passes alone:
   third-octave long-term spectrum) and must sit where the recordings sit.
 
   INTELLIGIBILITY. The same renderings are heard by two ears: the Filament
-  (127.0.0.1:4850) and christman_sound.ear on vosk-model-en-us-0.22 (the old
-  recognizer is removed, Everett's ruling 2026-10-29; tests/ear_judge.py).
+  (127.0.0.1:4850) and christman_sound.ear on vosk-model-en-us-0.22 (Vosk's
+  recognizer, Everett 2026-11-05; tests/ear_judge.py).
 
 NEW SENTENCES, RECORDED AS THEY STAND. Spoken from units of the long
 recordings, new sentences do not yet sit where the recorded phrases sit on
@@ -87,8 +87,8 @@ EAR = "http://127.0.0.1:4850/stt"
 EAR_TIMEOUT_S = 180
 LTAS_RESYNTH_DB = 2.0
 WORDS_RESYNTH = 0.95
-#: The "ear" floor was set on the old recognizer (2026-10-28), held for
-#: christman_sound.ear on the same model until it is measured there.
+#: The "ear" floor was set on Vosk's recognizer (2026-10-28), which is
+#: christman_sound.ear again since 2026-11-05.
 WORDS_NEW = {"filament": 0.75, "ear": 0.85}
 MEASURES = ("jitter_local_pct", "shimmer_local_pct", "hnr_db", "cpp_db", "f0_median_hz", "range_st")
 

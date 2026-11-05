@@ -389,25 +389,35 @@ class ChristmanSoundApp:
 
     def _handle_status(self) -> AppResponse:
         dsp = get_dsp()
-        ear_lib = _PACKAGE_DIR / "ear" / ("libear.dylib" if sys.platform == "darwin" else "libear.so")
+        try:
+            from .ear.hear import EarUnavailable, _vosk
+
+            _vosk()
+            vosk_installed, vosk_error = True, None
+        except EarUnavailable as exc:  # reported in the status below, never hidden
+            vosk_installed, vosk_error = False, str(exc)
         disc_lex = discover_align_lexicon()
         disc_vosk = discover_vosk_model()
         lex_env = os.environ.get(LEXICON_ENV) or (str(disc_lex) if disc_lex else "")
         vosk_env = os.environ.get("VOSK_MODEL_PATH") or (str(disc_vosk) if disc_vosk else "")
 
+        # Rule 6: a list that could not be read says why, in the status below;
+        # it is never an empty list standing in for a failure.
         profiles: List[str] = []
+        profiles_error: Optional[str] = None
         try:
             from christman_voice_sdk.integration.voice_capture_client import list_profiles
             profiles = list_profiles()
-        except Exception:
-            profiles = []
+        except (ImportError, OSError) as exc:
+            profiles_error = f"{type(exc).__name__}: {exc}"
 
         phones: List[str] = []
+        phones_error: Optional[str] = None
         if dsp.available and dsp.synth_available:
             try:
                 phones = list(dsp.synth_phone_table().keys())
-            except Exception:
-                phones = []
+            except SynthUnavailable as exc:
+                phones_error = str(exc)
 
         return _json_resp({
             "status": "online",
@@ -421,10 +431,12 @@ class ChristmanSoundApp:
                 "synth_error": dsp.synth_error,
                 "play_backend": dsp.play_backend() if dsp.available else None,
                 "phones": phones,
+                "phones_error": phones_error,
             },
             "ear": {
-                "library_built": ear_lib.is_file(),
-                "library_path": str(ear_lib),
+                "engine": "vosk",
+                "vosk_installed": vosk_installed,
+                "vosk_error": vosk_error,
                 "vosk_model_path": vosk_env or None,
                 "vosk_model_present": bool(vosk_env and Path(vosk_env).expanduser().is_dir()),
             },
@@ -452,6 +464,7 @@ class ChristmanSoundApp:
                 },
             },
             "profiles": profiles,
+            "profiles_error": profiles_error,
             "frame_controls": list(FRAME_CONTROLS),
             "sample_rates": [CODECWAR_SAMPLE_RATE, CHRISTMAN_SOUND_SAMPLE_RATE],
             "timestamp": datetime.now().isoformat(),
@@ -473,19 +486,12 @@ class ChristmanSoundApp:
         else:
             results["dsp"] = {"returncode": 1, "error": f"{build_dsp_script} not found"}
 
-        proc_ear = subprocess.run(
-            [sys.executable, "-m", "christman_sound.ear.build", "--check"],
-            capture_output=True, text=True, cwd=str(_REPO_ROOT),
-        )
-        results["ear"] = {
-            "returncode": proc_ear.returncode,
-            "stdout": proc_ear.stdout.strip(),
-            "stderr": proc_ear.stderr.strip(),
-        }
+        # 2026-11-05: the ear is Vosk again (Everett); it has no library of
+        # this package's to build. Its state is in /api/status under "ear".
         dsp_mod._instance = None
         dsp = get_dsp()
         results["dsp_loaded"] = dsp.available and dsp.synth_available
-        code = 200 if results["dsp"].get("returncode") == 0 and results["ear"].get("returncode") == 0 else 500
+        code = 200 if results["dsp"].get("returncode") == 0 else 500
         return _json_resp(results, code)
 
     def _handle_install_desktop(self) -> AppResponse:
@@ -533,13 +539,22 @@ class ChristmanSoundApp:
                 tmp_files.append(tf)
                 voice_arg = str(tf)
             elif isinstance(voice_arg, str) and voice_arg and not Path(voice_arg).expanduser().exists():
+                # A voice given by name is looked up among the saved profiles.
+                # If the profiles cannot be read, the client is told why
+                # instead of the name going on to fail somewhere less plain.
                 try:
                     from christman_voice_sdk.integration.voice_capture_client import PROFILES_DIR
-                    cand = PROFILES_DIR / f"{voice_arg}.json"
-                    if cand.is_file():
-                        voice_arg = str(cand)
-                except Exception:
-                    pass
+                except ImportError as exc:
+                    return _json_resp({
+                        "available": False,
+                        "status": "unavailable",
+                        "kind": "ProfilesUnavailable",
+                        "reason": f"the voice {voice_arg!r} is not a file, and the saved profiles "
+                                  f"could not be read to look it up: {exc}",
+                    }, 503)
+                cand = PROFILES_DIR / f"{voice_arg}.json"
+                if cand.is_file():
+                    voice_arg = str(cand)
 
             lex_obj: Optional[Lexicon] = None
             if lexicon_inline and isinstance(lexicon_inline, str) and lexicon_inline.strip():
@@ -1509,9 +1524,6 @@ if [ ! -x "$PY_BIN" ]; then
 fi
 if [ ! -f "$REPO_DIR/christman_sound/christman_dsp.so" ] && [ ! -f "$REPO_DIR/christman_sound/christman_dsp.dylib" ]; then
   "$PY_BIN" "$REPO_DIR/scripts/build_dsp.py"
-fi
-if [ ! -f "$REPO_DIR/christman_sound/ear/libear.dylib" ] && [ ! -f "$REPO_DIR/christman_sound/ear/libear.so" ]; then
-  "$PY_BIN" -m christman_sound.ear.build
 fi
 exec "$PY_BIN" -m christman_sound.app --open-browser
 """

@@ -170,14 +170,14 @@ class TranscriptionOutput:
 
 class EarBackend:
     """
-    On-device recognition through christman_sound.ear, the package's own ear.
+    On-device recognition through christman_sound.ear: Vosk's recognizer
+    on a model folder on disk, the recognizer the Filament runs. Corti sits on top of the hearing; this is the word ear.
 
-    2026-10-29 (Everett's ruling): the old recognizer is removed from this
-    package. This backend used to hand the PCM to the `vosk` Python package,
-    whose recognizer is the old one. christman_sound.ear reads the same model
-    folder (am/final.mdl, ivector/, conf/, graph/HCLG.fst) with this
-    package's own code: numpy and the C library built from
-    christman_sound/ear/csrc. No recognizer library is imported.
+    2026-11-05 (Everett): Vosk is the ear. From 2026-10-29 this backend heard
+    through a decoder a Claude Code session wrote in place of the vosk
+    library it had removed (numpy and a C library from
+    christman_sound/ear/csrc). That decoder is kept, not installed, in
+    held/claude-ear-2026-10-28. The calls here did not change.
 
     The model folder comes from `model_path` or VOSK_MODEL_PATH, the same
     setting as before; the folder is the model, and the ear reads it.
@@ -218,9 +218,8 @@ class EarBackend:
             except ImportError as exc:
                 raise LocalRecognitionUnavailable(
                     f"christman_sound.ear cannot be imported here ({exc}). "
-                    "Install Christman-Sound whole and build the ear's C "
-                    "library once: python -m christman_sound.ear.build --check. "
-                    "There is no cloud fallback by design."
+                    "Install Christman-Sound whole (pip install -e .), which "
+                    "brings the vosk library. There is no cloud fallback by design."
                 ) from exc
             try:
                 cls._model = load_model(self.model_path)

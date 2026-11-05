@@ -23,8 +23,8 @@ text comes from each file name, after an optional --prefix:
 
 How each value is measured:
 
-  Alignment. Each recording is decoded with christman_sound.ear, this
-  package's own ear, on vosk-model-en-us-0.22 (word times on). A recording
+  Alignment. Each recording is decoded with Vosk's recognizer through christman_sound.ear,
+  on vosk-model-en-us-0.22 (word times on). A recording
   whose decoded words are not exactly its file-name words is left out and
   named in the report; nothing is forced onto it. (2026-10-29: the old
   recognizer this used is removed, Everett's ruling. Its word times moved by
@@ -81,7 +81,7 @@ and the duration difference. "after, held out" repeats "after" with a
 profile measured from the other phrases only, so the phrase being scored did
 not shape the voice that speaks it.
 
-Run (Christman-Sound installed, its C library and the ear's C library built):
+Run (Christman-Sound installed, with vosk, and its C library built):
 
     python3.11 scripts/measure_voice.py \
         --recordings <the being's recorded phrases> --prefix <file name prefix> \
@@ -275,7 +275,7 @@ class Phrase:
 
 def align(phrases: List[Phrase], model_dir: str) -> dict:
     """
-    Word times from christman_sound.ear, this package's own ear. The call is
+    Word times from Vosk's recognizer through christman_sound.ear. The call is
     the one scripts/build_voice_bank.py runs (_words): each recording is
     handed to it as 16-bit PCM at the recording's own rate, the same samples
     the measurement reads, and _words resamples to the ear's 16 kHz. Times
@@ -307,12 +307,12 @@ def align(phrases: List[Phrase], model_dir: str) -> dict:
                 for w in heard
             ]
     return {
-        "engine": "christman_sound.ear (this package's own ear), word times on, audio at 16 kHz",
+        "engine": "christman_sound.ear (Vosk's recognizer), word times on, audio at 16 kHz",
         "christman_sound_version": _pip_version("christman-sound"),
         "model": Path(model_dir).name,
         "phrase_text": "from the file name; a phrase whose decoded words differ is left out",
-        "run_to_run": "not yet measured on the ear. The old recognizer's word times moved by up "
-                      "to one 30 ms frame between runs (measured 2026-10-28)",
+        "run_to_run": "Vosk's word times moved by up to one 30 ms frame between runs "
+                      "(measured 2026-10-28, on the recognizer the ear runs again since 2026-11-05)",
     }
 
 
