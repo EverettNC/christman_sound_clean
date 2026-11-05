@@ -174,7 +174,10 @@ public/build/
 # --- Mac Specific ---
 .AppleDouble
 .LSOverride
-Icon?
+# macOS's folder-icon file is named "Icon" plus a carriage return. The old
+# pattern "Icon?" also matched the studio's icons/ folder (git on a Mac
+# ignores case), so the app icons were never committed. Exact name only:
+Icon[\r]
 
 # --- Backup files ---
 *~

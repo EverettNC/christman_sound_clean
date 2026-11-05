@@ -423,6 +423,25 @@ def test_temporal_below_the_bar_keeps_the_clients_words(tmp_path):
     assert r["status"] == "no_usable_reading"      # under the bar, it does not lead
 
 
+def test_the_turn_keeps_the_clients_words_when_the_reading_is_under_the_bar(tmp_path):
+    # 2026-11-04: found by the test rewrite. When no reading cleared the bar,
+    # the engine's combined message is None and the words sit only on the
+    # reading, so the turn came back with no words at all. Through Hearing,
+    # the turn now carries the one reading's words, marked below the bar.
+    path = tmp_path / "language_map.json"
+    path.write_text(json.dumps({"Wave Right": {"intent": "Next mode",
+                                               "message": "I want the next one."}}),
+                    encoding="utf-8")
+    t = TemporalNonverbalEngine(sequence_length=10, language_map_path=str(path))
+    t.models["gesture"] = CentroidModel([[_seq(0.2)], [_seq(0.2)], [_seq(0.1)], [_seq(0.2)]])
+    for frame in _seq(0.0)[:-1]:
+        t.add_gesture_features(frame)
+    turn = Hearing(temporal_engine=t).hear(temporal={"gesture_features": np.zeros(4)})
+    assert turn.temporal["status"] == "no_usable_reading"
+    assert turn.person_message == "I want the next one."
+    assert turn.person_message_below_threshold is True
+
+
 def test_soul_mirror_vector_carries_whose_clause_it_is():
     turn = Hearing().hear(text="my moms in pain im scared")
     fv = turn.face_vector.to_dict()

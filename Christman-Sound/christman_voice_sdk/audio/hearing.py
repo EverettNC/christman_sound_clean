@@ -1447,17 +1447,50 @@ class HearingTurn:
     #: it adds none. Empty when there are none.
     signal_words: List[str] = field(default_factory=list)
 
+    @staticmethod
+    def _words_in(all_results: Any) -> Tuple[Optional[str], bool]:
+        """(words, below the bar) from the one reading in an engine's
+        all_results that carries words, when exactly one does. all_results is a list
+        (nonverbal_engine) or a dict of name -> reading (engine_temporal)."""
+        items = all_results.values() if isinstance(all_results, dict) else (all_results or [])
+        worded = [r for r in items if isinstance(r, dict) and r.get("message")]
+        # Exactly one reading with words: those are the client's words. More
+        # than one (a tie, or several under the bar): picking one would be a
+        # choice, and the choice is the being's; every reading is in
+        # all_results.
+        if len(worded) == 1:
+            r = worded[0]
+            return (r["message"],
+                    r.get("below_threshold") is True or r.get("status") == "below_threshold")
+        return None, False
+
     def _person_message(self) -> Tuple[Optional[str], bool]:
-        """(words, below the confidence bar) from the first channel with words."""
-        if self.nonverbal and self.nonverbal.get("message"):
-            return (self.nonverbal.get("message"),
-                    self.nonverbal.get("status") == "below_threshold")
+        """(words, below the confidence bar) from the first channel with words.
+
+        WHAT CHANGED AND WHY (2026-11-04): when no reading cleared the bar,
+        or two tied, the engines' combined message is None and the client's
+        words sit only in all_results. This used to read the combined message
+        alone, so a learned gesture under the bar ("Hi there." at 0.8 against
+        0.95) came back with no words at all. The words are now taken from the
+        reading itself, marked below the bar.
+        """
+        if self.nonverbal:
+            if self.nonverbal.get("message"):
+                return (self.nonverbal.get("message"),
+                        self.nonverbal.get("status") == "below_threshold")
+            words, below = self._words_in(self.nonverbal.get("all_results"))
+            if words:
+                return words, below
         if self.acoustic is not None and self.acoustic.message:
             return self.acoustic.message, self.acoustic.status.value == "below_threshold"
-        if self.temporal and self.temporal.get("message"):
-            return (self.temporal.get("message"),
-                    self.temporal.get("below_threshold") is True
-                    or self.temporal.get("status") == "below_threshold")
+        if self.temporal:
+            if self.temporal.get("message"):
+                return (self.temporal.get("message"),
+                        self.temporal.get("below_threshold") is True
+                        or self.temporal.get("status") == "below_threshold")
+            words, below = self._words_in(self.temporal.get("all_results"))
+            if words:
+                return words, below
         return None, False
 
     @property
