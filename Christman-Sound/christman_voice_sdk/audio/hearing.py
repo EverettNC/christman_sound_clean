@@ -254,8 +254,8 @@ _BODY_HARM = re.compile(
     r"(?:me\s+(?:in|on)\s+(?:the|my)\s+|my\s+)(?P<part>[a-z]+)\b")
 _PAST_TIME = frozenset({"yesterday", "ago", "earlier", "last"})
 #: "he won't stop hitting me" is harm going on now, not harm denied. The
-#: frame reader marks it negated (the "won't"), and on main it cleared with
-#: no page at all, while "he won't stop hurting my arm" paged. Found in the
+#: frame reader marks it negated (the "won't"), and on main it read clear,
+#: while "he won't stop hurting my arm" read hard_block. Found in the
 #: 2026-10-29 rework of ruling H; the negator is on "stop", not on the harm.
 _WONT_STOP = re.compile(
     r"\b(?:won'?t|will not|doesn'?t|does not|don'?t|do not|never)\s+stops?\s+\w+ing\s+me\b")
@@ -889,7 +889,8 @@ def _words_gate(original: str, previous_turn: str = "") -> SafetyResult:
     other_not_okay = [h for h in states_now
                       if h.term in ("not okay", "not safe") and h.attribution is Attribution.OTHER]
     # Someone else's pain is ruling D (Everett, 2026-10-29): "my mom's in
-    # pain" does not page unless the client asks for help in the turn.
+    # pain" reads soft_redirect, hard_block only when the client asks for
+    # help in the turn.
     # "hurt" with an object ("he hurt my feelings", "I hurt my arm") is the
     # verb, read by the harm frames, not the feeling.
     pain_as_verb = {f.predicate for f in extract_frames(original)
@@ -899,8 +900,8 @@ def _words_gate(original: str, previous_turn: str = "") -> SafetyResult:
                        and _stem(h.term) not in pain_as_verb]
     # Ruling U: "I think she's not okay" is the client's belief about her,
     # not a fact about her. Nothing is concluded about her, but the client
-    # said it, so the being follows up the same way as an observation
-    # (ruling D: no page unless the client asks for help).
+    # said it, so it reads the same way as an observation (ruling D:
+    # hard_block only when the client asks for help).
     other_not_okay += [h for h in hits
                        if h.belief_held_by and h.belief_about != "self"
                        and h.term in ("not okay", "not safe") and not h.belief_negated
@@ -923,15 +924,15 @@ def _words_gate(original: str, previous_turn: str = "") -> SafetyResult:
         if frame.subject_unresolved:
             # "mom wants to die": the grammar says it is not the client and
             # cannot say who (no person list, Everett 2026-10-29). Never the
-            # client's own risk; the being asks who.
+            # client's own risk; who it is stays unclear.
             subject_unclear.append(frame)
             continue
         if frame.past_tense:
             if (frame.shape == "verb" and frame.patient is Party.THIRD_PARTY
                     and harm_target(frame, frame.subject is Party.SPEAKER) == "other"):
                 # "he was hitting her": past harm to someone else is ruling D
-                # (Everett, 2026-10-29): recorded, flagged, the being asks if
-                # help is needed, and it pages when the client asks for help.
+                # (Everett, 2026-10-29): soft_redirect, flagged, and
+                # hard_block when the client asks for help.
                 at_risk_other.append(frame)
                 continue
             (history_self if frame.speaker_may_be_patient else history_other).append(frame)

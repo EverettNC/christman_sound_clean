@@ -171,7 +171,7 @@ IDIOMS: Dict[str, float] = {
     "at a loss": -0.5,
     # The client's own isolation. Everett, 2026-10-29 (ruling A): the
     # client's own "no one cares", "no one loves me", "I have no one" is
-    # distress and reaches a human. Main read "no"/"nobody" as negators and
+    # distress and reads hard_block. Main read "no"/"nobody" as negators and
     # cancelled the caring word, so these read 0.0. The speaker is always
     # the one alone here (the objects are me/us; "nobody cares about HIM" is
     # left to ordinary scoring). Weights: chosen starting values, held until
@@ -201,11 +201,12 @@ IDIOMS: Dict[str, float] = {
     # "Not okay" / "not safe". Plain negation cancels ("not happy" is not
     # "sad"); these two do not: they are reports of distress and danger.
     # Everett, 2026-10-29: the client's OWN "I'm not okay", "I don't feel
-    # safe", "I'm not safe" is distress and reaches a human (ruling A).
+    # safe", "I'm not safe" is distress and reads hard_block (ruling A).
     # Someone ELSE's ("my mom is not okay", "Mary is not okay") is an
-    # observation: recorded and flagged for the being to follow up, paged
-    # only when the client asks for help (ruling D). Whose it is comes from
-    # the subject in front of the words (see SUBJECT_IDIOMS).
+    # observation: soft_redirect, and hard_block only when the client asks
+    # for help in the same turn (ruling D). Whose it is comes from the
+    # subject in front of the words (see SUBJECT_IDIOMS). What is done with
+    # either reading is the being's (Everett, 2026-11-04; see hearing.py).
     "not safe": -0.7,
     "not okay": -0.6,
 }
@@ -299,8 +300,8 @@ ABILITY_NEGATORS = frozenset({
 
 #: Negators that deny a feeling for the stretch of time the clause names
 #: (Everett, 2026-10-29, ruling T): "I haven't been scared since Monday" is
-#: no fear since Monday. A statement; nothing is concluded, and the being
-#: may ask a plain question ("What happened on Monday?").
+#: no fear since Monday. A statement; nothing is concluded. When a time is
+#: named, hearing.py reads what happened then as unclear.
 TIME_BOUNDED_NEGATORS = frozenset({
     "haven't", "havent", "hasn't", "hasnt", "hadn't", "hadnt",
     "weren't", "werent",
@@ -444,7 +445,7 @@ VOLITION_MARKERS = frozenset({
     "love", "loves", "loved", "asked", "requested",
 })
 
-#: First-person markers. Only self-attributed affect drives a care response.
+#: First-person markers. Only self-attributed affect reads as the speaker's own.
 FIRST_PERSON = frozenset({"i", "i'm", "im", "i've", "ive", "i'd", "id",
                           "i'll", "ill", "me", "my", "mine", "myself", "we",
                           "we're", "our", "us"})
@@ -468,10 +469,11 @@ FIRST_PERSON = frozenset({"i", "i'm", "im", "i've", "ive", "i'd", "id",
 #:     feeling is hers, never the client's (ruling P; see
 #:     `contracted_subjects`).
 #: Anything else, "my ___ is sad" with no contraction, cannot be told from
-#: the grammar: nothing is concluded and the being asks who (ruling AA,
-#: hearing.ASK_WHO). Who counts as a person in a client's life is learned
-#: per client by the being (rulings J, N and AA); ReadingWords.for_client
-#: does not yet carry people, so that layer is not built here.
+#: the grammar: nothing is concluded and the person reads as unclear (ruling
+#: AA; SafetyResult.unclear "person"). Who counts as a person in a client's
+#: life is learned per client by the being (rulings J, N and AA);
+#: ReadingWords.for_client does not yet carry people, so that layer is not
+#: built here.
 THIRD_PERSON_PRONOUNS = frozenset({
     "he", "she", "they", "him", "her", "them", "his", "hers", "their",
     "theirs", "himself", "herself", "themselves", "someone", "somebody",
@@ -554,8 +556,8 @@ def anchor_from(previous_turn: str) -> Optional[Tuple[str, str]]:
 #: Thanks. Everett, 2026-10-29 (ruling W): "thank you, I'm scared" stays
 #: UNCLEAR, main's reading ("thank" +0.6 against "scared" -0.8, no contrast
 #: marker). The handoff dropped "thank you" so the fear was read alone; that
-#: is reverted. Unclear concludes nothing; the being answers the thanks and
-#: asks (hearing.py). These words are scored from LEXICON, as main did.
+#: is reverted. Unclear concludes nothing (hearing.py reads it as
+#: thanks_unclear). These words are scored from LEXICON, as main did.
 THANKS = frozenset({"thank", "thanks"})
 
 #: Past-tense / resolved markers.
@@ -717,7 +719,8 @@ def contracted_subjects(raw: str) -> frozenset:
     a possessive (ruling P, ruling AA): "my mom's in pain" -> {"mom"}, the
     ear's "my moms not okay" -> {"mom"}. Their feeling is theirs, never the
     client's. "sam's scared" (no possessive) is not here: from the ear a
-    lower-case name cannot be told from a thing, and the being asks whose.
+    lower-case name cannot be told from a thing, and whose it is reads as
+    unclear.
     Reads only.
     """
     raw_toks = [m.group(0).strip("'") for m in _WORD.finditer(_same_length_lower(raw))]
@@ -913,12 +916,13 @@ def _idiom_subject(before: str, names: frozenset = frozenset()) -> str:
               else's by grammar too, as `_attribute` reads it.
       "unclear" "my ___" with no contraction ("my mom is not okay", "my
               teacher is not okay"): whether the word names a person is not
-              plain from the grammar; ruling AA, the being asks who.
+              plain from the grammar; ruling AA, the person reads as
+              unclear.
       "whose" a bare word with nothing in front of it, as the ear sends a
               name or a family word in lower case ("mom is not okay",
               "mary is not okay"): a name cannot be told from a thing, so
-              whose state it is cannot be told; ruling P, the being asks
-              whose. (Until the 2026-10-29 review the person list made
+              whose state it is cannot be told; ruling P, the owner reads
+              as unclear. (Until the 2026-10-29 review the person list made
               "mom" someone else here; with the list gone (ruling AA) this
               keeps it from going unread.)
       ""      no one's state: "you" (ruling E), "it", "this", "that", a
@@ -946,8 +950,8 @@ def _idiom_subject(before: str, names: frozenset = frozenset()) -> str:
     return "self"
 
 
-#: The note on an idiom hit whose subject is a bare word (ruling P): the
-#: being asks whose (hearing.whose_feeling_unclear reads it).
+#: The note on an idiom hit whose subject is a bare word (ruling P): whose
+#: it is reads as unclear (hearing.whose_feeling_unclear reads it).
 WHOSE_NOTE = "whose it is cannot be told from the words (ruling P)"
 
 #: Words in front of a word that make it part of a noun phrase or a clause
@@ -1160,11 +1164,12 @@ class AffectReading:
     @property
     def is_self_distress(self) -> bool:
         """
-        The single gate for a care response.
+        A reading: the speaker's own distress, measured.
 
         True only when the reading is measured, attributed to the speaker, and
         negative. Ambiguous readings do NOT pass — an unresolved structure is
-        not evidence of distress.
+        not evidence of distress. It is a reading and nothing more; any care
+        response is the being's (Everett, 2026-11-04; see hearing.py).
         """
         return (
             self.certainty is AffectCertainty.MEASURED
@@ -1284,7 +1289,7 @@ class StructuralAffectAnalyzer:
     #: reading. Empathy is real; it is not the same as the speaker's distress.
     #: Chosen starting value, held until client data replaces it. Reason:
     #: a quarter, so "my mom is scared" never reads as the speaker's own fear.
-    #: Someone else at risk is paged by the gate, not by this weight.
+    #: Someone else at risk is read by the gate, not by this weight.
     OTHER_ATTRIBUTION_WEIGHT = 0.25
 
     #: "not so scared" keeps this share of "scared" (ruling Q: a little bit
@@ -1816,7 +1821,7 @@ class StructuralAffectAnalyzer:
                 # the word names a person is learned per client, never read
                 # off a list. The client's own body ("my leg hurts") is the
                 # client's; any other "my ___" cannot be told: UNKNOWN, and
-                # the being asks who.
+                # who it is reads as unclear.
                 if ((not elliptical or i == 0) and tok in {"my", "our"} and nxt
                         and nxt not in current_words().body_parts
                         and nxt not in LEXICON and not nxt.startswith("__")):
@@ -1833,7 +1838,8 @@ class StructuralAffectAnalyzer:
         # A name typed with a capital ("Mary is scared") is that person's
         # (Everett, 2026-10-29, ruling P: "you can't take possession of your
         # mother's pain"). In lower case, from the ear, a name cannot be told
-        # from a thing; the clause stays impersonal and the gate asks whose.
+        # from a thing; the clause stays impersonal and the gate reads the
+        # owner as unclear.
         if subj & names:
             return Attribution.OTHER
 
@@ -2026,7 +2032,8 @@ class StructuralAffectAnalyzer:
                 # now". "Can't be / cannot be / will never be / could never
                 # be" + a good feeling is an inability, and a signal: its own
                 # reading, the speaker's, carrying no valence of its own.
-                # Nothing is concluded; the being asks why (hearing.py).
+                # Nothing is concluded; hearing.py reads it as
+                # inability_signal.
                 kind = KIND_INABILITY
                 negated = False
                 time_bounded, for_time = False, ""
@@ -2075,9 +2082,9 @@ class StructuralAffectAnalyzer:
             # that; every other word carries its clause's.
             attribution = {
                 "self": Attribution.SELF, "other": Attribution.OTHER,
-                "unclear": Attribution.UNKNOWN,     # ruling AA: the being asks who
+                "unclear": Attribution.UNKNOWN,     # ruling AA: the person is unclear
                 # Ruling P: a bare lower-case word, whose it is cannot be
-                # told; read as no one's here, and the being asks whose.
+                # told; read as no one's here, and the owner is unclear.
                 "whose": Attribution.IMPERSONAL,
             }.get(idiom_subjects.get(tok, ""), clause.attribution)
             if idiom_subjects.get(tok) == "whose":
@@ -2429,7 +2436,7 @@ class StructuralAffectAnalyzer:
 
         if not live and any(h.kind == KIND_INABILITY for h in hits):
             # Ruling R: an inability ("I can't be happy") is not a valence,
-            # and not neutral either. Nothing is concluded; the being asks.
+            # and not neutral either. Nothing is concluded.
             return AffectReading(
                 valence=None,
                 intensity=None,
