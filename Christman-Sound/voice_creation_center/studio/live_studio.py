@@ -154,7 +154,8 @@ class LiveStudio:
             base_dir:     The VCC's base directory (vcc_paths): raw takes
                           go to studio/raw under it, and exports register
                           into its express index. None = $VCC_HOME, else
-                          this repo.
+                          vcc_paths' default (2026-11-05: this folder in a
+                          checkout, a per-user folder when installed).
         """
         self.paths = VCCPaths(base_dir)
         if not export_dir:

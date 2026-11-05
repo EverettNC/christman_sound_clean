@@ -178,3 +178,107 @@ def _import_in_child(module: str, extra_env: dict | None = None) -> subprocess.C
 def test_christman_ocr_shared_imports_with_the_base_dependencies(tmp_path):
     proc = _import_in_child("christman_ocr_shared", {"CHRISTMAN_AI_HOME": str(tmp_path)})
     assert proc.returncode == 0, proc.stderr[-2000:]
+
+
+# -- one pip install, nothing after it (2026-11-05) -----------------------------
+#
+# WHAT CHANGED AND WHY (2026-11-05): Everett, "I want the sound package to be
+# an installable package. I want people to be able to just download it and
+# install it." pip install now compiles the C library (scripts/pip_build.py
+# runs scripts/build_dsp.py). These tests hold that in place: every console
+# script names a function that exists (christman-build-dsp named a module that
+# is never installed), and a wheel pip builds carries a library that loads.
+
+
+def test_every_console_script_names_a_function_that_exists():
+    import importlib
+
+    broken = []
+    for name, target in _pyproject()["project"]["scripts"].items():
+        module_name, _, attr = target.partition(":")
+        try:
+            module = importlib.import_module(module_name)
+        except ImportError as exc:
+            broken.append(f"{name} = {target}: {module_name} does not import ({exc})")
+            continue
+        if not callable(getattr(module, attr, None)):
+            broken.append(f"{name} = {target}: {module_name} has no {attr}")
+    assert broken == [], "\n".join(broken)
+
+
+def test_the_build_compiles_the_library_as_its_own_step():
+    cmdclass = _pyproject()["tool"]["setuptools"]["cmdclass"]
+    assert cmdclass["build"] == "scripts.pip_build.build"
+    assert cmdclass["build_christman_dsp"] == "scripts.pip_build.build_christman_dsp"
+    manifest = (ROOT / "MANIFEST.in").read_text(encoding="utf-8")
+    for needed in ("christman_dsp.c", "christman_synth.c", "christman_vocoder.c",
+                   "scripts/build_dsp.py", "scripts/pip_build.py"):
+        assert needed in manifest, f"{needed} is not in MANIFEST.in: an sdist could not build"
+    data = _pyproject()["tool"]["setuptools"]["package-data"]["christman_sound"]
+    assert not {"*.so", "*.dylib"} & set(data), "a library left in a checkout would ride into the wheel"
+
+
+def _setuptools_too_old() -> str | None:
+    try:
+        import setuptools
+    except ImportError:
+        return "setuptools is not installed in this environment"
+    major_minor = tuple(int(p) for p in re.findall(r"\d+", setuptools.__version__)[:2])
+    if major_minor < (70, 1):
+        return (f"setuptools {setuptools.__version__} here is older than 70.1, which pyproject.toml "
+                "requires (pip install builds in its own environment with a newer one)")
+    return None
+
+
+def test_a_wheel_pip_builds_carries_the_library_and_it_loads(tmp_path):
+    """pip wheel on a copy of the source: the library is in the wheel, tagged
+    for this platform, held/ and scripts/ are not, and the library from the
+    wheel loads whole and measures."""
+    import shutil
+    import zipfile
+
+    if not (ROOT / "christman_sound").is_dir():
+        pytest.skip(f"not run: {ROOT} holds no source packages (these tests are running against an "
+                    "installed copy); a wheel is built from the source folder")
+    too_old = _setuptools_too_old()
+    if too_old:
+        pytest.skip(f"not run: {too_old}")
+    if subprocess.run([sys.executable, "-m", "pip", "--version"], capture_output=True).returncode != 0:
+        pytest.skip(f"not run: pip is not available to {sys.executable}")
+    if not (shutil.which(os.environ.get("CC") or "cc") or shutil.which("clang") or shutil.which("gcc")):
+        pytest.skip("not run: no C compiler here; pip install needs one to build the library")
+
+    source = tmp_path / "Christman-Sound"
+    shutil.copytree(ROOT, source, ignore=shutil.ignore_patterns(
+        "build", "dist", "*.egg-info", "__pycache__", "*.so", "*.dylib", ".pytest_cache", "tests"))
+    wheels = tmp_path / "wheels"
+    proc = subprocess.run(
+        [sys.executable, "-m", "pip", "wheel", "--no-deps", "--no-build-isolation", "-w", str(wheels), str(source)],
+        capture_output=True, text=True, timeout=600)
+    assert proc.returncode == 0, proc.stdout[-3000:] + proc.stderr[-3000:]
+    built = sorted(wheels.glob("christman_sound-*.whl"))
+    assert len(built) == 1, built
+    assert re.match(r"christman_sound-[^-]+-py3-none-(?!any)\w+\.whl$", built[0].name), built[0].name
+
+    with zipfile.ZipFile(built[0]) as wheel:
+        names = wheel.namelist()
+        # The wheel is not pure, so setuptools files the packages under
+        # <name>.data/purelib/; pip installs that into site-packages as usual.
+        # What matters is that the library sits beside dsp.py, which loads it.
+        installed = {re.sub(r"^christman_sound-[^/]+\.data/(pure|plat)lib/", "", n): n for n in names}
+        assert "christman_sound/christman_dsp.so" in installed, sorted(installed)[:20]
+        assert "christman_sound/dsp.py" in installed
+        library, loader = installed["christman_sound/christman_dsp.so"], installed["christman_sound/dsp.py"]
+        assert library.rsplit("/", 1)[0] == loader.rsplit("/", 1)[0], (library, loader)
+        assert not [n for n in installed if n.startswith(("held/", "scripts/", "tests/"))]
+        for package in ("christman_sound/", "christman_voice_sdk/", "voice_creation_center/"):
+            assert any(n.startswith(package) for n in installed), f"{package} is not in the wheel"
+        wheel.extract(library, tmp_path / "unpacked")
+
+    sys.path.insert(0, str(ROOT / "scripts"))
+    try:
+        import build_dsp
+    finally:
+        sys.path.remove(str(ROOT / "scripts"))
+    summary = build_dsp.load_check(tmp_path / "unpacked" / library)
+    assert summary.startswith("load check passed"), summary

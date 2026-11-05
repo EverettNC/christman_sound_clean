@@ -24,10 +24,63 @@ def _files_under(folder: Path) -> set:
     return {p for p in folder.rglob("*") if p.is_file()}
 
 
-def test_default_base_is_the_repo_not_the_folder_above(monkeypatch):
+def test_default_base_is_the_repo_not_the_folder_above(monkeypatch, tmp_path):
+    """In a checkout the default base is this folder; installed, the per-user folder.
+
+    WHAT CHANGED AND WHY (2026-11-05): installed from a download (not
+    editable), the VCC's folder is inside site-packages, and the default base
+    is $CHRISTMAN_AI_HOME/voice_creation_center instead (vcc_paths says why).
+    This test runs against whichever copy is imported and asserts the rule
+    for that copy."""
     monkeypatch.delenv(vcc_paths.HOME_ENV, raising=False)
-    assert VCCPaths().base == ROOT
-    assert VCCPaths().express_index == ROOT / "express" / "express_index.json"
+    monkeypatch.setenv(vcc_paths.AI_HOME_ENV, str(tmp_path / "ai_home"))
+    if vcc_paths.is_source_checkout(ROOT):
+        expected = ROOT
+    else:
+        expected = (tmp_path / "ai_home" / "voice_creation_center").resolve()
+    assert VCCPaths().base == expected
+    assert VCCPaths().express_index == expected / "express" / "express_index.json"
+    assert expected != ROOT.parent
+
+
+def _fake_copy(where: Path, checkout: bool) -> Path:
+    """A voice_creation_center folder laid out as a checkout or as installed."""
+    package = where / "voice_creation_center"
+    package.mkdir(parents=True)
+    if checkout:
+        (where / "pyproject.toml").write_text("[project]\nname = \"christman-sound\"\n")
+        (where / "christman_dsp.c").write_text("/* the C engine */\n")
+    return package
+
+
+def test_a_checkout_keeps_its_own_folder_as_the_base(tmp_path):
+    package = _fake_copy(tmp_path / "Christman-Sound", checkout=True)
+    assert vcc_paths.is_source_checkout(package)
+    assert vcc_paths.default_base(package) == package
+
+
+def test_an_installed_copy_writes_to_the_per_user_folder_not_site_packages(monkeypatch, tmp_path):
+    package = _fake_copy(tmp_path / "site-packages", checkout=False)
+    assert not vcc_paths.is_source_checkout(package)
+
+    monkeypatch.setenv(vcc_paths.AI_HOME_ENV, str(tmp_path / "ai_home"))
+    assert vcc_paths.default_base(package) == tmp_path / "ai_home" / "voice_creation_center"
+
+    monkeypatch.delenv(vcc_paths.AI_HOME_ENV)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    assert vcc_paths.default_base(package) == tmp_path / "home" / ".christman_ai" / "voice_creation_center"
+    assert tmp_path / "site-packages" not in vcc_paths.default_base(package).parents
+
+
+def test_vcc_home_and_base_dir_still_win_over_the_installed_default(monkeypatch, tmp_path):
+    package = _fake_copy(tmp_path / "site-packages", checkout=False)
+    monkeypatch.setattr(vcc_paths, "default_base", lambda package_dir=package: vcc_paths.installed_default_base())
+    monkeypatch.setenv(vcc_paths.AI_HOME_ENV, str(tmp_path / "ai_home"))
+    monkeypatch.delenv(vcc_paths.HOME_ENV, raising=False)
+    assert VCCPaths().base == (tmp_path / "ai_home" / "voice_creation_center").resolve()
+    monkeypatch.setenv(vcc_paths.HOME_ENV, str(tmp_path / "vcc_home"))
+    assert VCCPaths().base == (tmp_path / "vcc_home").resolve()
+    assert VCCPaths(tmp_path / "given").base == (tmp_path / "given").resolve()
 
 
 def test_vcc_home_moves_everything(monkeypatch, tmp_path):

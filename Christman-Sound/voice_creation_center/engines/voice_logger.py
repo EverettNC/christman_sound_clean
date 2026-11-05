@@ -31,7 +31,7 @@ HEALTH_LOG = "voice_health.jsonl"
 
 
 def log_path(name: str, base_dir: Optional[str] = None) -> Path:
-    """The full path of log `name` under base_dir, else $VCC_HOME, else this repo."""
+    """The full path of log `name` under base_dir, else $VCC_HOME, else vcc_paths' default."""
     return VCCPaths(base_dir).logs / name
 
 

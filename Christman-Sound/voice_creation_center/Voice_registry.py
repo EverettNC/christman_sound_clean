@@ -57,7 +57,9 @@ logger = logging.getLogger("christman.voice_registry")
 # ---------------------------------------------------------------------------
 
 # Every path comes from vcc_paths: the base_dir passed to VoiceRegistry,
-# else $VCC_HOME, else this repo. (It used to be Path(__file__).parent.parent,
+# else $VCC_HOME, else vcc_paths' default (2026-11-05: this folder in a
+# checkout, a per-user folder when installed). (It used to be
+# Path(__file__).parent.parent,
 # which from the repo root is the folder ABOVE the repo.)
 from .vcc_paths import VCCPaths  # package import: the VCC is inside Christman-Sound (2026-11-05)
 

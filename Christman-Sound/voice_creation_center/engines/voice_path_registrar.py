@@ -302,7 +302,9 @@ if __name__ == "__main__":
         description="Christman Voice Center — Path Registrar (builds the express index)"
     )
     parser.add_argument("--base-dir", default=None,
-                        help="The VCC's base directory (default: $VCC_HOME, else this repo)")
+                        help="The VCC's base directory (default: $VCC_HOME; else this folder in a "
+                        "source checkout; else $CHRISTMAN_AI_HOME/voice_creation_center, "
+                        "~/.christman_ai/voice_creation_center when that is unset)")
     subparsers = parser.add_subparsers(dest="command")
 
     # Register a folder

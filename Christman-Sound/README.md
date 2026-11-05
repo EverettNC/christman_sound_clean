@@ -6,7 +6,7 @@ Christman Sound is the sound package of The Christman AI Project. It holds:
 - **the voice synthesis path**: `christman_synth`, the vocoder, stitch and frame voices, driven from Python by `christman_sound`;
 - **ToneScore and voice measurement**: pitch, jitter, shimmer, HNR and the features ToneScore reads from raw audio;
 - **the hearing modules**: a measured utterance card in, affect and harm frame out, and local speech recognition;
-- **the ear** (`christman_sound.ear`): the package's own speech-to-text, in C;
+- **the ear** (`christman_sound.ear`): local speech-to-text through Vosk's recognizer, on a model folder on disk (2026-11-05: this said the package's own, in C; that decoder is held in `held/claude-ear-2026-10-28`, not installed);
 - **reading aloud** (`christman_ocr_shared.py`): printed text on a screen, an image or a PDF, read so it can be spoken in the caller's voice.
 
 The package holds no being's identity. A being passes its own voice profile or frame voice on every speaking call; with no voice given, nothing is spoken and the call raises a typed failure with the reason. No outside speech engine is ever substituted.
@@ -152,7 +152,7 @@ Do not wire the card source as a `SoundDetectorBackend`.
 - `christman_synth.c` — The synthesizer, ported from Codec War
 - `christman_vocoder.c` — The frame vocoder, ported from Codec War's `vocoder.ts`
 
-All three are compiled into `christman_sound/christman_dsp.so` by `scripts/build_dsp.py`. pip does not build them (see Installation).
+All three are compiled into `christman_sound/christman_dsp.so` by `scripts/build_dsp.py`, which pip runs when the package is installed (see Installation).
 
 ### Reading aloud (repository root)
 
@@ -160,7 +160,8 @@ All three are compiled into `christman_sound/christman_dsp.so` by `scripts/build
 
 ### Scripts
 
-- `scripts/build_dsp.py` — Builds the C library; `--check` runs its smoke test
+- `scripts/build_dsp.py` — Builds the C library; `--check` runs its smoke test, `--check-only` smoke-tests a library already built
+- `scripts/pip_build.py` — The step pip install runs to build the C library (through `scripts/build_dsp.py`). Build tooling; not installed
 - `scripts/build_voice_bank.py` and `scripts/voice_bank_driver.mjs` — Build a frame voice (below)
 - `scripts/measure_voice.py` — Measures a being's own recordings into a voice profile (`--recordings`, `--out`, `--name`)
 - `scripts/run_crisis_table.py`, `scripts/verify_corti_wire.py`, `scripts/verify_hearing_seat.py` — Checks run by hand
@@ -189,7 +190,7 @@ print(reading.safety.unclear, reading.resolved)             # cause False
 
 ### Speech Recognition
 
-Recognition is local. `christman_sound.ear` runs Vosk's recognizer (2026-11-05, Everett: Vosk is the ear, and Corti sits on top), and the SDK's `speech_recognition_engine.py` hears through it. Point it at a model folder with `VOSK_MODEL_PATH`; `~/models/vosk-model-en-us-0.22` and `~/Downloads/vosk-model-en-us-0.22` are found on their own. Audio at a rate other than 16 kHz is resampled to 16 kHz first, and the result says so.
+Recognition is local. `christman_sound.ear` runs Vosk's recognizer (2026-11-05, Everett: Vosk is the ear, and Corti sits on top), and the SDK's `speech_recognition_engine.py` hears through it. Point it at a model folder with `VOSK_MODEL_PATH` (or pass `model_path`); it looks nowhere else. (2026-11-05: this said `~/models` and `~/Downloads` were found on their own. That is true of `christman_sound.ear.discover_vosk_model()`, which the studio uses, not of this engine: on Everett's Mac, with the model in `~/Downloads` and no `VOSK_MODEL_PATH`, it reported no model folder.) Audio at a rate other than 16 kHz is resampled to 16 kHz first, and the result says so.
 
 ```python
 from christman_voice_sdk.audio.speech_recognition_engine import get_speech_recognition_engine
@@ -244,7 +245,7 @@ The folder is built on the machine that speaks; it is not kept in git (a built v
 ```bash
 # every recording 22050 Hz, 16-bit, mono WAV; on a Mac, convert with
 #   afconvert -f WAVE -d LEI16@22050 -c 1 in.wav out.wav
-python3 scripts/build_dsp.py
+# the C library is already built: pip install built it
 python3 scripts/build_voice_bank.py \
     --name <VoiceName> --out ~/.christman_ai/voices/<voice> \
     --recordings <the voice's recordings: folders or WAVs> \
@@ -343,33 +344,47 @@ Client output (the being's own voice, from the profile the being passed)
 ## Requirements
 
 - Python 3.10+
-- A C compiler (Xcode Command Line Tools on a Mac) for `scripts/build_dsp.py`
+- A C compiler (Xcode Command Line Tools on a Mac: `xcode-select --install`; gcc or clang on Linux). pip install compiles the C library with it
 
 ## Installation
 
-```bash
-# local clone — edits land immediately
-pip install -e .
-python3 scripts/build_dsp.py --check        # builds the C library; pip does not
+WHAT CHANGED AND WHY (2026-11-05): Everett asked that the sound package install from a download with one pip install. pip now compiles the C library itself; before, it built nothing in C and `scripts/build_dsp.py` had to be run by hand afterwards.
 
-# extras
-pip install -e '.[crypto]'                  # voicepack encryption
-pip install -e '.[capture]'                 # microphone capture (sounddevice)
-```
+One command, and nothing to run after it. pip compiles the C library (`christman_dsp.c`, `christman_synth.c` and `christman_vocoder.c`, through `scripts/build_dsp.py`) into `christman_sound/christman_dsp.so`, proves it loads, and installs `christman_sound`, `christman_voice_sdk`, `voice_creation_center`, `christman_ocr_shared` and the command-line tools.
 
-From git, still editable:
+From a download (a git clone, or the repository's archive unpacked), point pip at the `Christman-Sound` folder:
 
 ```bash
-pip install -e git+https://github.com/The-ChristmanAI-Project/Christman-Sound.git#egg=christman-sound
+pip install ./Christman-Sound             # an installed copy
+pip install -e ./Christman-Sound          # editable: edits in the folder take effect at once
 ```
 
-Frozen (no edit):
+Extras:
 
 ```bash
-pip install git+https://github.com/The-ChristmanAI-Project/Christman-Sound.git
+pip install "./Christman-Sound[crypto]"   # voicepack encryption
+pip install "./Christman-Sound[capture]"  # microphone capture (sounddevice; on a Mac also: brew install portaudio)
 ```
 
-Then run `scripts/build_dsp.py` from a clone, so `christman_sound/christman_dsp.so` exists. Without it, measurement and the voice raise `DSPUnavailable` with the reason.
+It needs Python 3.10 or later and a C compiler (Xcode Command Line Tools on a Mac, gcc or clang on Linux). With no compiler, or if the library does not load whole, pip install fails and says why; nothing is installed that cannot measure or speak.
+
+To see that it worked:
+
+```bash
+christman-sound --help
+python3 -c "from christman_sound.dsp import get_dsp; d = get_dsp(); print(d.available, d.synth_available, d.path)"
+```
+
+`install.sh` in a clone does the same pip install (editable), then smoke-tests the library pip built and writes the desktop launcher.
+
+### Not in the package: download these yourself
+
+- **The Vosk model folder `vosk-model-en-us-0.22`**, which the ear hears through. It is a folder, not a Python package, so pip does not fetch it. Set `VOSK_MODEL_PATH` to it: the SDK's speech recognition engine and the word-ear receiver (`christman-word-ear`) read that and nothing else. `christman_sound.ear.discover_vosk_model()` and the studio (`christman-sound`) also look in `~/Downloads/vosk-model-en-us-0.22`, then `~/models/vosk-model-en-us-0.22`. The voice's lexicon is inside it, at `graph/phones/align_lexicon.txt` (`$CHRISTMAN_LEXICON_PATH` points elsewhere). Without it the ear reports unavailable with the reason.
+- **ffmpeg**, only for the Voice Creation Center's ingestor when the audio is not already `.wav`.
+
+### Where an installed copy writes
+
+The Voice Creation Center writes its packs, express index, logs and recordings under one base folder: the `base_dir` a caller passes, else `$VCC_HOME`, else, in a source checkout (an editable install), the `voice_creation_center/` folder itself, as before. Installed from a download (not editable), the package sits in site-packages, so the base is `$CHRISTMAN_AI_HOME/voice_creation_center`, by default `~/.christman_ai/voice_creation_center`, beside the SDK's own folders (`voice_creation_center/vcc_paths.py`).
 
 librosa is not a dependency: nothing imports it, and its numba and llvmlite chain has no Intel Mac wheel.
 

@@ -471,6 +471,13 @@ class ChristmanSoundApp:
         })
 
     def _handle_build_engines(self) -> AppResponse:
+        # WHAT CHANGED AND WHY (2026-11-05): pip install builds the C library
+        # now. An installed copy (not editable) has no scripts/ folder and no
+        # C sources beside it, so this answered 500 "build_dsp.py not found"
+        # and christman-sound-install refused to install the desktop app on
+        # every such machine. There, nothing is rebuilt: the library pip
+        # built is loaded and reported, and the answer is 200 only if it
+        # loads with its synthesizer. In a checkout it is rebuilt as before.
         results: Dict[str, Any] = {}
         build_dsp_script = _REPO_ROOT / "scripts" / "build_dsp.py"
         if build_dsp_script.is_file():
@@ -483,15 +490,23 @@ class ChristmanSoundApp:
                 "stdout": proc.stdout.strip(),
                 "stderr": proc.stderr.strip(),
             }
+            built = proc.returncode == 0
         else:
-            results["dsp"] = {"returncode": 1, "error": f"{build_dsp_script} not found"}
+            results["dsp"] = {
+                "rebuilt": False,
+                "reason": (f"an installed copy: no {build_dsp_script} to rebuild from. pip compiled "
+                           "the library when the package was installed; it is loaded and checked here"),
+            }
+            built = True
 
         # 2026-11-05: the ear is Vosk again (Everett); it has no library of
         # this package's to build. Its state is in /api/status under "ear".
         dsp_mod._instance = None
         dsp = get_dsp()
         results["dsp_loaded"] = dsp.available and dsp.synth_available
-        code = 200 if results["dsp"].get("returncode") == 0 else 500
+        results["dsp_path"] = str(dsp.path) if dsp.path else None
+        results["dsp_error"] = dsp.error or dsp.synth_error
+        code = 200 if built and results["dsp_loaded"] else 500
         return _json_resp(results, code)
 
     def _handle_install_desktop(self) -> AppResponse:
@@ -1454,12 +1469,19 @@ def install_desktop_bundle(target_dir: Optional[Path] = None) -> Dict[str, str]:
             home_apps = Path.home() / "Applications"
             home_apps.mkdir(parents=True, exist_ok=True)
             app_roots.append(home_apps)
-        dist_dir = _REPO_ROOT / "dist"
-        try:
-            dist_dir.mkdir(parents=True, exist_ok=True)
-            app_roots.append(dist_dir)
-        except OSError:
-            pass
+        # WHAT CHANGED AND WHY (2026-11-05): the portable copy goes to
+        # <checkout>/dist only in a source checkout. Installed from a download
+        # (not editable), _REPO_ROOT is site-packages, and this wrote a dist/
+        # folder with an app bundle into it.
+        # The copy is optional; when it cannot be made, the reason is returned
+        # under "dist_not_written" instead of being dropped.
+        if (_REPO_ROOT / "christman_dsp.c").is_file():
+            dist_dir = _REPO_ROOT / "dist"
+            try:
+                dist_dir.mkdir(parents=True, exist_ok=True)
+                app_roots.append(dist_dir)
+            except OSError as exc:
+                created["dist_not_written"] = f"{dist_dir}: {exc}"
 
     for root in app_roots:
         bundle = root / "Christman Sound.app"

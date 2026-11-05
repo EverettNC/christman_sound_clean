@@ -30,8 +30,12 @@ the path registrar run as
 
 Where it writes: packs/, inventory/, express/, incoming/, logs/ and the
 studio's raw takes go under one base directory (vcc_paths): the base_dir a
-caller passes, else $VCC_HOME, else this folder. Installed editable, this
-folder is the checkout, as it was in the VCC's own repo.
+caller passes, else $VCC_HOME, else vcc_paths.default_base(). Installed
+editable (or run from the source folder), that is this folder, the
+checkout, as it was in the VCC's own repo. Installed from a download
+(pip install, not editable), this folder is inside site-packages, so the
+base is $CHRISTMAN_AI_HOME/voice_creation_center, by default
+~/.christman_ai/voice_creation_center (2026-11-05; vcc_paths says why).
 
 Christman-Sound also holds christman_sound/voice_creation_center.py, which is
 a different thing with the same name: the measuring and voice-building engine
