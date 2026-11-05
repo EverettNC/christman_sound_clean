@@ -76,6 +76,36 @@ Every control passed is applied and listed in SynthResult.applied, or the
 call raises StitchRefused with the reason; none is accepted and ignored. The
 controls belong to the frame voice: passed with a voice profile, they raise
 ValueError (christman_synth has no breath, jitter or shimmer input).
+
+THE WORDS (both mouths; see Pronouncer). Each word is said, in this order:
+  * the caller's own pronunciation, when it handed one in:
+        synthesize("hello hellobooth", voice=v, pronunciations={"hellobooth": "h @ l oU b u T"})
+    The package holds no being's or person's name; a caller brings its names
+    (and any word it wants said its way) with their pronunciations, in the
+    lexicon's own phones (christman_sound.lexicon.parse_phones).
+  * Porch's rule (christman_sound.ear.porch.MOUTH_SAYS: live, lived,
+    misread, haptic), chosen among the pronunciations the lexicon holds.
+  * the lexicon's first pronunciation in file order, as before.
+A word none of these holds is refused (WordNotInLexicon, naming it), as
+before. Every word said by the caller's pronunciation or Porch's rule, and
+every Porch word whose rule depends on meaning and so was not applied (read,
+lives), is listed in SynthResult.applied with name "pronunciation".
+
+WHAT CHANGED AND WHY (2026-11-05)
+---------------------------------
+Everett, 2026-10-29: "The mouth: text-to-speech in each being's own voice,
+which the being hands in. Bring in Porch's pronunciation rules (read, live,
+misread, haptic) and the family names, so it says them right and stops
+refusing names." Porch's rules were in the package (ear/porch.py) but the
+mouth did not read them: it said every word by the lexicon's file order, so
+"live" was l I v and "haptic" h eI p t I k, where Porch writes /laɪv/ and
+/ˈhæptɪk/; and it refused every name the lexicon does not hold, with no way
+for a caller to hand one in. Now
+synthesize() and speak() take `pronunciations` and say each word through a
+Pronouncer. text_to_phones() without a pronouncer, and render_codecwar_table()
+(the bare table that checks the port against Codec War and that measurement
+sets a voice against), are file order as before: they are not the mouth, and
+the measurements made with them do not move.
 """
 
 from __future__ import annotations
@@ -87,7 +117,7 @@ import sys
 import wave
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple, Union
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 from .dsp import (
     ChristmanDSP,
@@ -97,7 +127,16 @@ from .dsp import (
     SynthUnavailable,
     get_dsp,
 )
-from .lexicon import Lexicon, WordNotInLexicon, load_lexicon, normalize_word
+from .ear.porch import MOUTH_ASKS_MEANING, MOUTH_SAYS, mouth_note
+from .lexicon import (
+    Lexicon,
+    PronunciationNotInLexicon,
+    WordNotInLexicon,
+    load_lexicon,
+    normalize_word,
+    parse_phones,
+    timed_phones,
+)
 from .voice_profile import VoiceProfile, load_voice_profile
 
 __all__ = [
@@ -112,6 +151,9 @@ __all__ = [
     "PlaybackUnavailable",
     "TimedPhone",
     "SynthResult",
+    "Pronouncer",
+    "PronunciationNotInLexicon",
+    "WordNotInLexicon",
     "text_to_phones",
     "resolve_voice",
     "synthesize",
@@ -204,8 +246,122 @@ class SynthResult:
         return write_wav(path, self.samples, self.sample_rate)
 
 
+PronunciationSpec = Union[str, Sequence[str]]
+
+
+class Pronouncer:
+    """
+    How the mouth says each word (added 2026-11-05, Everett's ruling of
+    2026-10-29). For a word (a normalize_word key), in this order:
+
+      1. The caller's own pronunciation, when it handed one in
+         (`pronunciations`, word -> phones in the lexicon's alphabet; see
+         christman_sound.lexicon.parse_phones). This is how a being's names
+         are said: the package holds none (porch.FAMILY_NAMES is empty), the
+         caller brings them. It also wins over Porch and the lexicon, and the
+         record says so.
+      2. Porch's rule, when the lexicon holds the word and Porch writes one
+         pronunciation for every use of it (porch.MOUTH_SAYS: live, lived,
+         misread, haptic): the lexicon's pronunciation that is Porch's. Porch
+         chooses among what the lexicon holds and never adds a word. If the
+         lexicon holds the word but none of its pronunciations is Porch's,
+         PronunciationNotInLexicon.
+      3. The lexicon's first pronunciation in file order, as before. For the
+         Porch rows that depend on what the speaker means (porch.
+         MOUTH_ASKS_MEANING: read, lives) this is what is said, and the
+         record says the rule was not applied and why.
+
+    A word in neither the caller's pronunciations nor the lexicon is not
+    held (holds() is False); text_to_phones refuses it, naming it, exactly as
+    before. Nothing is spelled out or made up.
+
+    `record` lists each word said by 1 or 2, and each word of 3 that Porch
+    asks the meaning of, once per word, in SynthResult.applied's shape:
+    name "pronunciation", plus "word" and "file_order" (what the lexicon's
+    file order says, or None when the lexicon does not hold the word).
+    """
+
+    def __init__(self, lexicon: Lexicon, pronunciations: Optional[Mapping[str, PronunciationSpec]] = None) -> None:
+        self.lexicon = lexicon
+        self.supplied: Dict[str, Tuple[str, ...]] = {}
+        if pronunciations is not None:
+            if not isinstance(pronunciations, Mapping):
+                raise TypeError("pronunciations: a mapping of word -> phones, not "
+                                f"{type(pronunciations).__name__}")
+            for raw_word, spec in pronunciations.items():
+                if not isinstance(raw_word, str) or len(raw_word.split()) != 1:
+                    raise ValueError(f"pronunciations: {raw_word!r} is not one word; the mouth says a sentence "
+                                     "word by word, so hand in each word of a name on its own")
+                key = normalize_word(raw_word)
+                if not key:
+                    raise ValueError(f"pronunciations: {raw_word!r} holds no letter")
+                phones = parse_phones(spec, key)
+                if key in self.supplied and self.supplied[key] != phones:
+                    raise ValueError(f"pronunciations: {key!r} is handed in twice, as "
+                                     f"{' '.join(self.supplied[key])} and {' '.join(phones)}")
+                self.supplied[key] = phones
+        self.record: List[dict] = []
+        self._recorded: set = set()
+
+    def holds(self, key: str) -> bool:
+        """True when the caller handed in `key` or the lexicon holds it."""
+        return key in self.supplied or key in self.lexicon
+
+    def phones(self, key: str) -> Tuple[str, ...]:
+        """
+        The lexicon-alphabet phones the mouth says for `key`. Raises
+        WordNotInLexicon (not held), PronunciationNotInLexicon (Porch's
+        pronunciation is not among the lexicon's for the word).
+        """
+        if key in self.supplied:
+            phones = self.supplied[key]
+            self._note_caller(key, phones)
+            return phones
+        held = self.lexicon.pronunciations(key)  # WordNotInLexicon when the lexicon does not hold it
+        want = MOUTH_SAYS.get(key)
+        if want is not None:
+            if want not in held:
+                raise PronunciationNotInLexicon(key, want, held, f"Porch ({mouth_note(key)})", self.lexicon.path)
+            self._note(key, "porch", want, held[0],
+                       f"Porch: {mouth_note(key)} Said {' '.join(want)}, the lexicon's pronunciation "
+                       f"{held.index(want) + 1} of {len(held)}; "
+                       + ("file order says the same" if held.index(want) == 0
+                          else f"file order would have said {' '.join(held[0])}"))
+            return want
+        if key in MOUTH_ASKS_MEANING:
+            self._note(key, "porch", held[0], held[0],
+                       f"Porch's rule not applied: {MOUTH_ASKS_MEANING[key]}. Said {' '.join(held[0])}, the "
+                       f"lexicon's first of {len(held)} in file order, as before")
+        return held[0]
+
+    def timed(self, key: str) -> List[Tuple[str, float]]:
+        """(Codec War id, duration factor) for each phone the mouth says for `key`."""
+        return timed_phones(self.phones(key), key)
+
+    def _note_caller(self, key: str, phones: Tuple[str, ...]) -> None:
+        first = self.lexicon.pronunciations(key)[0] if key in self.lexicon else None
+        text = "the caller's own pronunciation"
+        if first is not None:
+            text += f"; the lexicon's file order would have said {' '.join(first)}"
+        else:
+            text += "; the lexicon does not hold this word"
+        if key in MOUTH_SAYS or key in MOUTH_ASKS_MEANING:
+            text += f"; in place of Porch's rule ({mouth_note(key)})"
+        self._note(key, "caller", phones, first, text)
+
+    def _note(self, key: str, control: str, said: Tuple[str, ...], first: Optional[Tuple[str, ...]],
+              text: str) -> None:
+        if key in self._recorded:
+            return
+        self._recorded.add(key)
+        self.record.append({"name": "pronunciation", "word": key, "measured": None, "control": control,
+                            "applied": text, "value": " ".join(said),
+                            "file_order": " ".join(first) if first is not None else None})
+
+
 def text_to_phones(
-    text: str, lexicon: Lexicon, engine: Optional[ChristmanDSP] = None
+    text: str, lexicon: Lexicon, engine: Optional[ChristmanDSP] = None, *,
+    pronouncer: Optional[Pronouncer] = None,
 ) -> List[Tuple[str, float, Optional[str]]]:
     """
     (phone id, duration before rate, word) for `text`, by Codec War's
@@ -213,7 +369,16 @@ def text_to_phones(
     C table. Raises WordNotInLexicon listing every missing word,
     PhoneNotMapped for a lexicon phone with no Codec War counterpart, and
     NothingToSay when no token holds a word.
+
+    pronouncer  the mouth's Pronouncer over this same lexicon: each word is
+                said by the caller's pronunciation, Porch's rule or file
+                order (see Pronouncer), and a word is missing only when
+                neither the caller nor the lexicon holds it. None (the
+                default, for measurement): the lexicon's file order, as
+                before 2026-11-05.
     """
+    if pronouncer is not None and pronouncer.lexicon is not lexicon:
+        raise ValueError("the pronouncer reads another lexicon than the one passed")
     table = (engine if engine is not None else get_dsp()).synth_phone_table()
     out: List[Tuple[str, float, Optional[str]]] = [("SIL", _LEAD_SIL, None)]
     missing: List[str] = []
@@ -227,10 +392,10 @@ def text_to_phones(
             # phonemes.ts:233-241: a token like "-" yields no phones, yet the gap SIL is added.
             out.append(("SIL", _WORD_GAP_SIL, None))
             continue
-        if key not in lexicon:
+        if not (pronouncer.holds(key) if pronouncer is not None else key in lexicon):
             missing.append(key)
             continue
-        timed = lexicon.phones_timed(key)
+        timed = pronouncer.timed(key) if pronouncer is not None else lexicon.phones_timed(key)
         for i, (pid, phone_factor) in enumerate(timed):
             factor = _EDGE_FACTOR if (i == 0 or i == len(timed) - 1) else _INNER_FACTOR
             # Codec War's position factor, then the mapping table's own factor
@@ -293,12 +458,18 @@ def voice_fingerprint(voice: Union[VoiceProfile, "FrameVoice"]) -> str:
     return h.hexdigest()
 
 
-def _sequence(text, phones, lexicon, lexicon_path, dsp, table) -> List[Tuple[str, float, Optional[str]]]:
+def _sequence(text, phones, lexicon, lexicon_path, dsp, table, *, mouth: bool = False,
+              pronunciations=None) -> Tuple[List[Tuple[str, float, Optional[str]]], Optional[Pronouncer]]:
+    """The phone sequence, and the Pronouncer that said it when `mouth` (else None: file order)."""
     seq: List[Tuple[str, float, Optional[str]]]
+    say: Optional[Pronouncer] = None
     if text is not None:
         lex = lexicon if lexicon is not None else load_lexicon(lexicon_path)
-        seq = text_to_phones(text, lex, dsp)
+        say = Pronouncer(lex, pronunciations) if mouth else None
+        seq = text_to_phones(text, lex, dsp, pronouncer=say)
     else:
+        if pronunciations:
+            raise ValueError("pronunciations are for text; phones are already phones")
         seq = []
         for item in phones:  # type: ignore[union-attr]
             pid, dur = item
@@ -308,7 +479,7 @@ def _sequence(text, phones, lexicon, lexicon_path, dsp, table) -> List[Tuple[str
     unknown = [pid for pid, _, _ in seq if pid not in table]
     if unknown:
         raise UnknownPhone(f"not Codec War phones: {sorted(set(unknown))}")
-    return seq
+    return seq, say
 
 
 def _timeline(seq, rate) -> List[TimedPhone]:
@@ -344,6 +515,7 @@ def synthesize(
     prosody: Optional[float] = None,
     resonance: Optional[str] = None,
     affect: Optional[str] = None,
+    pronunciations: Optional[Mapping[str, PronunciationSpec]] = None,
 ) -> SynthResult:
     """
     Synthesize `text` (looked up in the lexicon) or `phones` (a list of
@@ -355,18 +527,27 @@ def synthesize(
                 profile is the one source of pitch and rate: passing f0,
                 f0_contour or rate with it raises ValueError rather than mix
                 the two.
+    pronunciations
+                the caller's own words: word -> its pronunciation in the
+                lexicon's phones ("k r I s t m @ n" or a list). Its names go
+                here. Each word of the text is said by these, then Porch's
+                rule, then the lexicon's file order (see Pronouncer); every
+                choice is listed in SynthResult.applied. A word none of them
+                holds is refused, naming it. Text only.
     f0, rate    with a frame voice, controls (see THE CONTROLS above).
     sample_rate a voice profile speaks at 16000 (Codec War, the default) or
                 22050. A frame voice speaks at its bank's rate; another rate
                 is refused.
 
     Raises NoVoice, VoiceProfileError, FrameVoiceUnavailable,
-    LexiconUnavailable, WordNotInLexicon, PhoneNotMapped, NothingToSay,
-    UnknownPhone, SynthRefused, StitchRefused, SynthUnavailable or
-    DSPUnavailable. Never returns a substitute.
+    LexiconUnavailable, WordNotInLexicon, PronunciationNotInLexicon,
+    PhoneNotMapped, NothingToSay, UnknownPhone, SynthRefused, StitchRefused,
+    SynthUnavailable or DSPUnavailable. Never returns a substitute.
     """
     if (text is None) == (phones is None):
         raise ValueError("pass exactly one of text or phones")
+    if pronunciations and text is None:
+        raise ValueError("pronunciations are for text; phones are already phones")
     controls = {k: v for k, v in (("cadence", cadence), ("breath", breath), ("jitter", jitter), ("shimmer", shimmer), ("timbre", timbre),
                                   ("articulation", articulation), ("intonation", intonation), ("prosody", prosody),
                                   ("resonance", resonance), ("affect", affect)) if v is not None}
@@ -374,7 +555,8 @@ def synthesize(
 
     v = resolve_voice(voice)
     if isinstance(v, FrameVoice):
-        result = _speak_frames(text, phones, v, controls, f0, f0_contour, rate, sample_rate, lexicon, lexicon_path, engine)
+        result = _speak_frames(text, phones, v, controls, f0, f0_contour, rate, sample_rate, lexicon, lexicon_path,
+                               engine, pronunciations)
         result.voice_fingerprint = voice_fingerprint(v)
         return result
     if controls:
@@ -386,7 +568,7 @@ def synthesize(
         sample_rate = CODECWAR_SAMPLE_RATE
     dsp = engine if engine is not None else get_dsp()
     table = dsp.synth_phone_table()
-    seq = _sequence(text, phones, lexicon, lexicon_path, dsp, table)
+    seq, say = _sequence(text, phones, lexicon, lexicon_path, dsp, table, mouth=True, pronunciations=pronunciations)
     ids = [table[pid][0] for pid, _, _ in seq]
     durs = [d for _, d, _ in seq]
     # The voice's own pitch, contour, rate, vowel resonances and glides.
@@ -407,6 +589,7 @@ def synthesize(
         voice=v.name,
         renderer=RENDERER_CLEAR,
         voice_fingerprint=v.fingerprint(),
+        applied=list(say.record) if say is not None else [],
     )
 
 
@@ -445,7 +628,7 @@ def render_codecwar_table(
         sample_rate = CODECWAR_SAMPLE_RATE
     dsp = engine if engine is not None else get_dsp()
     table = dsp.synth_phone_table()
-    seq = _sequence(text, phones, lexicon, lexicon_path, dsp, table)
+    seq, _ = _sequence(text, phones, lexicon, lexicon_path, dsp, table)  # file order: not the mouth
     ids = [table[pid][0] for pid, _, _ in seq]
     durs = [d for _, d, _ in seq]
     samples = dsp.synth(ids, durs, f0, rate, sample_rate, f0_contour, None)
@@ -460,8 +643,14 @@ def render_codecwar_table(
     )
 
 
-def _speak_frames(text, phones, voice, controls, f0, f0_contour, rate, sample_rate, lexicon, lexicon_path, engine) -> SynthResult:
-    """Free text in a frame voice: stitched from its own frames, shaped, rendered by christman_vocoder."""
+def _speak_frames(text, phones, voice, controls, f0, f0_contour, rate, sample_rate, lexicon, lexicon_path, engine,
+                  pronunciations=None) -> SynthResult:
+    """
+    Free text in a frame voice: stitched from its own frames, shaped, rendered by christman_vocoder.
+    Each word is said through a Pronouncer (2026-11-05). A word the caller handed in is said by the
+    caller's pronunciation as it stands; any other word goes through the voice's own spoken_as first
+    (voice.json: a word the voice says as other words), then each of those words through the Pronouncer.
+    """
     import zlib
 
     from .stitch import NEUTRAL_CONTROLS, StitchRefused, apply_voice, join_units, render, select_units
@@ -474,6 +663,7 @@ def _speak_frames(text, phones, voice, controls, f0, f0_contour, rate, sample_ra
     if sample_rate is not None and int(sample_rate) != bank.sr:
         raise ValueError(f"the frame voice {voice.name} speaks at {bank.sr} Hz, not {sample_rate}")
     lex = lexicon if lexicon is not None else load_lexicon(lexicon_path)
+    say = Pronouncer(lex, pronunciations)
     words: List[Tuple[str, List[str], bool]] = []
     missing: List[str] = []
     for raw in text.strip().split():
@@ -484,11 +674,12 @@ def _speak_frames(text, phones, voice, controls, f0, f0_contour, rate, sample_ra
         key = normalize_word(raw)
         if not key:
             continue
-        for part in voice.spoken_as.get(key, key).split():
-            if part not in lex:
+        parts = [key] if key in say.supplied else voice.spoken_as.get(key, key).split()
+        for part in parts:
+            if not say.holds(part):
                 missing.append(part)
                 continue
-            words.append((part, [pid for pid, _ in lex.phones_timed(part)], False))
+            words.append((part, [pid for pid, _ in say.timed(part)], False))
         if words and _PAUSE_MARK.search(raw.rstrip("\"')]}")[-1:] or ""):
             words[-1] = (words[-1][0], words[-1][1], True)
     if missing:
@@ -509,7 +700,7 @@ def _speak_frames(text, phones, voice, controls, f0, f0_contour, rate, sample_ra
     seed = zlib.crc32(" ".join(w[0] for w in words).encode("utf-8"))
     samples = render(voiced, bank, seed, engine=dsp)
     peak = max((abs(v) for v in samples), default=0.0)
-    applied = list(voiced.applied)
+    applied = list(say.record) + list(voiced.applied)
     if peak > FRAME_PEAK:
         scale = FRAME_PEAK / peak
         samples = array.array("f", (v * scale for v in samples))
