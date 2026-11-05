@@ -9,6 +9,24 @@ Cooperation Layer (ported from THEWHOLEHOUSE src/lib/porch/{lexicon,mangle,diale
 
 Being-neutral: FAMILY_NAMES starts empty; callers pass their own `family_names`
 or `extra_lexicon` when routing or recovering caller-specific names.
+
+WHAT CHANGED AND WHY (2026-11-05)
+---------------------------------
+Everett, 2026-10-29: "Bring in Porch's pronunciation rules (read, live,
+misread, haptic) and the family names, so it says them right and stops
+refusing names." The rows below were the ear's bias only: in THEWHOLEHOUSE
+the rail that shows them is headed "The ear's bias", and the notes guard the
+transcript (the ear writing "leave" for live, "Miss Reed" for misread,
+"hectic" for haptic). Three of the notes also write the word's pronunciation,
+in IPA. MOUTH_SAYS (new, below MOUTH_COOPERATION) is those pronunciations in
+the lexicon's own phones, so the mouth (christman_sound.synth) can choose,
+among the pronunciations the Vosk lexicon holds for the word, the one Porch
+writes. Only rows whose note writes one pronunciation for every use are
+there. "read" and "lives" depend on what the speaker means (the tense; "when
+presence is meant"); they are in MOUTH_ASKS_MEANING and the mouth does not
+choose for them. Nothing in MOUTH_COOPERATION, DIALECT_KEEP or the mangles
+was changed, and FAMILY_NAMES stays empty: a caller hands in its own names
+with their pronunciations (synth.synthesize(..., pronunciations=...)).
 """
 
 from __future__ import annotations
@@ -23,6 +41,9 @@ __all__ = [
     "FAMILY_NAMES",
     "DIALECT_KEEP",
     "MOUTH_COOPERATION",
+    "MOUTH_SAYS",
+    "MOUTH_ASKS_MEANING",
+    "mouth_note",
     "DEFAULT_LEXICON",
     "PORCH_MANGLES",
     "PorchCorrection",
@@ -83,6 +104,41 @@ MOUTH_COOPERATION: Tuple[Dict[str, str], ...] = (
 )
 
 DEFAULT_LEXICON: Tuple[Dict[str, str], ...] = DIALECT_KEEP + MOUTH_COOPERATION
+
+# ------------------------------------------------------------------------------
+# THE MOUTH'S SIDE (added 2026-11-05). The pronunciation each note above writes
+# in IPA, phone for phone in the Vosk lexicon's alphabet (X-SAMPA, the phones
+# of vosk-model-en-us-0.22 that christman_sound.lexicon maps), for the rows
+# whose note writes one pronunciation for every use of the word. The stress
+# mark is not a phone. IPA to lexicon: l l, aɪ aI, v v, d d, m m, ɪ I, s s,
+# r r, ɛ E, h h, æ {, p p, t t, k k. tests/test_porch_in_mouth.py reads each
+# note's IPA back and holds this table to it.
+# ------------------------------------------------------------------------------
+MOUTH_SAYS: Dict[str, Tuple[str, ...]] = {
+    "live": ("l", "aI", "v"),                     # /laɪv/  "LONG I ... rhymes with five"
+    "lived": ("l", "aI", "v", "d"),               # /laɪvd/ "not laved, not leaved"
+    "misread": ("m", "I", "s", "r", "E", "d"),    # /mɪsˈrɛd/ "always MISRED"
+    "haptic": ("h", "{", "p", "t", "I", "k"),     # /ˈhæptɪk/ "HAP-tic ... flat a like cap"
+}
+
+#: The rows whose note makes the pronunciation depend on what the speaker
+#: means. The mouth is handed words, not the tense or the meaning, so it does
+#: not choose for these: it says them as the lexicon's file order does, as it
+#: did before, and records that the rule was not applied and why.
+MOUTH_ASKS_MEANING: Dict[str, str] = {
+    "read": ("past tense is RED and present is REED (\"the tense is the claim\"); the mouth is handed the "
+             "word, not the tense, and does not guess which the speaker meant"),
+    "lives": ("the note writes /laɪvz/ \"when presence is meant\"; the mouth is handed the word, not the "
+              "meaning, and does not guess which the speaker meant"),
+}
+
+
+def mouth_note(word: str) -> str:
+    """The MOUTH_COOPERATION note for `word` (lower case), or "" when Porch has none."""
+    for row in MOUTH_COOPERATION:
+        if row["said"] == word:
+            return row["note"]
+    return ""
 
 PORCH_MANGLES: Tuple[Tuple[re.Pattern[str], str, str, str], ...] = (
     (re.compile(r"\bmike could\b", re.I), "might could", "Mike could", "dialect"),
