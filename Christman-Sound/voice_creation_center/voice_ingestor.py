@@ -50,8 +50,8 @@ logger = logging.getLogger("christman.voice_ingestor")
 # in, else $VCC_HOME, else this repo. (They used to be built from
 # Path(__file__).parent.parent, which from the repo root is the folder ABOVE
 # the repo.)
-from vcc_paths import VCCPaths
-import voice_express  # the one writer of express index entries
+from .vcc_paths import VCCPaths  # package import: the VCC is inside Christman-Sound (2026-11-05)
+from . import voice_express  # the one writer of express index entries
 
 # Silence detection defaults
 SILENCE_THRESH_DB  = -40    # dB — anything quieter than this is silence

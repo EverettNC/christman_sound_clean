@@ -180,9 +180,12 @@ class Recorder:
             import sounddevice as sd
             self._sd = sd
             return True
-        except ImportError:
+        # OSError (2026-11-05): sounddevice installed without the PortAudio
+        # library raises OSError on import, not ImportError, and that crashed
+        # every Recorder() on such a machine. Both are reported the same way.
+        except (ImportError, OSError) as exc:
             logger.error(
-                "sounddevice not installed.\n"
+                f"sounddevice cannot be used here ({type(exc).__name__}: {exc}).\n"
                 "Install it with:  pip install sounddevice\n"
                 "On Mac you may also need:  brew install portaudio"
             )

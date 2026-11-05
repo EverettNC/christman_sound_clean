@@ -70,12 +70,20 @@ dependencies = [
     # Vosk's recognizer on a model folder on disk (the full
     # vosk-model-en-us-0.22), the recognizer the Filament runs.
     "vosk",
+    # 2026-11-05: the Voice Creation Center is inside the package
+    # (voice_creation_center/). Its ingestor splits and converts audio with
+    # pydub; any input that is not already .wav also needs the ffmpeg program.
+    "pydub>=0.25.1",
+    # Python 3.13 removed the audioop module pydub imports; audioop-lts puts it back.
+    "audioop-lts; python_version >= '3.13'",
 ]
 
 [project.optional-dependencies]
 # Voicepack encryption (timbre/voicepack.py).
 crypto = ["cryptography"]
-# Microphone capture (integration/voice_capture_client.capture_audio).
+# Microphone capture (integration/voice_capture_client.capture_audio, and the
+# Voice Creation Center's live studio recorder). On a Mac, sounddevice also
+# needs PortAudio: brew install portaudio.
 capture = ["sounddevice"]
 # Local speech recognition: vosk is a base dependency (2026-11-05, above). The
 # model is not a package: point VOSK_MODEL_PATH at a model folder on disk
@@ -97,7 +105,7 @@ christman-build-dsp = "scripts.build_dsp:main"
 py-modules = ["christman_ocr_shared"]
 
 [tool.setuptools.packages.find]
-include = ["christman_voice_sdk*", "christman_sound*"]
+include = ["christman_voice_sdk*", "christman_sound*", "voice_creation_center*"]
 
 [tool.setuptools.package-data]
 christman_voice_sdk = ["py.typed"]
@@ -105,6 +113,8 @@ christman_voice_sdk = ["py.typed"]
 # scripts/build_dsp.py ran before the wheel was built; editable installs find
 # it in christman_sound/ where build_dsp.py writes it.
 christman_sound = ["*.so", "*.dylib", "*.json", "static/*", "static/icons/*"]
+# The VCC's express index (empty until phrases are registered) and its notes.
+voice_creation_center = ["express/express_index.json", "*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

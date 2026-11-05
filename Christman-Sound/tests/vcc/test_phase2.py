@@ -16,8 +16,7 @@ PURPOSE:
     Tests that do NOT require a microphone (device listing, stats computation,
     Phase 1 workflow with pre-existing WAV) always run.
 
-Run directly:   python3 studio/test_phase2.py
-Or with pytest: pytest studio/test_phase2.py -v
+Run with pytest, from Christman-Sound:  python3 -m pytest tests/vcc/test_phase2.py -v
 ================================================================================
 """
 
@@ -29,18 +28,10 @@ import struct
 import math
 from pathlib import Path
 
-_STUDIO_DIR  = Path(__file__).resolve().parent
-_CENTER_ROOT = _STUDIO_DIR.parent
-_ENGINES_DIR = _CENTER_ROOT / "engines"
-
-for _p in (str(_CENTER_ROOT), str(_ENGINES_DIR), str(_STUDIO_DIR)):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-
 import os
 
-from recorder   import Recorder, RecorderState, RecordingStats, SAMPLE_RATE
-from live_studio import LiveStudio, SessionState, ValidationStatus
+from voice_creation_center.studio.recorder import Recorder, RecorderState, RecordingStats, SAMPLE_RATE
+from voice_creation_center.studio.live_studio import LiveStudio, SessionState, ValidationStatus
 from signals_for_tests import write_voiced_wav
 
 import numpy as np
@@ -63,7 +54,7 @@ BEING = "being under test"
 try:
     import sounddevice as _sd
     SOUNDDEVICE_AVAILABLE = True
-except ImportError:
+except (ImportError, OSError):  # OSError: sounddevice installed without PortAudio
     SOUNDDEVICE_AVAILABLE = False
 
 #: Opening the microphone records the room; playing sound is heard by whoever
@@ -76,14 +67,14 @@ def _require_microphone() -> None:
     if not MICROPHONE_ALLOWED:
         _skip("NOT RUN: would open the microphone; set VCC_ALLOW_MICROPHONE=1 to run it")
     if not SOUNDDEVICE_AVAILABLE:
-        _skip("NOT RUN: sounddevice is not installed (pip install -r requirements-studio.txt)")
+        _skip("NOT RUN: sounddevice is not installed (pip install -e '.[capture]' in Christman-Sound)")
 
 
 def _require_playback() -> None:
     if not PLAYBACK_ALLOWED:
         _skip("NOT RUN: would play a tone aloud; set VCC_ALLOW_PLAYBACK=1 to run it")
     if not SOUNDDEVICE_AVAILABLE:
-        _skip("NOT RUN: sounddevice is not installed (pip install -r requirements-studio.txt)")
+        _skip("NOT RUN: sounddevice is not installed (pip install -e '.[capture]' in Christman-Sound)")
 
 
 # ── WAV helpers ───────────────────────────────────────────────────────────────

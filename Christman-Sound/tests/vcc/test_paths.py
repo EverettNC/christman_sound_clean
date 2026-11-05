@@ -12,10 +12,12 @@ from pathlib import Path
 
 import pytest
 
-import vcc_paths
-from vcc_paths import VCCPaths
+import voice_creation_center
+from voice_creation_center import vcc_paths
+from voice_creation_center.vcc_paths import VCCPaths
 
-ROOT = Path(__file__).resolve().parent.parent
+#: The VCC's folder, its default base directory (2026-11-05: inside Christman-Sound).
+ROOT = Path(voice_creation_center.__file__).resolve().parent
 
 
 def _files_under(folder: Path) -> set:
@@ -43,8 +45,8 @@ def test_passed_base_dir_wins_over_vcc_home(monkeypatch, tmp_path):
 
 def test_registry_and_loader_meet_in_one_base(tmp_path):
     """What the registry writes, the loader reads: both under the same base."""
-    from Voice_registry import VoiceRegistry, VoicePackRecord
-    import voice_loader
+    from voice_creation_center.Voice_registry import VoiceRegistry, VoicePackRecord
+    from voice_creation_center.engines import voice_loader
 
     reg = VoiceRegistry(base_dir=str(tmp_path))
     reg.load()
@@ -57,10 +59,10 @@ def test_registry_and_loader_meet_in_one_base(tmp_path):
 
 def test_every_writer_stays_inside_its_base(tmp_path):
     """Registry, express, logger and studio write under the base and nowhere else nearby."""
-    from Voice_registry import VoiceRegistry
-    from voice_express import VoiceExpress
-    import voice_logger
-    import live_studio
+    from voice_creation_center.Voice_registry import VoiceRegistry
+    from voice_creation_center.voice_express import VoiceExpress
+    from voice_creation_center.engines import voice_logger
+    from voice_creation_center.studio import live_studio
 
     base = tmp_path / "base"
     outside_before = _files_under(tmp_path)
@@ -83,8 +85,8 @@ def test_every_writer_stays_inside_its_base(tmp_path):
 
 
 def test_ingestor_writes_under_its_base(tmp_path):
-    pytest.importorskip("pydub", reason="NOT RUN: pydub is not installed (pip install -r requirements.txt)")
-    import voice_ingestor
+    pytest.importorskip("pydub", reason="NOT RUN: pydub is not installed (pip install -e . in Christman-Sound)")
+    from voice_creation_center import voice_ingestor
     from signals_for_tests import write_voiced_wav
 
     base = tmp_path / "base"

@@ -20,8 +20,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import take_listener
-from voice_engine import (
+from voice_creation_center.studio import take_listener
+from voice_creation_center.engines.voice_engine import (
     SYNTH_INPUT_FOR,
     Affect,
     ResonanceMode,

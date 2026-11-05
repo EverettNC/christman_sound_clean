@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import logging
 import shutil
-import sys
 import uuid
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
@@ -41,19 +40,13 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional
 
-# ── Make the Center's existing helpers importable ───────────────────────────
-_CENTER_ROOT = Path(__file__).resolve().parent.parent
-_ENGINES_DIR = _CENTER_ROOT / "engines"
-_STUDIO_DIR  = Path(__file__).resolve().parent
-for _p in (str(_CENTER_ROOT), str(_ENGINES_DIR), str(_STUDIO_DIR)):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-
-import voice_validator         # engines/voice_validator.py
-import take_listener         # studio/take_listener.py — listens to the take
-from vcc_paths import VCCPaths  # one base directory for the whole VCC
-import voice_path_registrar    # engines/voice_path_registrar.py
-from recorder import Recorder, RecordingStats  # studio/recorder.py  (Phase 2)
+# ── The Center's helpers, as one package (2026-11-05: the VCC is inside
+#    Christman-Sound; before, this file put three folders on sys.path) ──────
+from ..engines import voice_validator         # engines/voice_validator.py
+from . import take_listener                   # studio/take_listener.py — listens to the take
+from ..vcc_paths import VCCPaths              # one base directory for the whole VCC
+from ..engines import voice_path_registrar    # engines/voice_path_registrar.py
+from .recorder import Recorder, RecordingStats  # studio/recorder.py  (Phase 2)
 
 logger = logging.getLogger("christman.live_studio")
 

@@ -8,21 +8,14 @@ Export targets a temp dir and the express-index registration is pointed at a
 temp index file, so these tests never touch a real export folder or the
 Center's real express_index.json. No test opens a microphone or plays sound.
 
-Run directly:   python3 studio/test_live_studio.py
-Or with pytest:  pytest studio/test_live_studio.py
+Run with pytest, from Christman-Sound:  python3 -m pytest tests/vcc/test_live_studio.py
 
 A test that cannot run is reported as NOT RUN with its reason, never as a pass.
 """
 
-import sys
 from pathlib import Path
 
-_HERE = Path(__file__).resolve().parent
-for _p in (str(_HERE), str(_HERE.parent / "engines")):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-
-import live_studio as ls
+from voice_creation_center.studio import live_studio as ls
 from signals_for_tests import write_noise_wav, write_silent_wav, write_voiced_wav
 
 SPEAKER = "studio test"

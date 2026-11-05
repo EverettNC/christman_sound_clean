@@ -63,7 +63,6 @@ from __future__ import annotations
 import inspect
 import io
 import logging
-import sys
 import wave
 from dataclasses import asdict, dataclass, field
 from enum import Enum
@@ -72,10 +71,7 @@ from typing import Dict, List, Optional
 
 logger = logging.getLogger("christman.voice_engine")
 
-_ENGINES_DIR = str(Path(__file__).resolve().parent)
-if _ENGINES_DIR not in sys.path:
-    sys.path.insert(0, _ENGINES_DIR)
-import voice_validator  # engines/voice_validator.py — the content check before any sound
+from . import voice_validator  # engines/voice_validator.py — the content check before any sound
 
 
 # ---------------------------------------------------------------------------

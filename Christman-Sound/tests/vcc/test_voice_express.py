@@ -13,13 +13,15 @@ from pathlib import Path
 
 import pytest
 
-import take_listener
-import voice_express
-import voice_path_registrar
+import voice_creation_center
+from voice_creation_center.studio import take_listener
+from voice_creation_center import voice_express
+from voice_creation_center.engines import voice_path_registrar
 from signals_for_tests import write_phrases_with_gaps_wav, write_voiced_wav
-from voice_express import Priority, UnmeasurableAudio, VoiceExpress
+from voice_creation_center.voice_express import Priority, UnmeasurableAudio, VoiceExpress
 
-ROOT = Path(__file__).resolve().parent.parent
+#: The VCC's folder, its default base directory (2026-11-05: inside Christman-Sound).
+ROOT = Path(voice_creation_center.__file__).resolve().parent
 BEING = "being under test"
 
 
@@ -38,7 +40,7 @@ def engine():
         pytest.skip("NOT RUN: no voice was handed in; set VCC_TEST_VOICE_PROFILE to a measured voice profile")
     if not lexicon:
         pytest.skip("NOT RUN: no lexicon; set CHRISTMAN_LEXICON_PATH to a Vosk align_lexicon.txt")
-    from voice_engine import VoiceEngine
+    from voice_creation_center.engines.voice_engine import VoiceEngine
     e = VoiceEngine(profile, lexicon_path=lexicon)
     assert e.is_ready, e.not_ready_reason
     return e
@@ -91,9 +93,9 @@ def test_registrar_refuses_unreadable_files_and_marks_filename_text(tmp_path):
 
 
 def test_every_writer_writes_an_index_the_express_lane_loads(tmp_path):
-    pytest.importorskip("pydub", reason="NOT RUN: pydub is not installed (pip install -r requirements.txt)")
-    import live_studio
-    import voice_ingestor
+    pytest.importorskip("pydub", reason="NOT RUN: pydub is not installed (pip install -e . in Christman-Sound)")
+    from voice_creation_center.studio import live_studio
+    from voice_creation_center import voice_ingestor
 
     # registrar
     one = write_voiced_wav(tmp_path / "one.wav")
@@ -171,7 +173,7 @@ def test_the_consumer_renders_in_the_beings_voice(express, engine):
 
 
 def test_the_consumer_refuses_a_control_it_cannot_apply(express, engine):
-    from voice_engine import VoiceParameters
+    from voice_creation_center.engines.voice_engine import VoiceParameters
     req = express.priority_synthesize("You are safe", BEING, params=VoiceParameters(porosity=0.5))
     express.run_queue({BEING: engine})
     if engine._synth_accepts("breath"):
@@ -200,8 +202,8 @@ def test_phrases_come_from_the_beings_own_source(express, tmp_path):
 # ── The ingestor ─────────────────────────────────────────────────────────────
 
 def test_ingestor_keeps_the_language_and_reads_the_real_rate(tmp_path):
-    pytest.importorskip("pydub", reason="NOT RUN: pydub is not installed (pip install -r requirements.txt)")
-    import voice_ingestor
+    pytest.importorskip("pydub", reason="NOT RUN: pydub is not installed (pip install -e . in Christman-Sound)")
+    from voice_creation_center import voice_ingestor
     src = write_phrases_with_gaps_wav(tmp_path / "deux.wav", count=2, rate=44100)
     rep = voice_ingestor.ingest_file(src, BEING, language="fr-FR", phrase_map=["Bonjour", "Merci"], base_dir=str(tmp_path))
     assert rep["success"] and rep["registered"] == 2, rep
@@ -213,8 +215,8 @@ def test_ingestor_keeps_the_language_and_reads_the_real_rate(tmp_path):
 
 
 def test_ingestor_without_a_map_registers_no_invented_text(tmp_path):
-    pytest.importorskip("pydub", reason="NOT RUN: pydub is not installed (pip install -r requirements.txt)")
-    import voice_ingestor
+    pytest.importorskip("pydub", reason="NOT RUN: pydub is not installed (pip install -e . in Christman-Sound)")
+    from voice_creation_center import voice_ingestor
     src = write_phrases_with_gaps_wav(tmp_path / "two.wav", count=2)
     rep = voice_ingestor.ingest_file(src, BEING, base_dir=str(tmp_path))
     assert rep["success"] and rep["phrases"] == 2 and rep["registered"] == 0, rep
@@ -223,8 +225,8 @@ def test_ingestor_without_a_map_registers_no_invented_text(tmp_path):
 
 
 def test_ingestor_map_that_does_not_line_up_registers_nothing(tmp_path):
-    pytest.importorskip("pydub", reason="NOT RUN: pydub is not installed (pip install -r requirements.txt)")
-    import voice_ingestor
+    pytest.importorskip("pydub", reason="NOT RUN: pydub is not installed (pip install -e . in Christman-Sound)")
+    from voice_creation_center import voice_ingestor
     src = write_phrases_with_gaps_wav(tmp_path / "two.wav", count=2)
     rep = voice_ingestor.ingest_file(src, BEING, phrase_map=["Only one"], base_dir=str(tmp_path))
     assert not rep["success"] and rep["registered"] == 0

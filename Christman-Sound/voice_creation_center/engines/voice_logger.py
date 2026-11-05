@@ -22,11 +22,7 @@ from typing import Optional
 
 logger = logging.getLogger("christman.voice_logger")
 
-import sys as _sys
-_REPO_ROOT = str(Path(__file__).resolve().parent.parent)
-if _REPO_ROOT not in _sys.path:
-    _sys.path.insert(0, _REPO_ROOT)
-from vcc_paths import VCCPaths  # one base directory for the whole VCC
+from ..vcc_paths import VCCPaths  # one base directory for the whole VCC; package import: the VCC is inside Christman-Sound (2026-11-05)
 
 # Log files, under the VCC's one base directory (vcc_paths): logs/<name>.
 AUDIT_LOG = "voice_audit.jsonl"

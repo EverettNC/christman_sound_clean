@@ -74,7 +74,7 @@ from typing import Dict, List, Mapping, Optional, Tuple
 # vcc_paths: the base_dir passed to VoiceExpress, else $VCC_HOME, else this
 # repo. (They used to be Path(__file__).parent.parent / "express", which from
 # the repo root is the folder ABOVE the repo.)
-from vcc_paths import VCCPaths
+from .vcc_paths import VCCPaths  # package import: the VCC is inside Christman-Sound (2026-11-05)
 
 logger = logging.getLogger("christman.voice_express")
 
