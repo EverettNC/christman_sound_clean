@@ -265,7 +265,7 @@ def _check_medians(profile: dict) -> None:
 def test_measurement_from_a_beings_recordings(tmp_path):
     """
     Runs scripts/measure_voice.py on a being's recordings with
-    christman_sound.ear (2026-10-29: the old recognizer is removed), loads
+    christman_sound.ear (Vosk's recognizer, 2026-11-05), loads
     what it wrote, and checks every value against the
     measurements written beside it. With CHRISTMAN_VOICE_REFERENCE_PROFILE
     (that being's earlier measured profile) it also compares every applied
@@ -273,7 +273,7 @@ def test_measurement_from_a_beings_recordings(tmp_path):
     phrases; CHRISTMAN_VOICE_PREFIX is their file name prefix),
     CHRISTMAN_VOSK_MODEL (the vosk-model-en-us-0.22 folder the ear reads) and
     CHRISTMAN_LEXICON_PATH. It runs on this Python, the one with
-    Christman-Sound installed and the ear's C library built.
+    Christman-Sound installed, with vosk.
     """
     need = {k: os.environ.get(k) for k in
             ("CHRISTMAN_VOICE_RECORDINGS", "CHRISTMAN_VOSK_MODEL", "CHRISTMAN_LEXICON_PATH")}

@@ -143,7 +143,7 @@ Do not wire the card source as a `SoundDetectorBackend`.
 - `voice_profile.py` — A measured voice profile (`load_voice_profile(path)`), applied to the synthesizer. Each profile carries its file's SHA-256 (`fingerprint()`)
 - `dsp.py` — The one loader for the C library
 - `logger.py` — Logging
-- `ear/` — The ear: the package's own speech-to-text. Its C library is built once per machine with `python -m christman_sound.ear.build --check`
+- `ear/` — The word ear: Vosk's recognizer on a model folder on disk (the full vosk-model-en-us-0.22), with the Filament's mouth map and boards and the Porch's layer. Corti sits on top of the hearing. (A decoder written by a Claude Code session stood here from 2026-10-29 to 2026-11-05; it is held in `held/claude-ear-2026-10-28`, not installed.)
 - `core.py` — Kept for the record. Nothing imports it, and it is not touched (Everett, 2026-10-11)
 
 ### C engine (repository root)
@@ -189,7 +189,7 @@ print(reading.safety.unclear, reading.resolved)             # cause False
 
 ### Speech Recognition
 
-Recognition is local. `christman_sound.ear` is the package's own speech-to-text, and the SDK's `speech_recognition_engine.py` hears through it (2026-10-29: the old recognizer is removed). Point it at a model folder with `VOSK_MODEL_PATH` and build the ear's C library once (`python -m christman_sound.ear.build --check`). Audio at a rate other than 16 kHz is resampled to 16 kHz first, and the result says so.
+Recognition is local. `christman_sound.ear` runs Vosk's recognizer (2026-11-05, Everett: Vosk is the ear, and Corti sits on top), and the SDK's `speech_recognition_engine.py` hears through it. Point it at a model folder with `VOSK_MODEL_PATH`; `~/models/vosk-model-en-us-0.22` and `~/Downloads/vosk-model-en-us-0.22` are found on their own. Audio at a rate other than 16 kHz is resampled to 16 kHz first, and the result says so.
 
 ```python
 from christman_voice_sdk.audio.speech_recognition_engine import get_speech_recognition_engine
@@ -254,7 +254,7 @@ python3 scripts/build_voice_bank.py \
     --lexicon ~/models/vosk-model-en-us-0.22/graph/phones/align_lexicon.txt
 ```
 
-It needs node (Codec War's own analysis runs under it), the ear's C library, numpy and praat-parselmouth. Only the voice's own recordings go in: never another being's, never a person's. `--measure-only` keeps a built bank and measures the profile again.
+It needs node (Codec War's own analysis runs under it), the vosk library, numpy and praat-parselmouth. Only the voice's own recordings go in: never another being's, never a person's. `--measure-only` keeps a built bank and measures the profile again.
 
 ### ToneScore and voice measurement
 
@@ -351,7 +351,6 @@ Client output (the being's own voice, from the profile the being passed)
 # local clone — edits land immediately
 pip install -e .
 python3 scripts/build_dsp.py --check        # builds the C library; pip does not
-python -m christman_sound.ear.build --check # builds the ear's C library, once per machine
 
 # extras
 pip install -e '.[crypto]'                  # voicepack encryption

@@ -44,6 +44,10 @@ decides is written in AlphaVox's WHAT_THE_BEING_DECIDES.md.
   5. Hand Up ("Request attention") reads hard_block, nonverbal distress,
      and danger.
   8. The old recognizer is gone; hearing goes through christman_sound.ear.
+     2026-11-05, Everett: Vosk is the ear (christman_sound.ear runs Vosk's
+     recognizer on the full model, as the Filament does), and Corti sits on
+     top. The decoder written in its place is held, not installed, in
+     held/claude-ear-2026-10-28. Tests 8 below say that now.
   9. Nothing changes the truth: every word passes through exactly as said.
 """
 
@@ -737,8 +741,13 @@ def test_9_corti_receiver_route_returns_the_mapped_words_unaltered():
 
 # -- 8. the old recognizer is gone ------------------------------------------------
 
-def test_8_the_old_recognizer_is_named_nowhere_in_the_repository():
+def test_8_the_old_recognizers_name_appears_only_where_vosk_is_called():
+    # Was (2026-10-29): the name appears nowhere. Vosk's recognizer class carries
+    # it, and the Filament imports that class by name; with Vosk back as the ear
+    # (Everett, 2026-11-05) it appears on the lines that call Vosk, and nowhere
+    # else.
     name = "".join(["k", "a", "l", "d", "i"])     # built here so this file does not carry it
+    allowed = {"christman_sound/ear/hear.py", "christman_sound/ear/recognizer.py"}
     hits = []
     for path in ROOT.rglob("*"):
         if not path.is_file() or ".git" in path.parts or "__pycache__" in path.parts:
@@ -753,8 +762,25 @@ def test_8_the_old_recognizer_is_named_nowhere_in_the_repository():
         except (UnicodeDecodeError, OSError):
             continue
         if name in text.lower():
-            hits.append(str(path.relative_to(ROOT)))
+            rel = str(path.relative_to(ROOT))
+            lines = [ln for ln in text.splitlines() if name in ln.lower()]
+            if rel not in allowed or any("vosk." not in ln for ln in lines):
+                hits.append(rel)
     assert hits == [], hits
+
+
+def test_8_the_package_ear_is_vosk_and_the_held_ear_is_not_installed():
+    from christman_sound.ear import hear
+
+    assert "import vosk" in Path(hear.__file__).read_text(encoding="utf-8")
+    ear_dir = Path(hear.__file__).parent
+    for gone in ("acoustic", "csrc", "features", "decoder.py", "modelfile.py", "build.py", "_lib.py"):
+        assert not (ear_dir / gone).exists(), f"{gone} is Claude's held ear; it is not installed"
+    held = ROOT / "held" / "claude-ear-2026-10-28"
+    assert (held / "ear" / "decoder.py").is_file() and (held / "WHY.txt").is_file()
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert 'include = ["christman_voice_sdk*", "christman_sound*"]' in pyproject   # held/ is not a package
+    assert '"vosk"' in pyproject
 
 
 def test_8_the_engine_hears_through_christman_sound_ear():

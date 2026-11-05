@@ -19,7 +19,7 @@ on a Mac: afconvert -f WAVE -d LEI16@22050 -c 1 in.mp3 out.wav). Only the
 voice's own recordings go in: never another being's, never a person's.
 
 What it does, in order:
-  1. Words and their times: christman_sound.ear, this package's own ear, on
+  1. Words and their times: Vosk's recognizer through christman_sound.ear, on
      the --vosk-model folder (the full model), on every recording resampled
      to 16 kHz, with each word's confidence.
   2. Phones of each word: christman_sound.lexicon (the --lexicon), as Booth ids.
@@ -103,12 +103,12 @@ EAR_SR = 16000
 def _words(model_dir: str, p: Path) -> List[dict]:
     """
     Words, their times (seconds from the start of the file) and confidences,
-    heard by christman_sound.ear, this package's own ear, on the model folder
+    heard by Vosk's recognizer through christman_sound.ear, on the model folder
     at `model_dir`.
 
-    2026-10-29 (Everett's ruling): the old recognizer is removed. This used
-    to run the `vosk` package's recognizer, which is the old one. The ear
-    reads the same model folder with this package's code and hears 16 kHz,
+    2026-11-05 (Everett): Vosk is the ear again; from 2026-10-29 this ran a
+    decoder of the package's own, now held in held/claude-ear-2026-10-28. The
+    ear hears 16 kHz,
     so a recording at another rate (the bank's are 22050 Hz) is resampled to
     16 kHz with scipy's polyphase filter first. Word times are in seconds,
     so they point at the same place in the recording either way.

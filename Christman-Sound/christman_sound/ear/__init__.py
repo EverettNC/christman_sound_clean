@@ -2,29 +2,28 @@
 # © 2025 Everett Nathaniel Christman & Misty Gail Christman
 # The Christman AI Project — Luma Cognify AI
 # ==============================================================================
-"""christman_sound.ear: the package's own speech to text, fully offline.
+"""christman_sound.ear: the package's speech to text, fully offline.
 
-Ported from ear-core (CODECWAR5TH/ear-core) with the math unchanged, plus
-THEFILAMENT's mouth map, Carbon pile, Family & Residual boards, and
-THEWHOLEHOUSE's Porch dialect + TCAP-V-0020 mouth-cooperation layer:
+The words come from Vosk's recognizer on a model folder on disk, the
+full vosk-model-en-us-0.22 by default: the recognizer the Filament runs. Corti
+sits on top of the hearing (christman_voice_sdk/audio/hearing.py); this is the
+word ear under it. With the recognizer come THEFILAMENT's mouth map, Carbon
+pile, Family & Residual boards, and THEWHOLEHOUSE's Porch dialect +
+TCAP-V-0020 mouth-cooperation layer:
 
-    modelfile   the binary model file format (final.mdl, final.ie, final.dubm, final.mat)
-    features    MFCC from conf/mfcc.conf, with dither; online i-vectors from ivector/
-    acoustic    the transition model and the network in am/final.mdl, run in chunks
-    decoder     the decoding graph HCLG.fst, memory-mapped and searched in C;
-                word lattices and MBR confidences
-    recognizer  Model, Recognizer, find_graph, discover_vosk_model
-    hear        Ear, Heard, Word: the same answers as Python objects
+    hear        Ear, Heard, Word, load_model, EarUnavailable: Vosk's answers as Python objects
+    recognizer  discover_vosk_model, find_graph; Model and Recognizer are Vosk's own
     mouth       Filament mouth map + Carbon pile (CONF_FLOOR = 0.55)
     board       Family & Residual boards + 15-region Dialect Map
     porch       TCAP-V-0020 mouth-cooperation + 33 family names + dialect preservation
-    wer         word error rate
-    build       compiles csrc/ into libear.dylib / libear.so
 
-No recognizer library is imported; numpy and the C library built from csrc/
-are the whole engine. Build the C library once per machine:
-
-    python -m christman_sound.ear.build --check
+WHAT CHANGED AND WHY (2026-11-05)
+Everett: Vosk is the ear, and Corti sits on top. From 2026-10-29 to 2026-11-05
+this package decoded words with its own port of the ear-core a Claude Code
+session built in CODECWAR5TH (model file reader, MFCC and i-vectors, the
+acoustic network, a C graph search), after that session took the vosk library
+out (EverettNC/Christman-Sound 7b6e1ce). That ear is kept whole, not installed,
+in held/claude-ear-2026-10-28, with its tests, so it can be looked at.
 """
 
 from __future__ import annotations
@@ -35,6 +34,7 @@ _EXPORTS = {
     "Ear": "hear",
     "Heard": "hear",
     "Word": "hear",
+    "EarUnavailable": "hear",
     "load_model": "hear",
     "Model": "recognizer",
     "Recognizer": "recognizer",

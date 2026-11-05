@@ -389,7 +389,13 @@ class ChristmanSoundApp:
 
     def _handle_status(self) -> AppResponse:
         dsp = get_dsp()
-        ear_lib = _PACKAGE_DIR / "ear" / ("libear.dylib" if sys.platform == "darwin" else "libear.so")
+        try:
+            from .ear.hear import EarUnavailable, _vosk
+
+            _vosk()
+            vosk_installed, vosk_error = True, None
+        except EarUnavailable as exc:  # reported in the status below, never hidden
+            vosk_installed, vosk_error = False, str(exc)
         disc_lex = discover_align_lexicon()
         disc_vosk = discover_vosk_model()
         lex_env = os.environ.get(LEXICON_ENV) or (str(disc_lex) if disc_lex else "")
@@ -423,8 +429,9 @@ class ChristmanSoundApp:
                 "phones": phones,
             },
             "ear": {
-                "library_built": ear_lib.is_file(),
-                "library_path": str(ear_lib),
+                "engine": "vosk",
+                "vosk_installed": vosk_installed,
+                "vosk_error": vosk_error,
                 "vosk_model_path": vosk_env or None,
                 "vosk_model_present": bool(vosk_env and Path(vosk_env).expanduser().is_dir()),
             },
@@ -473,19 +480,12 @@ class ChristmanSoundApp:
         else:
             results["dsp"] = {"returncode": 1, "error": f"{build_dsp_script} not found"}
 
-        proc_ear = subprocess.run(
-            [sys.executable, "-m", "christman_sound.ear.build", "--check"],
-            capture_output=True, text=True, cwd=str(_REPO_ROOT),
-        )
-        results["ear"] = {
-            "returncode": proc_ear.returncode,
-            "stdout": proc_ear.stdout.strip(),
-            "stderr": proc_ear.stderr.strip(),
-        }
+        # 2026-11-05: the ear is Vosk again (Everett); it has no library of
+        # this package's to build. Its state is in /api/status under "ear".
         dsp_mod._instance = None
         dsp = get_dsp()
         results["dsp_loaded"] = dsp.available and dsp.synth_available
-        code = 200 if results["dsp"].get("returncode") == 0 and results["ear"].get("returncode") == 0 else 500
+        code = 200 if results["dsp"].get("returncode") == 0 else 500
         return _json_resp(results, code)
 
     def _handle_install_desktop(self) -> AppResponse:
@@ -1509,9 +1509,6 @@ if [ ! -x "$PY_BIN" ]; then
 fi
 if [ ! -f "$REPO_DIR/christman_sound/christman_dsp.so" ] && [ ! -f "$REPO_DIR/christman_sound/christman_dsp.dylib" ]; then
   "$PY_BIN" "$REPO_DIR/scripts/build_dsp.py"
-fi
-if [ ! -f "$REPO_DIR/christman_sound/ear/libear.dylib" ] && [ ! -f "$REPO_DIR/christman_sound/ear/libear.so" ]; then
-  "$PY_BIN" -m christman_sound.ear.build
 fi
 exec "$PY_BIN" -m christman_sound.app --open-browser
 """
