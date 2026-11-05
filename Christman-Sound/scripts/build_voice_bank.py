@@ -415,8 +415,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     measures["stitched_aperiodicity"] = sbest["aperiodicity"]
     measures["stitched_jitter_carried"] = sbest["carried"]["jitter"]
     measures["stitched_shimmer_carried"] = sbest["carried"]["shimmer"]
-    cw = Path(args.codecwar).expanduser() if args.codecwar else Path("christman_sound.frames")
-    cw_commit = subprocess.run(["git", "-C", str(cw), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip() if args.codecwar else "native"
+    if args.measure_only:
+        # The bank was not rebuilt: it is still the one the earlier build made, so its
+        # provenance is that build's, not this run's (2026-11-05: a measure-only run
+        # wrote "native" here over a bank Codec War had built).
+        prev_cw = (prev.get("provenance") or {}).get("codecwar")
+        if not prev_cw:
+            sys.exit("--measure-only: the voice.json in --out does not say what built its bank")
+        bank_built_by = {**prev_cw, "bank_built": (prev.get("provenance") or {}).get("built", "unknown")}
+    else:
+        cw = Path(args.codecwar).expanduser() if args.codecwar else Path("christman_sound.frames")
+        cw_commit = subprocess.run(["git", "-C", str(cw), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip() if args.codecwar else "native"
+        bank_built_by = {"path": str(cw), "commit": cw_commit or "unknown"}
     doc = {
         "name": args.name,
         "measures": measures,
@@ -424,7 +434,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "provenance": {
             "built": _dt.datetime.now().astimezone().isoformat(timespec="seconds"),
             "builder": "Christman-Sound scripts/build_voice_bank.py",
-            "codecwar": {"path": str(cw), "commit": cw_commit or "unknown"},
+            "codecwar": bank_built_by,
             "vosk_model": str(Path(args.vosk_model).expanduser()),
             "lexicon": str(Path(args.lexicon).expanduser()),
             "min_conf": args.min_conf,
