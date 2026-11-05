@@ -6,6 +6,9 @@
 """
 christman_sound.ear.porch — Porch Dialect Preservation & TCAP-V-0020 Mouth-
 Cooperation Layer (ported from THEWHOLEHOUSE src/lib/porch/{lexicon,mangle,dialect,packet}.ts).
+
+Being-neutral: FAMILY_NAMES starts empty; callers pass their own `family_names`
+or `extra_lexicon` when routing or recovering caller-specific names.
 """
 
 from __future__ import annotations
@@ -30,14 +33,7 @@ __all__ = [
     "reconstruct_dialect",
 ]
 
-# WHAT CHANGED AND WHY (2026-10-30, Everett's ruling: nothing in the sound
-# package names a person or a being, and each being brings its own). This
-# held 33 names (the beings, the family, Claude, Anthropic, partner
-# companies) that steered every client's transcript. It is empty now: a
-# being hands its own names to build_keyterms and reconstruct_dialect
-# (`names`), and its own spellings to recover as said/keep entries in
-# `extra_lexicon`. The list lives on in THEWHOLEHOUSE's porch, where it was
-# ported from.
+# Starts empty so no being's or person's name is baked into the package.
 FAMILY_NAMES: Tuple[str, ...] = ()
 
 DIALECT_KEEP: Tuple[Dict[str, str], ...] = (
@@ -129,9 +125,12 @@ class DialectLayer:
         }
 
 
-def build_keyterms(extra: Sequence[Dict[str, str]] = (), names: Sequence[str] = ()) -> List[str]:
+def build_keyterms(
+    extra: Sequence[Dict[str, str]] = (),
+    family_names: Sequence[str] = (),
+) -> List[str]:
     from_lex = [v for e in (list(DEFAULT_LEXICON) + list(extra)) for v in (e.get("said", ""), e.get("keep", ""))]
-    all_terms = list(names) + from_lex
+    all_terms = list(FAMILY_NAMES) + list(family_names) + from_lex
     seen = set()
     out: List[str] = []
     for t in all_terms:
@@ -175,13 +174,13 @@ def merge_corrections(
     return out
 
 
-def _named_beings(text: str, names: Sequence[str]) -> List[str]:
+def _named_beings(text: str, family_names: Sequence[str] = ()) -> List[str]:
     low = text.lower()
     out: List[str] = []
     seen = set()
-    for name in names:
+    for name in list(FAMILY_NAMES) + list(family_names):
         n_low = name.lower()
-        if n_low in low and n_low not in seen:
+        if n_low and n_low in low and n_low not in seen:
             seen.add(n_low)
             out.append(name)
     return out
@@ -190,7 +189,7 @@ def _named_beings(text: str, names: Sequence[str]) -> List[str]:
 def reconstruct_dialect(
     raw_ear: str,
     extra_lexicon: Sequence[Dict[str, str]] = (),
-    names: Sequence[str] = (),
+    family_names: Sequence[str] = (),
 ) -> DialectLayer:
     if not (raw_ear or "").strip():
         return DialectLayer(
@@ -209,7 +208,7 @@ def reconstruct_dialect(
             if pat.search(text):
                 text = pat.sub(keep, text)
                 corrections.append(PorchCorrection(from_text=said, to_text=keep, why=entry.get("note") or "client-taught"))
-    route = _named_beings(text, names)
+    route = _named_beings(text, family_names=family_names)
     return DialectLayer(
         as_said=text,
         for_the_family=text,

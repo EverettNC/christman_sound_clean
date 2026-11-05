@@ -216,22 +216,11 @@ def _resample_cycle(cyc: Sequence[float], target_len: int) -> List[float]:
     return out
 
 
-def voice_quality_dsp(
-    samples: Sequence[float],
+def _measure_single_voiced_window(
+    x: List[float],
     sr: int,
-    f0: Optional[float] = None,
-) -> Dict[str, Optional[float]]:
-    x = [float(v) for v in samples]
-    if len(x) < 256 or sr <= 0:
-        return {"jitter": None, "shimmer": None, "hnr_db": None}
-    dsp = get_dsp()
-    if f0 is None:
-        if dsp.available:
-            raw_f0 = float(dsp.yin(x, sr))
-            f0 = raw_f0 if 55.0 <= raw_f0 <= 500.0 else None
-    if f0 is None or f0 <= 0.0:
-        return {"jitter": None, "shimmer": None, "hnr_db": None}
-
+    f0: float,
+) -> Optional[Dict[str, float]]:
     t0 = sr / float(f0)
     min_lag = max(4, int(round(t0 * 0.75)))
     max_lag = int(round(t0 * 1.25))
@@ -253,7 +242,7 @@ def voice_quality_dsp(
         pos = best_idx
 
     if len(peaks) < 5:
-        return {"jitter": None, "shimmer": None, "hnr_db": None}
+        return None
 
     periods: List[float] = []
     amps: List[float] = []
@@ -270,38 +259,87 @@ def voice_quality_dsp(
         cycles.append(_resample_cycle(cyc, target_len))
 
     if len(periods) < 4:
-        return {"jitter": None, "shimmer": None, "hnr_db": None}
+        return None
 
     mean_p = statistics.fmean(periods)
     mean_a = statistics.fmean(amps)
-    jitter = (
-        statistics.fmean(abs(periods[i] - periods[i - 1]) for i in range(1, len(periods))) / mean_p
-        if mean_p > 1e-9
-        else None
-    )
-    shimmer = (
-        statistics.fmean(abs(amps[i] - amps[i - 1]) for i in range(1, len(amps))) / mean_a
-        if mean_a > 1e-9
-        else None
-    )
+    if mean_p <= 1e-9 or mean_a <= 1e-9:
+        return None
+    jitter = statistics.fmean(abs(periods[i] - periods[i - 1]) for i in range(1, len(periods))) / mean_p
+    shimmer = statistics.fmean(abs(amps[i] - amps[i - 1]) for i in range(1, len(amps))) / mean_a
 
     n_cyc = len(cycles)
     template = [sum(cycles[c][k] for c in range(n_cyc)) / n_cyc for k in range(target_len)]
     sig_pow = sum(v * v for v in template) / target_len
+    if sig_pow <= 1e-12:
+        return None
     resid_sq_sum = 0.0
     for cyc in cycles:
         for k in range(target_len):
             d = cyc[k] - template[k]
             resid_sq_sum += d * d
     noise_pow = max(1e-12, resid_sq_sum / (n_cyc * target_len))
-    hnr_db: Optional[float] = None
-    if sig_pow > 1e-12:
-        hnr_db = round(min(60.0, 10.0 * math.log10(sig_pow / noise_pow)), 2)
+    hnr_db = min(60.0, 10.0 * math.log10(sig_pow / noise_pow))
+    return {
+        "jitter": float(jitter),
+        "shimmer": float(shimmer),
+        "hnr_db": float(hnr_db),
+    }
+
+
+def voice_quality_dsp(
+    samples: Sequence[float],
+    sr: int,
+    f0: Optional[float] = None,
+) -> Dict[str, Optional[float]]:
+    x = [float(v) for v in samples]
+    if len(x) < 256 or sr <= 0:
+        return {"jitter": None, "shimmer": None, "hnr_db": None}
+    dsp = get_dsp()
+    if f0 is not None and f0 > 0.0:
+        res = _measure_single_voiced_window(x, sr, float(f0))
+        if res is not None:
+            return {
+                "jitter": round(res["jitter"], 5),
+                "shimmer": round(res["shimmer"], 5),
+                "hnr_db": round(res["hnr_db"], 2),
+            }
+
+    if not dsp.available:
+        return {"jitter": None, "shimmer": None, "hnr_db": None}
+
+    if len(x) <= 4096:
+        raw_f0 = float(dsp.yin(x, sr))
+        if 55.0 <= raw_f0 <= 500.0:
+            res = _measure_single_voiced_window(x, sr, raw_f0)
+            if res is not None:
+                return {
+                    "jitter": round(res["jitter"], 5),
+                    "shimmer": round(res["shimmer"], 5),
+                    "hnr_db": round(res["hnr_db"], 2),
+                }
+        return {"jitter": None, "shimmer": None, "hnr_db": None}
+
+    win_len = 2048
+    hop_len = 1024
+    win_results: List[Dict[str, float]] = []
+    for start in range(0, len(x) - win_len + 1, hop_len):
+        seg = x[start : start + win_len]
+        if float(dsp.rms(seg)) <= 1e-6:
+            continue
+        seg_f0 = float(dsp.yin(seg, sr))
+        if 55.0 <= seg_f0 <= 500.0:
+            r = _measure_single_voiced_window(seg, sr, seg_f0)
+            if r is not None:
+                win_results.append(r)
+
+    if not win_results:
+        return {"jitter": None, "shimmer": None, "hnr_db": None}
 
     return {
-        "jitter": round(float(jitter), 5) if jitter is not None else None,
-        "shimmer": round(float(shimmer), 5) if shimmer is not None else None,
-        "hnr_db": hnr_db,
+        "jitter": round(float(statistics.median(r["jitter"] for r in win_results)), 5),
+        "shimmer": round(float(statistics.median(r["shimmer"] for r in win_results)), 5),
+        "hnr_db": round(float(statistics.median(r["hnr_db"] for r in win_results)), 2),
     }
 
 

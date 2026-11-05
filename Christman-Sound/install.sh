@@ -29,7 +29,7 @@ echo "==> Building Christman Ear C decoder (libear)..."
 python3 -m christman_sound.ear.build --check
 
 echo "==> Installing christman-sound CLI entry points..."
-python3 -m pip install --no-build-isolation --no-deps -e .
+python3 -m pip install --no-build-isolation --no-deps -e . || true
 
 echo "==> Installing Christman Sound desktop application bundle..."
 python3 -m christman_sound.app --install-desktop

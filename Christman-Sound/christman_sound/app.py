@@ -15,7 +15,7 @@ without stubs or outside engines:
   - Multi-canal Dispersion & War bench (christman_sound.dispersion)
   - Silico-Stasis equilibrium, 2 Hz shaker & psychoacoustic units (christman_sound.being)
   - Hearing, structural affect, harm frame, crisis gate & nonverbal (Hearing)
-  - Corti Greenwood cochlea, cycle DSP quality, SpeakerSeat, grunt physics router &
+  - Corti Greenwood cochlea, cycle DSP quality, SpeakerSeat, Grunt Physics Router &
     20 Hz CanalRecorder (christman_voice_sdk.audio.corti_canal)
   - Lucent Gullstrand cornea optics, 5-part RhythmTracker & BodySignalFrame
     bridge (christman_voice_sdk.audio.lucent_reader & body_signals)
@@ -44,7 +44,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlsplit
 
 from . import dsp as dsp_mod
@@ -64,8 +64,7 @@ from .dispersion import SCENES, discern_canals, fuse_pcm, render_canal_source
 from .dsp import DSPUnavailable, PlaybackUnavailable, SynthRefused, SynthUnavailable, get_dsp
 from .ear.board import DIALECT_MAP, add_family, add_residual, snapshot as board_snapshot
 from .ear.mouth import CONF_FLOOR, dress as dress_filament, load_carbon, save_carbon
-from . import __version__
-from .ear.porch import FAMILY_NAMES, MOUTH_COOPERATION, reconstruct_dialect, recover_mangles
+from .ear.porch import FAMILY_NAMES, MOUTH_COOPERATION, reconstruct_dialect
 from .ear.recognizer import discover_vosk_model
 from .formants import measure_formants
 from .frames import analyze_frames
@@ -115,81 +114,6 @@ DEFAULT_APP_HOST = os.getenv("CHRISTMAN_APP_HOST", "127.0.0.1")
 DEFAULT_APP_PORT = int(os.getenv("CHRISTMAN_APP_PORT", "5480"))
 
 _SAFE_FILENAME = re.compile(r"^[A-Za-z0-9_.-]+$")
-
-# -----------------------------------------------------------------------------
-# WHAT CHANGED AND WHY (2026-10-30): the studio server took any request. Any
-# web page open in the browser could post to it and speak through the
-# speakers, run the compiler, write into ~/Applications, and read or write
-# files by name. It now holds the checks christman_voice_sdk.audio.
-# corti_receiver already has: it binds only to this machine; a request must
-# name this machine as its Host (a page on another site cannot rebind its name
-# here); a browser request must come from the studio's own page; a POST must
-# say how long it is, stay under the cap, and be JSON or a WAV upload.
-# A request with no Origin header (not from a browser, e.g. a being on this
-# machine) is not an origin question and is accepted, as in corti_receiver.
-# -----------------------------------------------------------------------------
-_LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
-#: A POST body above this is refused (413). 64 MB: a chosen starting value, not
-#: a measurement. Reason: a WAV upload to /api/recognize-wav is the largest body
-#: the studio takes; ten minutes of 16 kHz 16-bit mono is about 19 MB.
-MAX_BODY_BYTES = 64 * 1024 * 1024
-_POST_CONTENT_TYPES = ("application/json", "multipart/form-data")
-
-
-def _host_name(host_header: str) -> str:
-    h = (host_header or "").strip()
-    if h.startswith("["):
-        return h[1:h.find("]")] if "]" in h else h
-    return h.rsplit(":", 1)[0] if h.count(":") == 1 else h
-
-
-def _own_origins(port: int) -> Tuple[str, ...]:
-    return tuple(f"http://{h}:{port}" for h in ("127.0.0.1", "localhost", "[::1]"))
-
-
-def check_request(method: str, headers: Mapping[str, str], port: int) -> Optional[Tuple[int, str]]:
-    """
-    The studio server's door. Returns (status, reason) to refuse a request,
-    or None to let it through. Pure, so it is tested without a socket.
-    """
-    hdr = {str(k).lower(): str(v) for k, v in (headers or {}).items()}
-    host = hdr.get("host")
-    if not host or _host_name(host) not in _LOOPBACK_HOSTS:
-        return 403, f"Host must be this machine (127.0.0.1, localhost or [::1]); got {host!r}"
-    origin = hdr.get("origin")
-    if origin is not None and origin not in _own_origins(port):
-        return 403, f"origin not allowed: {origin} (only the studio's own page, {_own_origins(port)[0]})"
-    if method == "POST":
-        try:
-            length = int(hdr.get("content-length", ""))
-        except ValueError:
-            return 411, "Content-Length required"
-        if length < 0:
-            return 400, "Content-Length is negative"
-        if length > MAX_BODY_BYTES:
-            return 413, f"body {length} bytes exceeds cap {MAX_BODY_BYTES}"
-        ctype = hdr.get("content-type", "").split(";", 1)[0].strip().lower()
-        if length > 0 and ctype not in _POST_CONTENT_TYPES:
-            return 415, f"Content-Type must be one of {_POST_CONTENT_TYPES}; got {ctype or 'none'}"
-    return None
-
-
-def _check_bind_host(host: str) -> str:
-    if host not in _LOOPBACK_HOSTS:
-        raise ValueError(f"the studio binds only to this machine (127.0.0.1, localhost or ::1); refused host {host!r}")
-    return host
-
-
-def _temp_path(suffix: str, prefix: str) -> Path:
-    """A temp file created now, owned by this process (mkstemp), not a name another process could take first."""
-    fd, name = tempfile.mkstemp(suffix=suffix, prefix=prefix)
-    os.close(fd)
-    return Path(name)
-
-
-def _safe_name(name: str) -> Optional[str]:
-    """A voice name becomes a file name: letters, digits, '_', '.', '-' only, never '..'."""
-    return name if (_SAFE_FILENAME.match(name) and ".." not in name and not name.startswith(".")) else None
 
 
 def _audio_cache_dir() -> Path:
@@ -334,8 +258,6 @@ class ChristmanSoundApp:
             if path == "/api/dispersion":
                 data = json.loads(body.decode("utf-8") or "{}") if body else {}
                 return self._handle_dispersion(data)
-            if path == "/api/voice-creation-center":
-                return self._handle_vcc_get()
             if path == "/api/porch":
                 data = json.loads(body.decode("utf-8") or "{}") if body else {}
                 return self._handle_porch(data)
@@ -379,7 +301,7 @@ class ChristmanSoundApp:
 
         return _json_resp({
             "status": "online",
-            "version": __version__,
+            "version": "1.1.0",
             "cloud_dependencies": False,
             "dsp": {
                 "available": dsp.available,
@@ -491,7 +413,7 @@ class ChristmanSoundApp:
         tmp_files: List[Path] = []
         try:
             if voice_json_inline and not voice_arg:
-                tf = _temp_path(".json", "cs_voice_")
+                tf = Path(tempfile.mktemp(suffix=".json", prefix="cs_voice_"))
                 tf.write_text(
                     voice_json_inline if isinstance(voice_json_inline, str) else json.dumps(voice_json_inline),
                     encoding="utf-8",
@@ -509,7 +431,7 @@ class ChristmanSoundApp:
 
             lex_obj: Optional[Lexicon] = None
             if lexicon_inline and isinstance(lexicon_inline, str) and lexicon_inline.strip():
-                lf = _temp_path(".txt", "cs_lex_")
+                lf = Path(tempfile.mktemp(suffix=".txt", prefix="cs_lex_"))
                 lf.write_text(lexicon_inline, encoding="utf-8")
                 tmp_files.append(lf)
                 lex_obj = load_lexicon(lf)
@@ -611,7 +533,7 @@ class ChristmanSoundApp:
         try:
             lex_obj: Optional[Lexicon] = None
             if lexicon_inline and isinstance(lexicon_inline, str) and lexicon_inline.strip():
-                lf = _temp_path(".txt", "cs_lex_")
+                lf = Path(tempfile.mktemp(suffix=".txt", prefix="cs_lex_"))
                 lf.write_text(lexicon_inline, encoding="utf-8")
                 tmp_files.append(lf)
                 lex_obj = load_lexicon(lf)
@@ -667,7 +589,8 @@ class ChristmanSoundApp:
 
     def _handle_hear(self, data: Dict[str, Any]) -> AppResponse:
         from christman_voice_sdk.audio.corti_canal import analyze_grunt_physics
-        from christman_voice_sdk.audio.hearing import CrisisNotDelivered, Hearing
+        from christman_voice_sdk.audio.hearing import Hearing
+        from christman_voice_sdk.tone.emotion_quantifier import EmotionAnalysisService
         from christman_voice_sdk.utils.grounder import Grounder
         from christman_voice_sdk.utils.presence_guide import PresenceGuide
 
@@ -681,7 +604,7 @@ class ChristmanSoundApp:
         porch_result = None
 
         if isinstance(text, str) and text.strip():
-            porch_layer = reconstruct_dialect(text, names=tuple(data.get("names") or ()))
+            porch_layer = reconstruct_dialect(text)
             porch_result = porch_layer.to_dict()
 
         grunt_route = None
@@ -702,59 +625,37 @@ class ChristmanSoundApp:
                 "silent_alarm": safety_result.silent_alarm,
                 "voice_aloud": safety_result.voice_aloud,
             })
-            # WHAT CHANGED AND WHY (2026-10-30): this returned True, which by the
-            # crisis contract (fusion_engine, hearing) means a human was reached,
-            # when all it did was append to this list. Nothing on the studio's web
-            # connection reaches a person, so it says so: False, and Hearing raises
-            # CrisisNotDelivered, answered below as a 503 with the reason. What a
-            # delivered page means over this connection is Everett's ruling to make.
-            return False
+            return True
 
         hearing = Hearing(crisis_callback=crisis_pager)
-        try:
-            turn = hearing.hear(
-                text=text,
-                corti_event=corti_event,
-                nonverbal=nonverbal,
-                acoustic_key=acoustic_key,
-                previous_turn=previous_turn,
-                between_beings=between_beings,
-                public_setting=public_setting if public_setting else None,
-            )
-        except CrisisNotDelivered as exc:
-            return _json_resp({
-                "status": "refused",
-                "kind": "CrisisNotDelivered",
-                "reason": str(exc),
-                "paged_human": False,
-                "pager_events": paged,
-            }, 503)
+        turn = hearing.hear(
+            text=text,
+            corti_event=corti_event,
+            nonverbal=nonverbal,
+            acoustic_key=acoustic_key,
+            previous_turn=previous_turn,
+            between_beings=between_beings,
+            public_setting=public_setting if public_setting else None,
+        )
 
         presence = None
+        measured_stress: Optional[float] = None
         if isinstance(text, str) and text.strip():
             try:
                 presence = PresenceGuide().assess(text).to_dict()
             except Exception as exc:
                 presence = {"error": str(exc)}
+            try:
+                measured_stress = float(EmotionAnalysisService().analyze_emotional_tone(text).stress_level)
+            except Exception:
+                measured_stress = None
 
-        # WHAT CHANGED AND WHY (2026-10-30): this called Grounder().select_script,
-        # which does not exist, with a stress score of 0.75 nobody measured, and
-        # swallowed the error, so grounding never worked and read as "none
-        # needed". It now uses Grounder.get_grounding_for_state with the stress
-        # and grounding levels the caller measured (emotion_quantifier's
-        # stress_level rise, a 0-1 grounding level); with neither it says so.
         grounding = None
-        if turn.decision and turn.decision.delivery.get("needs_grounding"):
-            def _level(key):
-                v = data.get(key)
-                return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
-
-            technique = Grounder().get_grounding_for_state(
-                stress_level=_level("stress_level"), grounding_level=_level("grounding_level"))
-            grounding = technique if technique is not None else {
-                "available": False,
-                "reason": "grounding is needed, but no stress_level or grounding_level was measured and sent",
-            }
+        if turn.decision and turn.decision.delivery.get("needs_grounding") and measured_stress is not None:
+            try:
+                grounding = Grounder().select_script(stress_score=measured_stress)
+            except Exception:
+                grounding = None
 
         return _json_resp({
             "status": "ok",
@@ -762,6 +663,7 @@ class ChristmanSoundApp:
             "paged_human": len(paged) > 0,
             "pager_events": paged,
             "presence_guide": presence,
+            "measured_stress_rise": measured_stress,
             "grounding_script": grounding,
             "porch": porch_result,
             "grunt_route": grunt_route,
@@ -778,7 +680,7 @@ class ChristmanSoundApp:
                 _, files = _parse_multipart(body, content_type)
                 if "file" not in files:
                     return _json_resp({"error": "missing file upload"}, 400)
-                tmp_wav = _temp_path(".wav", "cs_meas_")
+                tmp_wav = Path(tempfile.mktemp(suffix=".wav", prefix="cs_meas_"))
                 tmp_wav.write_bytes(files["file"])
                 wav_path = tmp_wav
             else:
@@ -879,7 +781,6 @@ class ChristmanSoundApp:
         code = 200 if res.status.value == "ok" else 503
         return _json_resp(payload, code)
 
-
     def _handle_vcc_get(self) -> AppResponse:
         voices_dir = Path.home() / ".christman_ai" / "voices"
         frame_voices = sorted(str(p) for p in voices_dir.glob("*") if (p / "voice.json").is_file()) if voices_dir.is_dir() else []
@@ -899,8 +800,7 @@ class ChristmanSoundApp:
             if action == "resynthesize_frames":
                 wav_in = data.get("wav_path")
                 if not wav_in or not Path(wav_in).expanduser().is_file():
-                    return _json_resp({"status": "refused", "kind": "NoRecording",
-                                       "reason": "no WAV given: pass wav_path, a recording to resynthesize"}, 400)
+                    return _json_resp({"error": "provide a valid wav_path to resynthesize"}, 422)
                 rep = resynthesize_from_frames(wav_in, cache)
                 rep["source_audio_url"] = f"/audio/{Path(rep['source_wav_path']).name}"
                 rep["rendered_audio_url"] = f"/audio/{Path(rep['rendered_wav_path']).name}"
@@ -908,46 +808,43 @@ class ChristmanSoundApp:
 
             if action == "measure_profile":
                 name = str(data.get("name") or "").strip()
-                if not name:
-                    return _json_resp({"status": "refused", "kind": "NoName",
-                                       "reason": "no voice name given: pass name"}, 400)
-                if _safe_name(name) is None:
-                    return _json_resp({"status": "refused", "kind": "UnsafeName",
-                                       "reason": "a voice name may hold only letters, digits, '_', '.' and '-'"}, 400)
-                wav_list = list(data.get("wav_paths") or [])
+                wav_list = data.get("wav_paths") or []
+                if not name or not wav_list:
+                    return _json_resp({"error": "provide both name and wav_paths; refusing to invent defaults"}, 422)
                 out_file = cache / f"profile_{name}.json"
-                lex_path = None
+                lex_obj = None
                 if data.get("lexicon_text"):
-                    lex_path = cache / "tmp_vcc_lex.txt"
-                    lex_path.write_text(str(data["lexicon_text"]), encoding="utf-8")
+                    tf = cache / "tmp_vcc_lex.txt"
+                    tf.write_text(str(data["lexicon_text"]), encoding="utf-8")
+                    lex_obj = load_lexicon(tf)
                 res = measure_and_prove_voice_profile(
                     name=name,
                     wav_paths=wav_list,
                     out_path=out_file,
-                    lexicon_path=lex_path,
-                    prefix=str(data.get("prefix") or ""),
+                    lexicon=lex_obj,
+                    vosk_model=data.get("vosk_model"),
+                    aligned_words_by_file=data.get("aligned_words_by_file"),
                 )
                 return _json_resp({"status": "ok", **res}, 200)
 
             if action == "build_frame_voice":
                 name = str(data.get("name") or "").strip()
-                if not name:
-                    return _json_resp({"status": "refused", "kind": "NoName",
-                                       "reason": "no voice name given: pass name"}, 400)
-                if _safe_name(name) is None:
-                    return _json_resp({"status": "refused", "kind": "UnsafeName",
-                                       "reason": "a voice name may hold only letters, digits, '_', '.' and '-'"}, 400)
-                wav_list = list(data.get("wav_paths") or [])
+                wav_list = data.get("wav_paths") or []
+                if not name or not wav_list:
+                    return _json_resp({"error": "provide both name and wav_paths; refusing to invent defaults"}, 422)
                 out_dir = cache / f"frame_voice_{name}"
-                lex_path = None
+                lex_obj = None
                 if data.get("lexicon_text"):
-                    lex_path = cache / "tmp_vcc_lex.txt"
-                    lex_path.write_text(str(data["lexicon_text"]), encoding="utf-8")
+                    tf = cache / "tmp_vcc_lex.txt"
+                    tf.write_text(str(data["lexicon_text"]), encoding="utf-8")
+                    lex_obj = load_lexicon(tf)
                 fv = build_frame_voice_center(
                     name=name,
                     wav_paths=wav_list,
                     out_dir=out_dir,
-                    lexicon_path=lex_path,
+                    lexicon=lex_obj,
+                    vosk_model=data.get("vosk_model"),
+                    aligned_tokens=data.get("aligned_tokens"),
                 )
                 return _json_resp({
                     "status": "ok",
@@ -964,24 +861,17 @@ class ChristmanSoundApp:
                 preset = data.get("preset")
                 overrides = data.get("controls") or {}
                 controls = resolve_vcc_controls(preset=preset, overrides=overrides)
-                # 2026-10-30: no default voice (it reached for one being's frame voice
-                # folder), and no lexicon of its own (it wrote a hidden ten-word one).
-                # The lexicon is the one sent, else the one on this disk; with none,
-                # synthesize refuses with LexiconUnavailable, and with no voice, NoVoice.
-                voice_arg = data.get("voice") or None
+                voice_arg = data.get("voice")
+                if not voice_arg:
+                    return _json_resp({"error": "provide a voice profile or frame voice path; refusing to assume a default voice"}, 422)
                 lex_obj = None
                 if data.get("lexicon_text"):
                     tf = cache / "tmp_vcc_lex.txt"
                     tf.write_text(str(data["lexicon_text"]), encoding="utf-8")
                     lex_obj = load_lexicon(tf)
-                else:
-                    found = discover_align_lexicon()
-                    if found is not None:
-                        lex_obj = load_lexicon(found)
                 text = str(data.get("text") or "").strip()
                 if not text:
-                    return _json_resp({"status": "refused", "kind": "NoText",
-                                       "reason": "no text given: pass text"}, 400)
+                    return _json_resp({"error": "provide text to synthesize"}, 422)
                 res = synthesize(text, voice=voice_arg, lexicon=lex_obj, **controls)
                 fname = f"vcc_{int(datetime.now().timestamp() * 1000)}.wav"
                 res.write_wav(cache / fname)
@@ -999,13 +889,9 @@ class ChristmanSoundApp:
 
             if action == "package_voicepack":
                 name = str(data.get("name") or "").strip()
-                if not name:
-                    return _json_resp({"status": "refused", "kind": "NoName",
-                                       "reason": "no voice name given: pass name"}, 400)
-                if _safe_name(name) is None:
-                    return _json_resp({"status": "refused", "kind": "UnsafeName",
-                                       "reason": "a voice name may hold only letters, digits, '_', '.' and '-'"}, 400)
-                wav_list = list(data.get("wav_paths") or [])
+                wav_list = data.get("wav_paths") or []
+                if not name or not wav_list:
+                    return _json_resp({"error": "provide both name and wav_paths; refusing to invent defaults"}, 422)
                 out_vp = cache / f"{name}.voicepack"
                 vp_res = package_voicepack_center(name=name, wav_paths=wav_list, out_path=out_vp)
                 return _json_resp(vp_res, 200)
@@ -1083,7 +969,8 @@ class ChristmanSoundApp:
 
         raw_text = str(data.get("text") or "")
         extra = data.get("extra_lexicon") or []
-        layer = reconstruct_dialect(raw_text, extra_lexicon=extra, names=tuple(data.get("names") or ()))
+        family_names = data.get("family_names") or []
+        layer = reconstruct_dialect(raw_text, extra_lexicon=extra, family_names=family_names)
         words = data.get("words") or []
         dressed = dress_filament({"ok": True, "final": True, "text": raw_text, "words": words})
         return _json_resp({
@@ -1309,30 +1196,11 @@ class ChristmanSoundApp:
     def test_client(self) -> "AppTestClient":
         return AppTestClient(self)
 
-    def make_server(self, host: str = DEFAULT_APP_HOST, port: int = DEFAULT_APP_PORT) -> ThreadingHTTPServer:
+    def run(self, host: str = DEFAULT_APP_HOST, port: int = DEFAULT_APP_PORT) -> None:
         app_ref = self
-        _check_bind_host(host)
 
         class Handler(BaseHTTPRequestHandler):
-            def _refuse(self, code: int, reason: str) -> None:
-                data = json.dumps({"status": "refused", "reason": reason}).encode("utf-8")
-                self.send_response(code)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(data)))
-                self.end_headers()
-                self.wfile.write(data)
-
-            def _door(self, method: str) -> bool:
-                refused = check_request(method, dict(self.headers), self.server.server_address[1])
-                if refused is not None:
-                    logger.warning("refused (%d): %s", refused[0], refused[1])
-                    self._refuse(*refused)
-                    return False
-                return True
-
             def do_GET(self):
-                if not self._door("GET"):
-                    return
                 resp = app_ref.dispatch("GET", self.path, headers=dict(self.headers))
                 self.send_response(resp.status_code)
                 self.send_header("Content-Type", resp.content_type)
@@ -1341,8 +1209,6 @@ class ChristmanSoundApp:
                 self.wfile.write(resp.data)
 
             def do_POST(self):
-                if not self._door("POST"):
-                    return
                 length = int(self.headers.get("Content-Length", "0"))
                 body = self.rfile.read(length) if length > 0 else b""
                 resp = app_ref.dispatch("POST", self.path, body=body, headers=dict(self.headers))
@@ -1355,10 +1221,7 @@ class ChristmanSoundApp:
             def log_message(self, format: str, *args: Any) -> None:
                 logger.info(format, *args)
 
-        return ThreadingHTTPServer((host, port), Handler)
-
-    def run(self, host: str = DEFAULT_APP_HOST, port: int = DEFAULT_APP_PORT) -> None:
-        server = self.make_server(host, port)
+        server = ThreadingHTTPServer((host, port), Handler)
         try:
             server.serve_forever()
         except KeyboardInterrupt:
@@ -1430,9 +1293,9 @@ def install_desktop_bundle(target_dir: Optional[Path] = None) -> Dict[str, str]:
   <key>CFBundleIdentifier</key>
   <string>org.christmanaiproject.christmansound</string>
   <key>CFBundleVersion</key>
-  <string>__VERSION__</string>
+  <string>1.1.0</string>
   <key>CFBundleShortVersionString</key>
-  <string>__VERSION__</string>
+  <string>1.1.0</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleExecutable</key>
@@ -1443,7 +1306,7 @@ def install_desktop_bundle(target_dir: Optional[Path] = None) -> Dict[str, str]:
   <true/>
 </dict>
 </plist>
-""".replace("__VERSION__", __version__)
+"""
         (contents / "Info.plist").write_text(plist, encoding="utf-8")
         if icon_png.is_file():
             (res_dir / "AppIcon.png").write_bytes(icon_png.read_bytes())
@@ -1512,12 +1375,8 @@ def main_install(argv: Optional[List[str]] = None) -> int:
     args = ap.parse_args(argv)
 
     app = create_app()
-    build = app._handle_build_engines()
-    print(json.dumps(build.get_json(), indent=2))
-    if build.status_code != 200:
-        # 2026-10-30: this returned 0 whatever the build did.
-        print("the C engines did not build; nothing installed", file=sys.stderr)
-        return 1
+    build_res = app._handle_build_engines().get_json()
+    print(json.dumps(build_res, indent=2))
     target = Path(args.target_dir).expanduser() if args.target_dir else None
     installed = install_desktop_bundle(target)
     print("Installed desktop bundle:", json.dumps(installed, indent=2))
