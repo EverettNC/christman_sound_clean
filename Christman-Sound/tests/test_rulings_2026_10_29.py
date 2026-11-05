@@ -7,26 +7,42 @@ Everett's rulings of 2026-10-29, each pinned by real runs through Hearing,
 the fusion engine and the crisis gate. Nothing here plays sound or opens a
 port other than one the system hands out (port 0).
 
-  A. The client's OWN distress reaches a human right away, every time: "I'm
-     not okay", "I don't feel safe", "I'm not safe", "no one cares", "no one
+THE PACKAGE READS; THE BEING DECIDES (Everett, 2026-11-04): "we can have
+this knowledge in the sound package, but it can't be making those
+decisions. It's up to the being to make those decisions, not something that
+just creates a voice." The package pages no one, holds nothing back, asks
+nothing and picks no mode. Every test here that pinned something the
+package DID (a page sent or not sent, words held or voiced, a question
+chosen, a mode) now pins the READING the being acts on: the label
+(status, reason, flags) and the readings beside it (about, unclear, danger,
+danger_sentences, asked_aloud, asked_for_help, between_beings,
+short_answer, answering). Test names keep the 2026-10-29 wording of each
+ruling, which now says what the being does with the reading. What the being
+decides is written in WHAT_THE_BEING_DECIDES.md.
+
+  A. The client's OWN distress reads hard_block, every time: "I'm not
+     okay", "I don't feel safe", "I'm not safe", "no one cares", "no one
      loves me", "I have no one", and the client's own history of harm.
-  B. Nonverbal distress is exactly the same as verbal distress, and pages at
-     ANY confidence. The confidence bar never decides whether help comes.
-  C. The speaking bar is only for readings the package could get wrong. A
+  B. Nonverbal distress is read exactly as verbal distress: hard_block at
+     ANY confidence. The confidence bar never decides how distress is read.
+  C. The confidence bar is only for readings the package could get wrong. A
      pressed symbol counts like a spoken word and is not under it.
-  D. An OBSERVATION about another carbon ("my mom is not okay", "Mary is
-     not okay", "she wants to die") does not page. It is recorded and
-     flagged for the being to follow up, and pages only when the client
-     asks for help in the same turn.
+  D. An OBSERVATION about another carbon ("my mom's not okay", "Mary is
+     not okay", "she wants to die") reads soft_redirect, recorded with what
+     it is about, and reads hard_block only when the client asks for help
+     in the same turn.
   E. "You're not okay" is said at someone; it is not the client's distress
-     and does not page. No being ever says "you're not okay" or "calm down"
-     to a client; the client's own words are never checked.
-  F. Two beings talking to each other: no page.
+     and reads clear. The lines no being says to a client ("you're not
+     okay", "calm down") are named by reply_guard.forbidden_lines on the
+     being's own reply; the client's own words are never checked.
+  F. Two beings talking to each other: the words are read exactly as if a
+     client were there, and the reading says between_beings.
   G. The acoustic key never disrupts the reading of what is spoken; it may
-     only add a page.
+     only add a hard_block.
   3. "Yesterday I was scared": yesterday means the past.
   4. "I love you I'm scared" stays unclear.
-  5. Hand Up ("Request attention") pages a human.
+  5. Hand Up ("Request attention") reads hard_block, nonverbal distress,
+     and danger.
   8. The old recognizer is gone; hearing goes through christman_sound.ear.
   9. Nothing changes the truth: every word passes through exactly as said.
 """
@@ -44,12 +60,6 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from christman_voice_sdk.audio.fusion_engine import (  # noqa: E402
-    MODE_SAFETY_HOLD,
-    MODE_STANDARD,
-    MODE_UNKNOWN,
-    CrisisNotDelivered,
-)
 from christman_voice_sdk.audio.hearing import Hearing, harm_frame_safety  # noqa: E402
 from christman_voice_sdk.audio.structural_affect import (  # noqa: E402
     AffectCertainty,
@@ -62,25 +72,18 @@ from christman_voice_sdk.nonverbal.engine_temporal import (  # noqa: E402
 
 A = StructuralAffectAnalyzer()
 
-
-class Pager:
-    """The crisis callback: records exactly what reached the human."""
-
-    def __init__(self):
-        self.calls = []
-
-    def __call__(self, result, context):
-        self.calls.append((result, dict(context)))
-        return True
+#: What SafetyResult.unclear may name: one word for what the words leave
+#: unclear. It replaced the ASK_* marks (2026-11-04), which chose a question.
+UNCLEAR_WORDS = frozenset({"owner", "person", "fragment", "cause", "inability",
+                           "what", "who", "what_happened"})
 
 
 def _hear(text, **kw):
-    pager = Pager()
-    turn = Hearing(crisis_callback=pager).hear(text=text, **kw)
-    return turn, pager
+    """One turn, read. Nothing is paged, held or asked (2026-11-04)."""
+    return Hearing().hear(text=text, **kw)
 
 
-# -- A. the client's own distress pages, every time --------------------------
+# -- A. the client's own distress reads hard_block, every time ----------------
 
 CLIENT_OWN = [
     ("I'm not okay", "client_distress"),
@@ -104,12 +107,12 @@ CLIENT_OWN = [
 
 @pytest.mark.parametrize("text,reason", CLIENT_OWN)
 def test_A_the_clients_own_distress_pages_a_human(text, reason):
-    turn, pager = _hear(text)
-    d = turn.decision
-    assert d.mode == MODE_SAFETY_HOLD, d.to_dict()
+    turn = _hear(text)
+    d = turn.reading
+    # Was: a safety-hold mode, delivered_to_human, and one page carrying the
+    # words. The reading the being pages on: hard_block, with every word.
     assert d.safety.status == "hard_block" and d.safety.reason == reason
-    assert d.safety.delivered_to_human is True
-    assert len(pager.calls) == 1 and pager.calls[0][0].said == text
+    assert d.safety.said == text and d.input_text == text
 
 
 @pytest.mark.parametrize("text", [
@@ -121,29 +124,34 @@ def test_A_the_clients_own_distress_pages_a_human(text, reason):
     "pass the salt",
 ])
 def test_A_not_the_clients_distress_does_not_page(text):
-    turn, pager = _hear(text)
-    assert pager.calls == [], turn.decision.safety
-    assert turn.decision.safety.status != "hard_block"
+    turn = _hear(text)
+    assert turn.reading.safety.status != "hard_block", turn.reading.safety
 
 
 def test_A_no_human_reachable_is_loud():
-    with pytest.raises(CrisisNotDelivered):
-        Hearing().hear(text="I'm not okay")
+    # Decision moved to the being 2026-11-04 (ruling A): see WHAT_THE_BEING_DECIDES.md
+    # Hearing raised CrisisNotDelivered when no human was reached. Reaching
+    # one is the being's; hear() returns the reading it reaches one on.
+    turn = Hearing().hear(text="I'm not okay")
+    assert turn.reading.safety.status == "hard_block"
+    assert turn.reading.safety.reason == "client_distress"
+    assert turn.reading.safety.said == "I'm not okay"
 
 
-# -- D. an observation about another carbon is followed up, not paged ------------
+# -- D. an observation about another carbon is recorded, with what it is about --
 
 # Ruling AA (2026-10-29 review): no fixed person list. These are someone
 # else by GRAMMAR: a pronoun, a typed name, a contraction after a possessive.
 # "my mom is not okay", "My mom is not okay." and "my dad isn't safe" were
 # here because "mom" and "dad" were on THIRD_PERSON; with the list gone the
-# grammar cannot tell whether "mom" names a person, so the being asks who
-# (UNCLEAR_PERSON below). They still never page unless the client asks.
+# grammar cannot tell whether "mom" names a person, so the reading marks the
+# person unclear (UNCLEAR_PERSON below). They read hard_block only when the
+# client asks.
 OBSERVATIONS = [
     ("she wants to die", "harm_frame_third_party_at_risk"),
     # "he is going to kill her" was here. Everett, 2026-10-29: a threat of
-    # harm against anyone is an absolute threat and pages at once, silently
-    # (tests/test_review_rulings_2026_10_29.py, section a).
+    # harm against anyone is an absolute threat; it reads hard_block and
+    # danger (tests/test_review_rulings_2026_10_29.py, section a).
     ("he hurt her yesterday", "harm_frame_third_party_at_risk"),
     ("my brother wants to kill himself", "harm_frame_third_party_at_risk"),
     ("my mom's not okay", "other_person_not_okay"),
@@ -166,13 +174,15 @@ UNCLEAR_PERSON = [
 
 @pytest.mark.parametrize("text,reason", OBSERVATIONS)
 def test_D_an_observation_is_recorded_and_flagged_not_paged(text, reason):
-    turn, pager = _hear(text)
-    d = turn.decision
-    assert pager.calls == [], d.to_dict()
+    turn = _hear(text)
+    d = turn.reading
     assert d.safety.status == "soft_redirect" and d.safety.reason == reason
-    assert "follow_up:someone_else" in d.safety.flags
+    # Was the flag "follow_up:someone_else" (the package marking a follow-up).
+    # The reading: someone else's, flagged as such, and what it is about.
+    assert any(f.startswith(("other:", "other_not_okay:")) for f in d.safety.flags), d.safety.flags
+    assert d.safety.about == d.safety.flagged_terms[0]
+    assert d.affect.is_self_distress is False         # never the client's
     assert d.safety.said == text                      # recorded, every word
-    assert d.mode != MODE_SAFETY_HOLD
 
 
 ASKS = [
@@ -188,21 +198,24 @@ ASKS = [
 @pytest.mark.parametrize("ask", ASKS)
 def test_D_it_pages_when_the_client_asks_for_help(text, reason, ask):
     said = f"{text} {ask}"
-    turn, pager = _hear(said)
-    d = turn.decision
-    assert d.mode == MODE_SAFETY_HOLD, d.to_dict()
+    turn = _hear(said)
+    d = turn.reading
     assert d.safety.status == "hard_block" and d.safety.reason == reason
     assert any(f.startswith("asked_for_help:") for f in d.safety.flags)
-    assert len(pager.calls) == 1 and pager.calls[0][0].said == said
+    # Was: one page carrying the words. The reading: the client's own words
+    # asking, and every word they said.
+    assert f"asked_for_help:{d.safety.asked_for_help}" in d.safety.flags
+    assert d.safety.asked_for_help in said.lower()
+    assert d.safety.said == said
 
 
 @pytest.mark.parametrize("text,about", UNCLEAR_PERSON)
 def test_D_and_AA_an_unclear_person_is_asked_about_not_paged(text, about):
-    turn, pager = _hear(text)
-    d = turn.decision
-    assert pager.calls == [], d.to_dict()
+    turn = _hear(text)
+    d = turn.reading
     assert d.safety.status == "soft_redirect" and d.safety.reason == "person_unclear"
-    assert d.safety.follow_up == H.ASK_WHO and d.safety.follow_up_about == about
+    # Was: the ask_who mark. The reading: the person is unclear, and who.
+    assert d.safety.unclear == "person" and d.safety.about == about
     assert d.affect.is_self_distress is False                  # never the client's
     assert d.safety.said == text
 
@@ -211,12 +224,13 @@ def test_D_and_AA_an_unclear_person_is_asked_about_not_paged(text, about):
 @pytest.mark.parametrize("ask", ASKS)
 def test_D_and_AA_an_unclear_person_pages_when_the_client_asks_for_help(text, about, ask):
     said = f"{text} {ask}"
-    turn, pager = _hear(said)
-    d = turn.decision
-    assert d.mode == MODE_SAFETY_HOLD, d.to_dict()
+    turn = _hear(said)
+    d = turn.reading
     assert d.safety.status == "hard_block" and d.safety.reason == "person_unclear"
     assert any(f.startswith("asked_for_help:") for f in d.safety.flags)
-    assert len(pager.calls) == 1 and pager.calls[0][0].said == said
+    # Was: one page carrying the words.
+    assert d.safety.asked_for_help in said.lower()
+    assert d.safety.said == said
 
 
 @pytest.mark.parametrize("said", [
@@ -224,9 +238,9 @@ def test_D_and_AA_an_unclear_person_pages_when_the_client_asks_for_help(text, ab
     "she wants to die, don't call someone",
 ])
 def test_D_a_request_taken_back_is_not_a_request(said):
-    turn, pager = _hear(said)
-    assert pager.calls == []
-    assert turn.decision.safety.status == "soft_redirect"
+    turn = _hear(said)
+    assert turn.reading.safety.status == "soft_redirect"
+    assert turn.reading.safety.asked_for_help is None          # was: no page
 
 
 @pytest.mark.parametrize("text", [
@@ -239,15 +253,14 @@ def test_D_a_request_taken_back_is_not_a_request(said):
     "she is safe now",
 ])
 def test_D_not_a_person_now_is_not_even_flagged(text):
-    turn, pager = _hear(text)
-    assert pager.calls == []
-    assert turn.decision.safety.status == "clear", turn.decision.safety
+    turn = _hear(text)
+    assert turn.reading.safety.status == "clear", turn.reading.safety
 
 
 def test_D_he_hurt_my_feelings_never_pages_even_with_a_request():
-    turn, pager = _hear("he hurt my feelings can you get someone")
-    assert pager.calls == []
-    assert turn.decision.safety.reason == "harm_frame_third_party_not_a_person"
+    turn = _hear("he hurt my feelings can you get someone")
+    assert turn.reading.safety.status != "hard_block"          # was: no page
+    assert turn.reading.safety.reason == "harm_frame_third_party_not_a_person"
 
 
 # -- E. "you're not okay" -----------------------------------------------------------
@@ -255,12 +268,13 @@ def test_D_he_hurt_my_feelings_never_pages_even_with_a_request():
 @pytest.mark.parametrize("text", ["you're not okay", "You are not okay", "youre not ok",
                                   "calm down", "you need to calm down"])
 def test_E_said_at_someone_is_not_the_clients_distress(text):
-    turn, pager = _hear(text)
-    assert pager.calls == []
-    assert turn.decision.safety.status == "clear"
-    assert turn.decision.input_text == text            # the client's words, untouched
-    assert turn.decision.safety.said == text
-    assert turn.decision.speakable is True
+    turn = _hear(text)
+    assert turn.reading.safety.status == "clear"
+    assert turn.reading.input_text == text            # the client's words, untouched
+    assert turn.reading.safety.said == text
+    # Was: speakable True. The reading: nothing in the words is danger;
+    # whether they are voiced is the being's.
+    assert turn.reading.safety.danger is False
 
 
 @pytest.mark.parametrize("reply", [
@@ -268,13 +282,15 @@ def test_E_said_at_someone_is_not_the_clients_distress(text):
     "Just calm yourself down", "I hear you. Calm down, you're not okay.",
 ])
 def test_E_no_being_says_it(reply):
-    from christman_voice_sdk.synthesis import speech_response
-    from christman_voice_sdk.synthesis.reply_guard import ForbiddenReply, check_being_reply
+    from christman_voice_sdk.synthesis.reply_guard import (
+        FORBIDDEN_REPLY_LINES, check_being_reply, forbidden_lines)
 
-    with pytest.raises(ForbiddenReply, match="never says"):
-        check_being_reply(reply)
-    with pytest.raises(ForbiddenReply):
-        speech_response.speak(reply)
+    # Decision moved to the being 2026-11-04 (ruling E): see WHAT_THE_BEING_DECIDES.md
+    # check_being_reply and speech_response.speak raised ForbiddenReply. The
+    # reading the refusal rested on: the line is named on the being's reply.
+    names = forbidden_lines(reply)
+    assert names and set(names) <= {name for name, _ in FORBIDDEN_REPLY_LINES}, names
+    assert check_being_reply(reply) == reply          # read only; never raises
 
 
 @pytest.mark.parametrize("reply", [
@@ -282,9 +298,10 @@ def test_E_no_being_says_it(reply):
     "Take your time.", "It's okay.",
 ])
 def test_E_the_beings_other_replies_pass_unchanged(reply):
-    from christman_voice_sdk.synthesis.reply_guard import check_being_reply
+    from christman_voice_sdk.synthesis.reply_guard import check_being_reply, forbidden_lines
 
     assert check_being_reply(reply) == reply
+    assert forbidden_lines(reply) == []
 
 
 LEXICON = Path(os.environ.get("CHRISTMAN_LEXICON_PATH")
@@ -293,8 +310,8 @@ LEXICON = Path(os.environ.get("CHRISTMAN_LEXICON_PATH")
 
 @pytest.mark.needs_dsp
 def test_E_both_directions_through_the_mouth(tmp_path):
-    """The client's "calm down" is spoken as typed; the being's is refused
-    with nothing written. Rendered to a file, never played."""
+    """The client's "calm down" is spoken as typed; on the being's reply the
+    line is named for the being to read. Rendered to a file, never played."""
     if not LEXICON.is_file():
         pytest.skip(f"not run: needs the align lexicon at {LEXICON} (or CHRISTMAN_LEXICON_PATH); "
                     "runs on Everett's Mac")
@@ -302,7 +319,7 @@ def test_E_both_directions_through_the_mouth(tmp_path):
     from voice_fixture import load_test_voice
 
     from christman_voice_sdk.synthesis import voice_synthesis as vs
-    from christman_voice_sdk.synthesis.reply_guard import ForbiddenReply
+    from christman_voice_sdk.synthesis.reply_guard import forbidden_lines
 
     voice = load_test_voice(tmp_path / "voice")
     mouth = vs.SpeechSynthesisEngine(cache_dir=str(tmp_path / "cache"), lexicon_path=str(LEXICON))
@@ -310,31 +327,46 @@ def test_E_both_directions_through_the_mouth(tmp_path):
     path = mouth.generate_speech_audio("calm down", play_audio=False, voice=voice,
                                        output_path=str(client_out))
     assert path == str(client_out) and client_out.stat().st_size > 44
-    being_out = tmp_path / "being.wav"
-    with pytest.raises(ForbiddenReply):
-        mouth.generate_speech_audio("calm down", play_audio=False, voice=voice,
-                                    output_path=str(being_out), being_reply=True)
-    assert not being_out.exists()
+    # Decision moved to the being 2026-11-04 (ruling E): see WHAT_THE_BEING_DECIDES.md
+    # The mouth refused the being's "calm down" (being_reply=True) with
+    # nothing written. The reading the refusal rested on: the line's name,
+    # read on the being's reply before the being asks the mouth for it.
+    assert forbidden_lines("calm down") == ["calm down"]
+    assert forbidden_lines("i am here") == []
     ok = mouth.generate_speech_audio("i am here", play_audio=False, voice=voice,
-                                     output_path=str(tmp_path / "ok.wav"), being_reply=True)
+                                     output_path=str(tmp_path / "ok.wav"))
     assert Path(ok).stat().st_size > 44
 
 
-# -- F. two beings talking to each other: no page ------------------------------------
+# -- F. two beings talking to each other: read as if a client were there --------------
 
-@pytest.mark.parametrize("text", [t for t, _ in OBSERVATIONS[:4]]
-                         + ["my mom is not okay can you get someone", "I'm not okay",
-                            "no one cares", "I used to want to kill myself"])
-def test_F_between_two_beings_nothing_pages(text):
-    turn, pager = _hear(text, between_beings=True)
-    assert pager.calls == []
-    assert turn.decision.safety.status == "soft_redirect"
-    assert turn.decision.safety.said == text
+@pytest.mark.parametrize("text,status", [(t, "soft_redirect") for t, _ in OBSERVATIONS[:4]] + [
+    # Decision moved to the being 2026-11-04 (ruling F): see WHAT_THE_BEING_DECIDES.md
+    # Each of these four read soft_redirect between beings (the gate turned
+    # the hard_block down and did not read the ask). They now read exactly
+    # as they do for a client.
+    ("my mom is not okay can you get someone", "hard_block"),
+    ("I'm not okay", "hard_block"),
+    ("no one cares", "hard_block"),
+    ("I used to want to kill myself", "hard_block"),
+])
+def test_F_between_two_beings_nothing_pages(text, status):
+    turn = _hear(text, between_beings=True)
+    client = _hear(text).reading.safety
+    s = turn.reading.safety
+    assert s.status == status
+    assert (s.status, s.reason) == (client.status, client.reason)   # no downgrade
+    assert set(client.flags) <= set(s.flags)
+    # Was: no page. The reading: two beings, echoed.
+    assert s.between_beings is True and "between_beings" in s.flags
+    assert s.said == text
 
 
 def test_F_only_true_means_two_beings():
     assert harm_frame_safety("I'm not okay", {"between_beings": "yes"}).status == "hard_block"
     assert harm_frame_safety("she wants to die call someone", {"between_beings": 1}).status == "hard_block"
+    assert harm_frame_safety("I'm not okay", {"between_beings": "yes"}).between_beings is False
+    assert harm_frame_safety("I'm not okay", {"between_beings": True}).between_beings is True
 
 
 # -- G. the acoustic key never disrupts what is spoken --------------------------------
@@ -357,7 +389,7 @@ KEYED_SENTENCES = [
 
 
 def _reading(turn):
-    d = turn.decision
+    d = turn.reading
     return {
         "affect": turn.affect.to_dict(),
         "frames": [f.to_dict() for f in turn.frames],
@@ -371,30 +403,33 @@ def _reading(turn):
 @pytest.mark.parametrize("key", sorted(LIVE_KEYS))
 @pytest.mark.parametrize("text", KEYED_SENTENCES)
 def test_G_the_key_never_changes_the_reading_of_the_words(text, key):
-    alone, alone_pager = _hear(text)
-    keyed, keyed_pager = _hear(text, acoustic_key=key)
+    alone = _hear(text)
+    keyed = _hear(text, acoustic_key=key)
     assert _reading(keyed) == _reading(alone)            # words, who, clauses, frames
-    # The key may only ADD a page, never remove one.
-    if alone_pager.calls:
-        assert keyed_pager.calls
-        assert keyed.decision.safety.reason == alone.decision.safety.reason
-        assert set(alone.decision.safety.flags) <= set(keyed.decision.safety.flags)
+    # The key may only ADD a hard_block, never remove one (was: a page).
+    alone_blocks = alone.reading.safety.status == "hard_block"
+    if alone_blocks:
+        assert keyed.reading.safety.status == "hard_block"
+        assert keyed.reading.safety.reason == alone.reading.safety.reason
+        assert set(alone.reading.safety.flags) <= set(keyed.reading.safety.flags)
     if key == "grunt_distress":
-        assert len(keyed_pager.calls) == 1               # the grunt pages
-        assert keyed.decision.safety.said == text
-    elif not alone_pager.calls:
-        assert keyed_pager.calls == []                    # a non-distress key adds nothing
-        assert keyed.decision.safety.status == alone.decision.safety.status
-        assert keyed.decision.safety.reason == alone.decision.safety.reason
+        assert keyed.reading.safety.status == "hard_block"   # the grunt reads hard_block
+        assert keyed.reading.safety.said == text
+    elif not alone_blocks:
+        assert keyed.reading.safety.status != "hard_block"   # a non-distress key adds nothing
+        assert keyed.reading.safety.status == alone.reading.safety.status
+        assert keyed.reading.safety.reason == alone.reading.safety.reason
 
 
 def test_G_when_the_key_adds_the_page_the_words_reading_is_kept_beside_it():
-    keyed, pager = _hear("my mom's not okay", acoustic_key="grunt_distress")
-    s = keyed.decision.safety
+    keyed = _hear("my mom's not okay", acoustic_key="grunt_distress")
+    s = keyed.reading.safety
     assert s.reason == "nonverbal_distress"
     assert "words:soft_redirect:other_person_not_okay" in s.flags
-    assert "follow_up:someone_else" in s.flags
-    assert len(pager.calls) == 1
+    # Was the flag "follow_up:someone_else". The words' own reading, kept
+    # beside the key's: someone else's, and what it is about.
+    assert "other_not_okay:not okay" in s.flags and s.about == "not okay"
+    assert s.status == "hard_block"                      # was: one page
 
 
 # -- B and C. nonverbal distress at any confidence; pressed symbols speak ----------------
@@ -411,13 +446,12 @@ from christman_voice_sdk.nonverbal.nonverbal_engine import NonverbalEngine  # no
     {"acoustic_key": "grunt_distress"},
 ])
 def test_B_nonverbal_distress_pages_at_any_confidence(kwargs):
-    # A bar of 1.0: nothing at all clears it for speaking.
-    pager = Pager()
+    # A bar of 1.0: no reading the package could get wrong clears it.
     engine = NonverbalEngine(data_dir=None, confidence_threshold=1.0)
-    turn = Hearing(crisis_callback=pager, nonverbal_engine=engine).hear(**kwargs)
-    assert turn.decision.mode == MODE_SAFETY_HOLD
-    assert turn.decision.safety.reason == "nonverbal_distress"
-    assert len(pager.calls) == 1
+    turn = Hearing(nonverbal_engine=engine).hear(**kwargs)
+    # Was: a safety-hold mode and one page.
+    assert turn.reading.safety.status == "hard_block"
+    assert turn.reading.safety.reason == "nonverbal_distress"
 
 
 @pytest.mark.parametrize("symbol,says", [("pain", "I'm in pain."),
@@ -426,8 +460,9 @@ def test_C_a_pressed_symbol_speaks_whatever_the_bar(symbol, says):
     engine = NonverbalEngine(data_dir=None, confidence_threshold=1.0)
     r = engine.classify_symbol(symbol)
     assert r.status.value == "ok" and r.message == says
-    turn = Hearing(crisis_callback=Pager(), nonverbal_engine=engine).hear(nonverbal={"symbol": symbol})
+    turn = Hearing(nonverbal_engine=engine).hear(nonverbal={"symbol": symbol})
     assert turn.person_message == says
+    assert turn.person_message_below_threshold is False      # a pressed symbol is never under it
 
 
 @pytest.mark.parametrize("kwargs", [{"gesture": "wave"}, {"eye_data": {"region": "center"}},
@@ -435,7 +470,11 @@ def test_C_a_pressed_symbol_speaks_whatever_the_bar(symbol, says):
 def test_C_readings_that_could_be_wrong_stay_under_the_bar(kwargs):
     engine = NonverbalEngine(data_dir=None, confidence_threshold=1.0)
     r = engine.process_multimodal_input(**kwargs)
-    assert r["speakable"] is False and r.get("message") is None
+    # Was: speakable False. The reading: labelled under the bar.
+    assert r["status"] == "no_usable_reading"
+    assert [a["status"] for a in r["all_results"]] == ["below_threshold"]
+    assert all(a["below_threshold"] is True for a in r["all_results"])
+    assert r.get("message") is None
 
 
 # -- 3. a past time word is the past --------------------------------------------
@@ -453,9 +492,11 @@ def test_3_past_distress_is_not_reported_as_now(text, word):
     scared = [h for h in r.hits if h.base_weight < 0]
     assert scared and all(h.when == "past" and h.time_word == word for h in scared)
     assert all(h.final_weight == 0.0 for h in scared)        # kept on record, not counted now
-    turn, pager = _hear(text)
-    assert turn.decision.delivery["needs_grounding"] is False
-    assert pager.calls == []
+    turn = _hear(text)
+    # Was: needs_grounding False. The reading: no distress of the client's now.
+    assert turn.reading.silicon["self_distress"] is False
+    assert turn.reading.silicon["distress_intensity"] is None
+    assert turn.reading.safety.status != "hard_block"         # was: no page
     # the same words without the time word ARE now
     now = A.analyze("i am scared")
     assert now.is_self_distress is True
@@ -478,13 +519,13 @@ def test_4_love_and_fear_stay_unclear(text):
     r = A.analyze(text)
     assert r.certainty is AffectCertainty.AMBIGUOUS, r.to_dict()
     assert r.valence is None
-    turn, pager = _hear(text)
-    assert turn.decision.mode == MODE_UNKNOWN
-    assert turn.decision.knows is False
-    assert pager.calls == []
+    turn = _hear(text)
+    assert turn.reading.resolved is False                     # was: the unknown mode
+    assert turn.reading.knows is False
+    assert turn.reading.safety.status != "hard_block"         # was: no page
 
 
-# -- 5. Hand Up pages a human ----------------------------------------------------
+# -- 5. Hand Up reads hard_block -------------------------------------------------
 
 class CentroidModel:
     """A real classifier, fit here: the mean of labelled sequences per label;
@@ -517,18 +558,20 @@ def _hand_up_engine(spacing=60.0, **kw):
 
 
 def test_5_hand_up_pages_a_human():
-    pager = Pager()
-    turn = Hearing(crisis_callback=pager, temporal_engine=_hand_up_engine()).hear(
+    turn = Hearing(temporal_engine=_hand_up_engine()).hear(
         temporal={"gesture_features": np.zeros(4)})
-    assert turn.decision is not None and turn.decision.mode == MODE_SAFETY_HOLD
-    assert turn.decision.safety.reason == "nonverbal_distress"
-    assert len(pager.calls) == 1
-    shown = pager.calls[0][1]["nonverbal_distress"]
+    # Was: a safety-hold mode and one page.
+    assert turn.reading is not None and turn.reading.safety.status == "hard_block"
+    assert turn.reading.safety.reason == "nonverbal_distress"
+    # What went to the gate (was: what the page carried).
+    shown = turn.nonverbal_distress
     assert [d["input"] for d in shown] == ["Hand Up"]
     assert shown[0]["intent"] == "Request attention"
-    # Ruling I: help is the silent alarm. Nothing is spoken, nothing shown.
-    assert turn.person_message is None
-    assert turn.decision.safety.silent_alarm is True and turn.decision.safety.hold_marker == ""
+    # Ruling I: help reads as danger (was: the silent alarm, with no hold
+    # marker). Whether anything is spoken or shown is the being's.
+    assert shown[0]["category"] == "danger" and shown[0]["danger"] is True
+    assert turn.reading.safety.danger is True
+    assert turn.person_message is None                 # the built-in map holds no words (ruling J)
 
 
 def test_5_hand_up_pages_even_from_a_map_on_disk_without_the_pages_field(tmp_path):
@@ -536,30 +579,37 @@ def test_5_hand_up_pages_even_from_a_map_on_disk_without_the_pages_field(tmp_pat
     assert "pages" not in old_map["Hand Up"]
     path = tmp_path / "language_map.json"
     path.write_text(json.dumps(old_map), encoding="utf-8")
-    pager = Pager()
     engine = _hand_up_engine(language_map_path=str(path))
-    turn = Hearing(crisis_callback=pager, temporal_engine=engine).hear(
+    turn = Hearing(temporal_engine=engine).hear(
         temporal={"gesture_features": np.zeros(4)})
-    assert len(pager.calls) == 1, turn.to_dict()
-    assert turn.decision.safety.reason == "nonverbal_distress"
+    assert turn.reading.safety.status == "hard_block", turn.to_dict()   # was: one page
+    assert turn.reading.safety.reason == "nonverbal_distress"
 
 
 def test_5_hand_up_below_the_speaking_bar_still_pages():
-    pager = Pager()
     # Neighbours 0.25 apart: the model reads Hand Up at about 0.8, under a 0.9 bar.
     engine = _hand_up_engine(spacing=0.25, confidence_threshold=0.9)
-    turn = Hearing(crisis_callback=pager, temporal_engine=engine).hear(
+    turn = Hearing(temporal_engine=engine).hear(
         temporal={"gesture_features": np.zeros(4)})
     gesture = turn.temporal["all_results"]["gesture"]
     assert gesture["expression"] == "Hand Up" and gesture["confidence"] < 0.9
     assert gesture["status"] == "below_threshold"
-    assert turn.person_message is None                 # not spoken for the client
-    assert len(pager.calls) == 1                       # and still reaches a human
+    assert gesture["below_threshold"] is True and gesture["danger"] is True
+    # Was: not spoken for the client. The built-in map holds no words
+    # (ruling J), so there are none on the turn; nothing was taken away.
+    assert gesture["message"] is None and turn.person_message is None
+    assert turn.reading.safety.status == "hard_block"   # was: still reaches a human
+    assert turn.reading.safety.reason == "nonverbal_distress"
 
 
 def test_5_hand_up_with_no_human_reachable_is_loud():
-    with pytest.raises(CrisisNotDelivered):
-        Hearing(temporal_engine=_hand_up_engine()).hear(temporal={"gesture_features": np.zeros(4)})
+    # Decision moved to the being 2026-11-04 (ruling 5): see WHAT_THE_BEING_DECIDES.md
+    # Hearing raised CrisisNotDelivered when no human was reached. Reaching
+    # one is the being's; hear() returns the reading it reaches one on.
+    turn = Hearing(temporal_engine=_hand_up_engine()).hear(temporal={"gesture_features": np.zeros(4)})
+    assert turn.reading.safety.status == "hard_block"
+    assert turn.reading.safety.reason == "nonverbal_distress"
+    assert turn.reading.safety.danger is True
 
 
 def test_5_a_wave_does_not_page():
@@ -568,11 +618,11 @@ def test_5_a_wave_does_not_page():
     t.models["gesture"] = CentroidModel([[_seq(60.0 * i)] for i in range(len(labels))])
     for frame in _seq(60.0)[:-1]:                      # centred on "Wave Left"
         t.add_gesture_features(frame)
-    pager = Pager()
-    turn = Hearing(crisis_callback=pager, temporal_engine=t).hear(
+    turn = Hearing(temporal_engine=t).hear(
         temporal={"gesture_features": np.full(4, 60.0)})
     assert turn.temporal["primary_result"]["expression"] == "Wave Left"
-    assert pager.calls == [] and turn.decision is None
+    # Was: no page. The reading: nothing went to the gate, so there is none.
+    assert turn.nonverbal_distress == [] and turn.reading is None
 
 
 # -- 9. the words pass through exactly as said ------------------------------------
@@ -595,17 +645,16 @@ EXACT = [
 
 @pytest.mark.parametrize("text", EXACT)
 def test_9_every_word_passes_through_unchanged(text):
-    pager = Pager()
-    turn = Hearing(crisis_callback=pager).hear(text=text)
-    d = turn.decision
+    turn = Hearing().hear(text=text)
+    d = turn.reading
     assert d.input_text == text
     assert d.safety.said == text
     assert d.to_dict()["input_text"] == text
-    # A hold never silences the client, except the silent alarm (rulings I
-    # and K), which holds back the VOICE only, never the words.
-    assert d.speakable is (not d.safety.silent_alarm)
-    for result, _context in pager.calls:
-        assert result.said == text                     # the human gets every letter
+    # Was: speakable unless the silent alarm held the voice back. Nothing
+    # holds anything now; a danger sentence is carried exactly as said.
+    for sentence in d.safety.danger_sentences:
+        assert sentence and sentence in text
+    assert d.to_dict()["safety"]["said"] == text       # was: the human gets every letter
     clauses = d.affect.clauses
     assert "".join(c.said for c in clauses) == text
     if turn.face_vector is not None:
@@ -618,10 +667,12 @@ def test_9_a_safety_callback_cannot_change_the_words():
     def rewrites(text, context):
         return SafetyResult(status="hard_block", reason="test", said="[cleaned]")
 
-    pager = Pager()
-    d = FusionEngine(safety_callback=rewrites, crisis_callback=pager).fuse("You IDIOT, I hate this")
+    d = FusionEngine(safety_callback=rewrites).fuse("You IDIOT, I hate this")
     assert d.safety.said == "You IDIOT, I hate this"
-    assert pager.calls[0][0].said == "You IDIOT, I hate this"
+    # Was: the page carried the words. The callback's label stands; its
+    # words do not.
+    assert d.safety.status == "hard_block" and d.safety.reason == "test"
+    assert d.to_dict()["safety"]["said"] == "You IDIOT, I hate this"
 
 
 def test_9_no_rewriter_redactor_or_sanitized_field_is_left():
@@ -632,7 +683,7 @@ def test_9_no_rewriter_redactor_or_sanitized_field_is_left():
         for name in ("make_incisive", "propose_rewrite", "RewriteProposal"):
             assert not hasattr(module, name), (module.__name__, name)
     assert "sanitized_text" not in fusion_engine.SafetyResult.__dataclass_fields__
-    assert "sanitized_text" not in fusion_engine.Decision.__dataclass_fields__
+    assert "sanitized_text" not in fusion_engine.Reading.__dataclass_fields__
     # No file but core.py (never touched, never wired) holds the old field.
     for path in [*sorted((ROOT / "christman_voice_sdk").rglob("*.py")),
                  *sorted((ROOT / "christman_sound").rglob("*.py"))]:
@@ -654,16 +705,16 @@ def test_9_the_word_ear_payload_carries_the_text_as_recognized():
 
 
 def test_9_corti_receiver_route_returns_the_mapped_words_unaltered():
-    """The acoustic route speaks the map's words for the client, as the map
+    """The acoustic route returns the map's words for the client, as the map
     holds them; nothing on the way edits them. The built-in sound map holds
     no words (ruling J covers sounds, 2026-10-29), so a built-in grunt
-    speaks nothing; nothing is invented on the way either."""
+    carries none; nothing is invented on the way either."""
     import http.client
 
     from christman_voice_sdk.audio import corti_receiver as cr
     from christman_voice_sdk.nonverbal.nonverbal_engine import DEFAULT_SOUNDS
 
-    server, _receiver, _thread = cr.start_in_thread(port=0, hearing=Hearing(crisis_callback=Pager()))
+    server, _receiver, _thread = cr.start_in_thread(port=0, hearing=Hearing())
     try:
         conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=10)
         raw = json.dumps({"key": "grunt_acknowledge"}).encode()
@@ -751,56 +802,64 @@ def test_8_the_word_ear_hears_real_speech_through_the_ear():
     "he hurt my feelings can you get someone",      # still nobody physically harmed
 ])
 def test_H1_a_non_physical_object_is_recorded_not_paged(text):
-    turn, pager = _hear(text)
-    assert pager.calls == []
-    assert turn.decision.safety.status == "soft_redirect"
-    assert turn.decision.safety.reason == "harm_frame_third_party_not_a_person"
-    assert turn.decision.safety.said == text
+    turn = _hear(text)
+    assert turn.reading.safety.status == "soft_redirect"       # was also: no page
+    assert turn.reading.safety.reason == "harm_frame_third_party_not_a_person"
+    assert turn.reading.safety.said == text
 
 
 @pytest.mark.parametrize("text", ["he hurt my arm", "he hurt my neck", "He hurt my arm.",
                                   "she broke my arm", "he hurt my arm yesterday",
                                   "he started to break my neck"])
 def test_H2_past_physical_harm_is_followed_up_by_asking(text):
-    from christman_voice_sdk.audio.hearing import ASK_IF_SAFE
-
-    turn, pager = _hear(text)
-    s = turn.decision.safety
-    assert pager.calls == []
-    assert s.status == "soft_redirect" and s.reason == "harm_reported_to_client"
-    assert "follow_up:ask_if_safe" in s.flags
-    # The being is marked to ASK whether the client is safe; it words the
-    # question itself (ruling AA: no canned lines in the package).
-    assert s.follow_up == ASK_IF_SAFE
-    assert s.follow_up_about and s.follow_up_about in text
+    turn = _hear(text)
+    s = turn.reading.safety
+    assert s.status == "soft_redirect" and s.reason == "harm_reported_to_client"   # was also: no page
+    # Was: the ask_if_safe mark and the flag "follow_up:ask_if_safe". The
+    # reading: past harm reported to the client, and the harm words it is
+    # about. Whether and how to ask is the being's (ruling AA: no canned
+    # lines in the package).
+    assert s.about and s.about in text
+    assert s.danger is False
+    assert not any(f.startswith("follow_up") for f in s.flags)
     assert s.said == text
 
 
-@pytest.mark.parametrize("answer,pages", [
-    ("no", True), ("No.", True), ("nope", True), ("not really", True),
-    ("no I'm not", True), ("I'm not safe", True),
-    ("yes", False), ("yes I'm safe", False), ("I am okay now", False),
+# Decision moved to the being 2026-11-04 (ruling H): see WHAT_THE_BEING_DECIDES.md
+# The package carried its own question to the next turn and read the answer
+# against it ("no" read hard_block "answered_not_safe", now retired). The
+# being passes the question it asked as `answering`; the words are read on
+# their own, and a bare "no" or "yes" is read as short_answer.
+@pytest.mark.parametrize("answer,short,status", [
+    ("no", "no", "clear"), ("No.", "no", "clear"), ("nope", "no", "clear"),
+    ("not really", "no", "clear"), ("no I'm not", "no", "clear"),
+    ("I'm not safe", None, "hard_block"),
+    ("yes", "yes", "clear"), ("yes I'm safe", None, "clear"), ("I am okay now", None, "clear"),
 ])
-def test_H2_the_clients_answer_decides(answer, pages):
-    pager = Pager()
-    hearing = Hearing(crisis_callback=pager)
+def test_H2_the_clients_answer_decides(answer, short, status):
+    hearing = Hearing()
     first = hearing.hear(text="he hurt my arm")
-    assert first.decision.safety.follow_up == "ask_if_safe" and pager.calls == []
-    second = hearing.hear(text=answer)
-    assert bool(pager.calls) is pages, second.decision.safety
-    assert second.decision.safety.said == answer
-    # The question is answered once; a later "no" is not read against it.
+    assert first.reading.safety.reason == "harm_reported_to_client"
+    assert first.reading.safety.status != "hard_block"
+    asked = "Are you safe right now?"
+    second = hearing.hear(text=answer, answering=asked)
+    s = second.reading.safety
+    assert s.short_answer == short and s.answering == asked, s
+    assert s.status == status, s
+    assert s.said == answer
+    # Each turn stands on its own: a later "no" with no question passed is
+    # read alone, and nothing from the earlier turns is carried into it.
     hearing.hear(text="pass the salt")
-    before = len(pager.calls)
-    hearing.hear(text="no")
-    assert len(pager.calls) == before
+    later = hearing.hear(text="no").reading.safety
+    assert later.short_answer == "no" and later.answering is None
+    assert later.status == "clear"
 
 
 def test_H2_it_pages_when_the_client_asks_for_help():
-    turn, pager = _hear("he hurt my arm, can you get someone")
-    assert turn.decision.safety.status == "hard_block"
-    assert turn.decision.safety.reason == "harm_reported_to_client"
-    assert len(pager.calls) == 1
+    turn = _hear("he hurt my arm, can you get someone")
+    assert turn.reading.safety.status == "hard_block"
+    assert turn.reading.safety.reason == "harm_reported_to_client"
+    assert turn.reading.safety.asked_for_help == "can you get someone"   # was: one page
 
 
 @pytest.mark.parametrize("text,reason", [

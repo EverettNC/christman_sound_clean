@@ -12,6 +12,11 @@ Three sections, his words:
     YOUR RULING NEEDED     -> ruled below, with the reason, so it can be
                               overruled in one line
 
+hard_block is the label for MUST CALL A HUMAN. The gate labels; it calls no
+one. Who is reached, and how, is the being's (Everett, 2026-11-04: "we can
+have this knowledge in the sound package, but it can't be making those
+decisions. It's up to the being to make those decisions").
+
 Run:  python3 -m pytest tests/test_harm_frame_gate.py -q
   or: python3 tests/test_harm_frame_gate.py
 """
@@ -125,9 +130,11 @@ RULED_CALL = [
     "I'm going to end it",        # no object after "end it"; a check-in costs minutes
 ]
 # Everett's ruling H, 2026-10-29: past physical harm by someone else ("he
-# choked me", "he choked me yesterday") does not page at once. The being asks
-# whether the client is safe; it pages on a request for help in the same
-# turn or a "no" to that ask (tests/test_review_rulings_2026_10_29.py).
+# choked me", "he choked me yesterday") does not read hard_block on its own.
+# It reads soft_redirect, harm_reported_to_client, `about` the harm; it reads
+# hard_block on a request for help in the same turn
+# (tests/test_review_rulings_2026_10_29.py). Whether to ask the client if
+# they are safe is the being's (2026-11-04); the table keeps its name.
 RULED_ASK_IF_SAFE = [
     "he choked me",
     "he stabbed me",
@@ -160,11 +167,19 @@ def test_ruled_call():
 
 
 def test_ruled_ask_if_safe():
-    from christman_voice_sdk.audio.hearing import ASK_IF_SAFE
-    wrong = [s for s in RULED_ASK_IF_SAFE
-             if (harm_frame_safety(s).status, harm_frame_safety(s).follow_up)
-             != ("soft_redirect", ASK_IF_SAFE)]
-    assert not wrong, f"ruling H: these must ask if the client is safe: {wrong}"
+    # Decision moved to the being 2026-11-04 (ruling H): see WHAT_THE_BEING_DECIDES.md
+    # The ask_if_safe mark is gone; the reading it rested on stays: a report
+    # of past harm to the client, soft_redirect, about the harm as said.
+    from christman_voice_sdk.audio import hearing as H
+    assert not hasattr(H, "ASK_IF_SAFE")
+    wrong = []
+    for s in RULED_ASK_IF_SAFE:
+        r = harm_frame_safety(s)
+        if ((r.status, r.reason) != ("soft_redirect", "harm_reported_to_client")
+                or not r.about or r.about not in s.lower()):
+            wrong.append((s, r.status, r.reason, r.about))
+    assert not wrong, f"ruling H: these must read past harm to the client: {wrong}"
+    assert harm_frame_safety("he choked me").about == "choked me"
 
 
 def test_ruled_no_call():
@@ -179,34 +194,47 @@ def test_grief_is_named_not_blocked():
     assert any(f.startswith("history:") for f in r.flags), r.flags
 
 
-def test_third_party_at_risk_is_followed_up_and_pages_only_when_asked():
+def test_third_party_at_risk_reads_soft_redirect_and_hard_block_only_when_asked():
     r = harm_frame_safety("she wants to die")
     assert r.status == "soft_redirect", r
     assert r.reason == "harm_frame_third_party_at_risk"
-    assert "follow_up:someone_else" in r.flags
+    # The "follow_up:someone_else" flag (the package's mark for the being to
+    # follow up) is gone; the reading names what it is about, and no ask.
+    assert r.flags == ["other:wants to die", "patient:third_party",
+                       "subject:third_party", "shape:ideation"], r.flags
+    assert r.about == "wants to die" and r.asked_for_help is None
     assert r.said == "she wants to die"
     asked = harm_frame_safety("she wants to die, can you get someone")
     assert asked.status == "hard_block", asked
     assert "asked_for_help:can you get someone" in asked.flags
+    assert asked.asked_for_help == "can you get someone"
+    # Decision moved to the being 2026-11-04 (ruling F): see WHAT_THE_BEING_DECIDES.md
+    # Between two beings the words read exactly as for a client (this was
+    # soft_redirect); the context is echoed and flagged.
     b = harm_frame_safety("she wants to die, can you get someone", {"between_beings": True})
-    assert b.status == "soft_redirect", b
+    assert (b.status, b.reason) == (asked.status, asked.reason), b
+    assert b.between_beings is True and b.flags == asked.flags + ["between_beings"]
     # Only True counts. A truthy string is not two beings.
-    assert harm_frame_safety("she wants to die call someone",
-                             {"between_beings": "yes"}).status == "hard_block"
+    y = harm_frame_safety("she wants to die call someone", {"between_beings": "yes"})
+    assert y.status == "hard_block"
+    assert y.between_beings is False and "between_beings" not in y.flags
 
 
-def test_someone_else_not_okay_is_followed_up():
+def test_someone_else_not_okay_reads_soft_redirect():
     r = harm_frame_safety("my mom's not okay")
     assert r.status == "soft_redirect", r
     assert r.reason == "other_person_not_okay"
-    assert "follow_up:someone_else" in r.flags
+    # The "follow_up:someone_else" flag is gone; the reading is what it is about.
+    assert r.flags == ["other_not_okay:not okay"], r.flags
+    assert r.about == "not okay" and r.asked_for_help is None
     assert r.said == "my mom's not okay"
     # Ruling AA (2026-10-29 review): with no fixed person list, "my mom is
-    # not okay" cannot be told from the grammar. It still never pages on its
-    # own; the being asks who.
+    # not okay" cannot be told from the grammar. It never reads hard_block on
+    # its own; whether "my mom" is a person is read as unclear. Whether to
+    # ask who, and how, is the being's (2026-11-04).
     r = harm_frame_safety("my mom is not okay")
     assert r.status == "soft_redirect" and r.reason == "person_unclear", r
-    assert r.follow_up == "ask_who" and r.follow_up_about == "my mom"
+    assert r.unclear == "person" and r.about == "my mom"
     assert r.said == "my mom is not okay"
 
 

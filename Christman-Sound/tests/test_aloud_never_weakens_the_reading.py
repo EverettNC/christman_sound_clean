@@ -5,11 +5,14 @@
 """
 An ask to say the words aloud never weakens the reading (Everett, 2026-10-29).
 Found on main at 1c819e4: "he is going to kill mom, say it out loud" came
-back clear and paged nothing, while "he is going to kill mom" paged as a
-threat. Every threat, harm-now, self-harm, pain and danger sentence must read
-the same with or without the ask, before or after it. The only difference
-allowed is voice_aloud. Real runs through the gate and Hearing; nothing plays
-sound and no port is opened.
+back clear, while "he is going to kill mom" read hard_block as a threat.
+Every threat, harm-now, self-harm, pain and danger sentence must read the
+same with or without the ask, before or after it: status, reason, flags,
+danger, and the rest of the reading. The only difference allowed is
+`asked_aloud`, which carries the client's own words of the ask. Whether
+anything is said aloud is the being's (Everett, 2026-11-04; the package used
+to decide it as `voice_aloud`). Real runs through the gate and Hearing;
+nothing plays sound and no port is opened.
 """
 
 from __future__ import annotations
@@ -39,16 +42,11 @@ SENTENCES = {
 ALOUD = ["say it out loud", "please say this out loud", "say that aloud"]
 CASES = [(kind, s, a, where) for kind, items in SENTENCES.items() for s in items
          for a in ALOUD for where in ("after", "before", "after, no comma")]
-SAME = ("status", "reason", "silent_alarm", "follow_up", "hold_marker")
-
-
-class Pager:
-    def __init__(self):
-        self.calls = []
-
-    def __call__(self, result, context):
-        self.calls.append(result)
-        return True
+# Everything the reading carries except `said` (the client's words, which
+# include the ask) and `asked_aloud` (the ask itself).
+SAME = ("status", "reason", "danger", "danger_sentences", "unclear", "about",
+        "asked_for_help", "between_beings", "short_answer", "answering",
+        "degraded", "degraded_reason", "flagged_terms")
 
 
 def _with(sentence: str, aloud: str, where: str) -> str:
@@ -56,36 +54,33 @@ def _with(sentence: str, aloud: str, where: str) -> str:
             "after, no comma": f"{sentence} {aloud}"}[where]
 
 
-def _flags(r):
-    return sorted(f for f in r.flags if not f.startswith(("asked_aloud", "silent_alarm")))
-
-
 @pytest.mark.parametrize("kind,sentence,aloud,where", CASES)
-def test_the_ask_to_say_it_aloud_changes_nothing_but_voice_aloud(kind, sentence, aloud, where):
+def test_the_ask_to_say_it_aloud_changes_nothing_but_asked_aloud(kind, sentence, aloud, where):
     text = _with(sentence, aloud, where)
     plain, asked = harm_frame_safety(sentence), harm_frame_safety(text)
     assert {k: getattr(asked, k) for k in SAME} == {k: getattr(plain, k) for k in SAME}, text
-    assert _flags(asked) == _flags(plain), text
+    assert asked.flags == plain.flags, text                    # every flag, in order
     assert asked.said == text                                  # the client's words, every one
-    if plain.status == "hard_block" and plain.silent_alarm:
-        assert plain.voice_aloud is False and asked.voice_aloud is True
+    # The ask is read on its own, in the client's words.
+    assert plain.asked_aloud is None, sentence
+    assert asked.asked_aloud and asked.asked_aloud in aloud.lower(), (text, asked.asked_aloud)
 
 
 @pytest.mark.parametrize("kind,sentence,aloud,where", CASES)
-def test_hearing_pages_the_same_with_or_without_the_ask(kind, sentence, aloud, where):
+def test_hearing_reads_the_same_with_or_without_the_ask(kind, sentence, aloud, where):
     text = _with(sentence, aloud, where)
-    p1, p2 = Pager(), Pager()
-    Hearing(crisis_callback=p1).hear(text=sentence)
-    turn = Hearing(crisis_callback=p2).hear(text=text)
-    assert len(p2.calls) == len(p1.calls), text
-    if p2.calls:
-        assert p2.calls[0].said == text and p2.calls[0].reason == p1.calls[0].reason
-    assert turn.decision.input_text == text
+    plain = Hearing().hear(text=sentence).reading
+    turn = Hearing().hear(text=text)
+    s, p = turn.reading.safety, plain.safety
+    assert (s.status, s.reason, s.flags, s.danger) == (p.status, p.reason, p.flags, p.danger), text
+    assert s.said == text and turn.reading.input_text == text
+    assert s.asked_aloud and p.asked_aloud is None, text
 
 
 def test_the_reported_case():
     plain = harm_frame_safety("he is going to kill mom")
     asked = harm_frame_safety("he is going to kill mom, say it out loud")
+    assert plain.status == asked.status == "hard_block"
     assert plain.reason == asked.reason == "harm_threat_to_other"
-    assert "emergency" in asked.flags and asked.silent_alarm is True
-    assert plain.voice_aloud is False and asked.voice_aloud is True
+    assert "emergency" in asked.flags and asked.danger is True and plain.danger is True
+    assert plain.asked_aloud is None and asked.asked_aloud == "say it out loud"
