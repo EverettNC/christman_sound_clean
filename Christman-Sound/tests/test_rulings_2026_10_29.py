@@ -873,44 +873,52 @@ def test_H2_it_pages_when_the_client_asks_for_help():
     ("he is choking me", "harm_now_to_client"),
 ])
 def test_H3_harm_happening_now_pages_at_once(text, reason):
-    turn, pager = _hear(text)
-    assert turn.decision.mode == MODE_SAFETY_HOLD
-    assert turn.decision.safety.reason == reason
-    assert len(pager.calls) == 1 and pager.calls[0][0].said == text
+    turn = _hear(text)
+    assert turn.reading.safety.status == "hard_block"     # was: a safety-hold mode
+    assert turn.reading.safety.reason == reason
+    assert turn.reading.safety.said == text               # was: one page carrying the words
 
 
 def test_H3_now_harm_pages_whatever_key_or_symbol_comes_with_it():
     for key in sorted(LIVE_KEYS):
-        turn, pager = _hear("now he's starting to break my neck", acoustic_key=key)
-        assert len(pager.calls) == 1
-        assert turn.decision.safety.reason == "harm_now_to_client"
+        turn = _hear("now he's starting to break my neck", acoustic_key=key)
+        assert turn.reading.safety.status == "hard_block"     # was: one page
+        assert turn.reading.safety.reason == "harm_now_to_client"
 
 
 # "my arm hurts" was here. Everett, 2026-10-29: pain is the client's own
-# feeling and pages every time (tests/test_review_rulings_2026_10_29.py).
+# feeling and reads hard_block every time (tests/test_review_rulings_2026_10_29.py).
 @pytest.mark.parametrize("text", ["I hurt my arm", "I hurt my arm playing ball"])
 def test_H_the_clients_own_accident_is_not_someone_hurting_them(text):
-    turn, pager = _hear(text)
-    assert pager.calls == []
-    assert turn.decision.safety.reason != "harm_reported_to_client"
+    turn = _hear(text)
+    assert turn.reading.safety.status != "hard_block"         # was: no page
+    assert turn.reading.safety.reason != "harm_reported_to_client"
 
 
-@pytest.mark.parametrize("answer,pages", [("yes", True), ("yes please", True), ("please", True),
-                                          ("no", False), ("no she is fine", False)])
-def test_D_the_being_asks_and_a_yes_pages(answer, pages):
-    pager = Pager()
-    hearing = Hearing(crisis_callback=pager)
+# Decision moved to the being 2026-11-04 (ruling D): see WHAT_THE_BEING_DECIDES.md
+# The package marked ask_if_help_needed, carried it to the next turn and
+# read a "yes" against it (hard_block "answered_yes_help", now retired). The
+# being passes the question it asked as `answering`; the answer is read on
+# its own, and a bare "yes" or "no" is read as short_answer.
+@pytest.mark.parametrize("answer,short", [("yes", "yes"), ("yes please", "yes"), ("please", "yes"),
+                                          ("no", "no"), ("no she is fine", None)])
+def test_D_the_being_asks_and_a_yes_pages(answer, short):
+    hearing = Hearing()
     # A contraction after a possessive: "mom" is someone else by grammar
-    # (ruling AA; the uncontracted form asks who first).
+    # (ruling AA; the uncontracted form reads the person as unclear).
     first = hearing.hear(text="my mom's not okay")
-    assert first.decision.safety.follow_up == "ask_if_help_needed"   # the being asks
-    assert first.decision.safety.follow_up_about == "not okay"
-    assert pager.calls == []
-    hearing.hear(text=answer)
-    assert bool(pager.calls) is pages
+    s = first.reading.safety
+    assert s.reason == "other_person_not_okay" and s.unclear is None   # was: the ask mark
+    assert s.about == "not okay"
+    assert s.status != "hard_block"                                     # was: no page
+    asked = "Do you want me to get someone for her?"
+    a = hearing.hear(text=answer, answering=asked).reading.safety
+    assert a.short_answer == short and a.answering == asked, a
+    assert a.status == "clear" and a.reason == "no_harm_frame"          # was: a yes paged
+    assert a.said == answer
 
 
-# -- I. THE SILENT ALARM: danger goes to a human, never spoken, never announced ------
+# -- I. danger is read, from every channel; the client's words stay on the turn -----
 
 def _client_map_engine(tmp_path, maps):
     """A NonverbalEngine with the client's own maps on disk (data_dir)."""
@@ -926,32 +934,46 @@ def _entry(intent, message, tier="moderate", conf=0.8):
             "emotion_tier": tier, "message": message}
 
 
-def _assert_silent_and_paged(turn, pager):
-    d = turn.decision
-    assert d is not None and d.mode == MODE_SAFETY_HOLD
-    assert d.safety.silent_alarm is True
-    assert d.safety.hold_marker == ""                 # no words for a screen to show
-    assert len(pager.calls) == 1                      # straight to a human
-    assert turn.person_message is None                # nothing spoken for the client
+def _assert_danger_read(turn, words):
+    """
+    The reading the silent alarm rested on (rulings I and K): hard_block and
+    danger, from whichever channel. The client's own words, if the map holds
+    any, stay on the turn exactly as mapped; a built-in reading has none
+    (ruling J).
+
+    Decision moved to the being 2026-11-04 (ruling I): see WHAT_THE_BEING_DECIDES.md
+    The package paged once, blanked the words (person_message None), set
+    silent_alarm, left no hold marker for a screen, and kept the system's
+    own sentence off the turn. Whether anything is voiced, shown or sent is
+    the being's.
+    """
+    d = turn.reading
+    assert d is not None and d.safety.status == "hard_block"    # was: safety hold, one page
+    assert d.safety.danger is True                             # was: silent_alarm True
+    assert turn.person_message == words                        # was: None, always
+    if words is not None:
+        assert words in turn.signal_words
     if turn.nonverbal:
-        assert turn.nonverbal.get("message") is None and not turn.nonverbal.get("speakable")
+        assert turn.nonverbal["danger_present"] is True
+        assert "speakable" not in turn.nonverbal
     if turn.acoustic is not None:
-        assert turn.acoustic.message is None and not turn.acoustic.speakable
+        assert turn.acoustic.danger is True and turn.acoustic.message is None
     if turn.temporal:
-        assert turn.temporal.get("message") is None
-        assert turn.temporal.get("system_note") is None   # not even "I see your gesture."
+        assert turn.temporal["danger_present"] is True
+        assert "system_note" not in turn.temporal               # not even "I see your gesture."
 
 
-@pytest.mark.parametrize("kwargs", [
-    {"nonverbal": {"symbol": "help"}},                 # a pressed symbol
-    {"nonverbal": {"gesture": "point_up"}},            # the camera
-    {"nonverbal": {"sound": "distress"}},              # the microphone
-    {"acoustic_key": "grunt_distress"},                # the acoustic key
+@pytest.mark.parametrize("kwargs,words", [
+    ({"nonverbal": {"symbol": "help"}}, "I need help."),     # a pressed symbol: its words
+    ({"nonverbal": {"gesture": "point_up"}}, None),          # the camera
+    ({"nonverbal": {"sound": "distress"}}, None),            # the microphone
+    ({"acoustic_key": "grunt_distress"}, None),              # the acoustic key
 ])
-def test_I_built_in_danger_is_paged_and_never_spoken(kwargs):
-    pager = Pager()
-    turn = Hearing(crisis_callback=pager).hear(**kwargs)
-    _assert_silent_and_paged(turn, pager)
+def test_I_built_in_danger_is_paged_and_never_spoken(kwargs, words):
+    # Decision moved to the being 2026-11-04 (ruling I): see WHAT_THE_BEING_DECIDES.md
+    # The pressed help symbol's words were blanked; they are on the turn now.
+    turn = Hearing().hear(**kwargs)
+    _assert_danger_read(turn, words)
 
 
 @pytest.mark.parametrize("map_name,kwargs", [
@@ -970,9 +992,10 @@ def test_I_learned_danger_on_every_channel_is_paged_and_never_spoken(tmp_path, m
     key = next(iter(kwargs.values()))
     key = key["region"] if isinstance(key, dict) else key
     engine = _client_map_engine(tmp_path, {map_name: {key: _entry(intent, message)}})
-    pager = Pager()
-    turn = Hearing(crisis_callback=pager, nonverbal_engine=engine).hear(nonverbal=kwargs)
-    _assert_silent_and_paged(turn, pager)
+    turn = Hearing(nonverbal_engine=engine).hear(nonverbal=kwargs)
+    # Decision moved to the being 2026-11-04 (ruling I): see WHAT_THE_BEING_DECIDES.md
+    # The client's learned words were blanked; they are on the turn now.
+    _assert_danger_read(turn, message)
 
 
 @pytest.mark.parametrize("expression,entry", [

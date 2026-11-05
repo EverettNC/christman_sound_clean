@@ -224,7 +224,7 @@ def test_4_a_danger_signal_reads_danger_and_keeps_the_clients_words():
     s = turn.reading.safety
     assert s.status == "hard_block" and s.reason == "nonverbal_distress"
     assert s.danger is True and s.asked_aloud is None
-    # Decision moved to the being 2026-11-04 (ruling K): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (ruling L): see WHAT_THE_BEING_DECIDES.md
     # This was None (the silent alarm blanked the client's words). The
     # pressed symbol's words are always on the turn; whether they are voiced
     # is the being's.
@@ -233,7 +233,7 @@ def test_4_a_danger_signal_reads_danger_and_keeps_the_clients_words():
 
 
 def test_4_a_danger_signal_is_voiced_in_public_in_the_clients_own_words():
-    # Decision moved to the being 2026-11-04 (ruling K): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (ruling L): see WHAT_THE_BEING_DECIDES.md
     # The public setting has no reading in the package; Hearing no longer
     # takes it. The reading that exists: danger, and the client's own words.
     with pytest.raises(TypeError):
@@ -248,7 +248,7 @@ def test_4_an_ask_aloud_is_read_beside_a_danger_signal_same_turn_or_next():
     s = turn.reading.safety
     assert s.status == "hard_block" and s.danger is True
     assert s.asked_aloud == "say it out loud" and turn.person_message == "I need help."
-    # Decision moved to the being 2026-11-04 (ruling K): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (ruling L): see WHAT_THE_BEING_DECIDES.md
     # The package used to hold the signal's words and release them on the
     # next turn's ask (voice_held). Each turn now stands on its own: the
     # words are on the first turn, and the ask is read on the second.
