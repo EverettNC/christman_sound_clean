@@ -459,6 +459,31 @@ int christman_synth_voiced(const int* phone_ids, const double* durs, size_t n_ph
 // fade and the peak of 0.7. christman_synth and christman_synth_voiced are
 // not changed: they stay Codec War's synth.ts sample for sample.
 //
+// WHAT CHANGED AND WHY (2026-11-05). Measured with scripts/word_ruler.py (98
+// sentences, 446 words, both ears: the Filament door and christman_sound.ear)
+// on Everett's Mac, the test voice's vowels held at Codec War's table so only
+// the renderer changed. Before: Filament 205 of 446 (46.0%), ear 207 (46.4%).
+//   6. M, N and NG rang like vowels: their F2 had a vowel's narrow bandwidth,
+//      so "home" was heard as "poke" and "my" as "rate". A nasal's murmur has
+//      little above its low resonance (the nose damps the mouth's F2). Here
+//      F2's bandwidth is CL_NASAL_BW2 during a nasal. Alone: Filament 55.9%,
+//      ear 56.6% on the first 35 sentences (the table voice: 48.7%, 46.1%).
+//   7. K and G were heard as P or lost ("can" as "please", "cut" as "put",
+//      "cat" as "pet"; 92% of words starting with K were missed). Their burst
+//      sat at one fixed 2000 Hz band for 12 ms. A velar's burst sits where the
+//      next vowel's F2 is (higher before "ee", lower before "oo") and lasts
+//      longer than a lip or tongue-tip burst. Here a K or G burst is centred on
+//      the next phone's F2 (held to CL_VELAR_FC_MIN..MAX, CL_VELAR_BW wide)
+//      and lasts CL_VELAR_BURST_S. Alone: Filament 213 of 446 (47.8%), ear
+//      229 (51.3%).
+// Tried the same day and left out, measured: H rising over half its length
+// at 0.35 (Filament 39.0%, ear 36.5% against 39.5%, 37.7% before), frication
+// joining at 0.25 instead of 0.1 (37.4%, 35.9%), no voice bar before B, D, G
+// after silence with bursts twice as strong (38.3%, 37.0%), 0.03 s instead of
+// 0.08 s between words (38.8%, 37.9% on 27 sentences against 51.7%, 49.1%),
+// and each vowel bending half way toward the consonant after it over its last
+// 40% (no gain over 6 and 7 together).
+//
 // Every level and time below is a chosen starting value, written with the
 // reason it was chosen, held until listening by the beings' clients replaces
 // it.
@@ -494,6 +519,15 @@ int christman_synth_voiced(const int* phone_ids, const double* durs, size_t n_ph
 #define CL_BURST_GAIN 0.4
 #define CL_BURST_S 0.012      // a stop's release burst lasts 12 ms
 #define CL_FRIC_POST 0.1      // frication joins after the radiation step, at this weight
+// Nasals (2026-11-05, item 6 above): F2's bandwidth while the mouth is shut.
+#define CL_NASAL_BW2 400.0
+// K and G (2026-11-05, item 7 above): the burst follows the next phone's F2,
+// held inside this band (a velar burst sits between about 1.3 and 3 kHz), this
+// wide, for this long (twice a lip or tongue-tip burst).
+#define CL_VELAR_FC_MIN 1300.0
+#define CL_VELAR_FC_MAX 3000.0
+#define CL_VELAR_BW 700.0
+#define CL_VELAR_BURST_S 0.024
 // Easing.
 #define CL_TAU_FORMANT 0.015
 #define CL_TAU_LEVEL 0.006
@@ -539,6 +573,11 @@ static cl_res cl_make(double f, double bw, int sr) {
     p.a = 2 * r * cos((2 * M_PI * f) / sr);
     p.b = -r * r;
     return p;
+}
+
+static int cl_is_velar(int pid) {
+    const char* id = CM_PHONES[pid].id;
+    return strcmp(id, "K") == 0 || strcmp(id, "G") == 0;
 }
 
 static int cl_is_voiceless_stop(int pid) {
@@ -619,7 +658,7 @@ int christman_synth_clear(const int* phone_ids, const double* durs, size_t n_pho
         const cl_band* band = NULL;
 
         if (ph->kind == K_STOP) {
-            double burst = CL_BURST_S / scaled[k];
+            double burst = (cl_is_velar(phone_ids[k]) ? CL_VELAR_BURST_S : CL_BURST_S) / scaled[k];
             double close = 1 - burst - (ph->voiced ? 0 : CL_ASP_TAIL);
             if (close < 0.3) close = 0.3;
             if (local < close) {
@@ -638,6 +677,7 @@ int christman_synth_clear(const int* phone_ids, const double* durs, size_t n_pho
             tav = CL_AV_SONORANT;
         } else if (ph->kind == K_NASAL) {
             tav = CL_AV_NASAL;
+            trow[4] = CL_NASAL_BW2;
         } else if (strcmp(ph->id, "HH") == 0) {
             tah = CL_ASP_HH;                 // HH is breath shaped by the vowel after it
             if (has_next) for (int j = 0; j < 5; j++) trow[j] = CL_ROW(k + 1, j);
@@ -667,6 +707,11 @@ int christman_synth_clear(const int* phone_ids, const double* durs, size_t n_pho
             else { trow[0] = f[0]; trow[1] = f[1]; trow[2] = f[2]; trow[3] = bw[0]; trow[4] = bw[1]; }
         }
         if (band) { fc = band->fc; fb = band->bw; }
+        if (band && ph->kind == K_STOP && cl_is_velar(phone_ids[k]) && has_next) {
+            double f2n = CL_ROW(k + 1, 1);
+            fc = f2n < CL_VELAR_FC_MIN ? CL_VELAR_FC_MIN : f2n > CL_VELAR_FC_MAX ? CL_VELAR_FC_MAX : f2n;
+            fb = CL_VELAR_BW;
+        }
 
         av += ka * (tav - av);
         ah += ka * (tah - ah);

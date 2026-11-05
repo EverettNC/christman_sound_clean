@@ -55,6 +55,7 @@ from .stitch import (
     CONTROL_NAMES,
     FrameBank,
     FrameVoice,
+    FrameVoiceUnavailable,
     NEUTRAL_CONTROLS,
     StitchRefused,
     check_controls,
@@ -78,6 +79,9 @@ __all__ = [
     "resolve_vcc_controls",
     "resynthesize_from_frames",
     "measure_and_prove_voice_profile",
+    "measure_vowels_from_frame_bank",
+    "BANK_VOWEL_MIN_FRAMES",
+    "BANK_VOWEL_MIN_UNITS",
     "build_frame_voice_center",
     "package_voicepack_center",
 ]
@@ -951,6 +955,136 @@ def measure_and_prove_voice_profile(
         "contour_points": [list(pt) for pt in loaded_profile.contour_points],
         "proof": proof,
     }
+
+
+# -----------------------------------------------------------------------------
+# VOWELS FROM A FRAME BANK'S OWN PHONE ALIGNMENT (added 2026-11-05)
+# -----------------------------------------------------------------------------
+# WHY. measure_and_prove_voice_profile finds a vowel inside a word by splitting
+# the word's span in proportion to the table durations, and applies a vowel
+# from as few as MIN_TOKENS_TO_APPLY = 2 tokens. On the test voice that put the
+# window of AY's first third on the consonant before it: onset F2 1755.6 Hz,
+# where an AY starts near "ah". christman_synth_clear then said "my" as "made"
+# and "light" as "late". A frame bank (scripts/build_voice_bank.py) holds every
+# phone of the voice's recordings aligned by the ear, so a vowel's own frames
+# are known. Measured on Everett's Mac (scripts/word_ruler.py, 98 sentences,
+# both ears, the same renderer): the test voice's vowels as measured by the word
+# split, Filament 176 of 446 words (39.5%), ear 168 (37.7%); Codec War's table
+# vowels 205 (46.0%), 207 (46.4%); the same voice's vowels measured here from
+# its bank, 213 (47.8%), 215 (48.2%). The bank's AY: onset F2 1230.3 Hz.
+
+#: A vowel unit shorter than this many bank frames is not measured (8 frames
+#: at the bank's 5 ms hop is 40 ms). CHOSEN STARTING VALUE. Reason: the middle
+#: third of a shorter unit holds fewer than two 25 ms formant frames.
+BANK_VOWEL_MIN_FRAMES = 8
+#: A vowel measured in fewer units than this keeps the profile's value it had.
+#: CHOSEN STARTING VALUE. Reason: one unit can be one LPC tracking slip; the
+#: median of five is not moved by two.
+BANK_VOWEL_MIN_UNITS = 5
+_BANK_PAD_S = 0.025      # analysis reaches this far either side of the unit: one formant frame
+
+
+def measure_vowels_from_frame_bank(folder: Union[str, Path]) -> Dict[str, Any]:
+    """
+    Measure a voice's vowels from its frame bank (bank.json: the recordings and
+    every phone unit the ear aligned in them). For each vowel unit at least
+    BANK_VOWEL_MIN_FRAMES long, in the longer half of that vowel's units (the
+    full vowels; reduced ones are the short ones), christman_sound.formants
+    measures the unit's audio and the unit's value is the median F1, F2, F3 of
+    the frames in its middle third (for a gliding vowel also its first third,
+    the onset, and its last third, the offset). A vowel's value is the median
+    over its units, given only when at least BANK_VOWEL_MIN_UNITS units
+    measured.
+
+    Returns {"vowels": {phone: {f1_hz, f2_hz, f3_hz, n_units, source}},
+    "glides": {phone: {onset_hz, offset_hz, n_units, source}},
+    "too_few_units": {phone: n}, "units_not_measured": [reasons],
+    "bank": path, "hop_s": ...}. Raises FrameVoiceUnavailable when bank.json
+    is missing or unreadable, FileNotFoundError when a recording it names is
+    gone. A unit too short to measure is listed with its reason, never dropped
+    silently.
+    """
+    from .formants import FormantError
+
+    bank_path = Path(folder).expanduser() / "bank.json"
+    if not bank_path.is_file():
+        raise FrameVoiceUnavailable(f"{bank_path} is missing: build the voice with scripts/build_voice_bank.py")
+    try:
+        bank = json.loads(bank_path.read_text(encoding="utf-8"))
+        hop_s = int(bank["hop"]) / int(bank["sr"])
+        recordings = bank["recordings"]
+        units = bank["units"]
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise FrameVoiceUnavailable(f"{bank_path}: {exc}") from exc
+
+    # The vowels are the C table's own (christman_synth_phone_is_vowel).
+    vowel_ids = {p for p, (_row, is_vowel) in get_dsp().synth_phone_formants().items() if is_vowel}
+    by_vowel: Dict[str, List[Mapping[str, Any]]] = {}
+    for u in units:
+        if u["phone"] in vowel_ids and int(u["end"]) - int(u["start"]) >= BANK_VOWEL_MIN_FRAMES:
+            by_vowel.setdefault(u["phone"], []).append(u)
+
+    audio: Dict[int, Tuple[List[float], int]] = {}
+    not_measured: List[str] = []
+    per: Dict[str, Dict[str, List[List[float]]]] = {}
+    for ph, us in sorted(by_vowel.items()):
+        lens = sorted(int(u["end"]) - int(u["start"]) for u in us)
+        median_len = lens[len(lens) // 2]
+        for u in us:
+            if int(u["end"]) - int(u["start"]) < median_len:
+                continue
+            rec = int(u["rec"])
+            if rec not in audio:
+                audio[rec] = read_wav_mono(recordings[rec]["path"])
+            x, sr = audio[rec]
+            t0, t1 = int(u["start"]) * hop_s, int(u["end"]) * hop_s
+            a, b = max(0, int((t0 - _BANK_PAD_S) * sr)), min(len(x), int((t1 + _BANK_PAD_S) * sr))
+            try:
+                fa = measure_formants(x[a:b], sr)
+            except FormantError as exc:
+                not_measured.append(f"{ph} recording {rec} frames {u['start']}-{u['end']}: {exc}")
+                continue
+            off, third = a / sr, (t1 - t0) / 3.0
+
+            def med(lo: float, hi: float) -> Optional[List[float]]:
+                fr = [f for f in fa.frames if lo <= f.time_s + off <= hi and f.f1_hz and f.f2_hz and f.f3_hz]
+                if len(fr) < 2:
+                    return None
+                return [statistics.median(getattr(f, k) for f in fr) for k in ("f1_hz", "f2_hz", "f3_hz")]
+
+            mid = med(t0 + third, t1 - third)
+            if mid is None:
+                not_measured.append(f"{ph} recording {rec} frames {u['start']}-{u['end']}: "
+                                    "fewer than two frames with F1, F2 and F3 in its middle third")
+                continue
+            d = per.setdefault(ph, {"mid": [], "on": [], "off": []})
+            d["mid"].append(mid)
+            if ph in GLIDING_VOWELS:
+                on, of = med(t0, t0 + third), med(t1 - third, t1)
+                if on is not None and of is not None:
+                    d["on"].append(on)
+                    d["off"].append(of)
+
+    def column_medians(rows: List[List[float]]) -> List[float]:
+        return [_r1(statistics.median(r[j] for r in rows)) for j in range(3)]
+
+    src = ("median over the bank's units of each unit's median F1, F2, F3 in its middle third "
+           "(the longer half of this vowel's units)")
+    out_v: Dict[str, Any] = {}
+    out_g: Dict[str, Any] = {}
+    few: Dict[str, int] = {}
+    for ph, d in sorted(per.items()):
+        if len(d["mid"]) < BANK_VOWEL_MIN_UNITS:
+            few[ph] = len(d["mid"])
+            continue
+        f1, f2, f3 = column_medians(d["mid"])
+        out_v[ph] = {"f1_hz": f1, "f2_hz": f2, "f3_hz": f3, "n_units": len(d["mid"]), "source": src}
+        if ph in GLIDING_VOWELS and len(d["on"]) >= BANK_VOWEL_MIN_UNITS:
+            out_g[ph] = {"onset_hz": column_medians(d["on"]), "offset_hz": column_medians(d["off"]),
+                         "n_units": len(d["on"]),
+                         "source": "first third and last third of the same units, median over units"}
+    return {"vowels": out_v, "glides": out_g, "too_few_units": few, "units_not_measured": not_measured,
+            "bank": str(bank_path), "hop_s": hop_s}
 
 
 def _measure_cpp_db_stdlib(samples: Sequence[float], sr: int) -> Optional[float]:
