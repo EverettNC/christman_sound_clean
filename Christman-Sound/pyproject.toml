@@ -98,6 +98,9 @@ christman-sound-install = "christman_sound.app:main_install"
 christman-tts = "christman_voice_sdk.synthesis.tts_service:main"
 christman-corti = "christman_voice_sdk.audio.corti_receiver:main"
 christman-word-ear = "christman_voice_sdk.audio.word_ear_receiver:main"
+# WHAT CHANGED AND WHY (2026-11-05): the Filament ear server moved into the
+# package (christman_sound/filament, from THEFILAMENT ear/vosk_ear.py).
+christman-filament = "christman_sound.filament.server:main"
 christman-capture = "christman_voice_sdk.integration.voice_capture_client:_cli"
 christman-build-dsp = "scripts.build_dsp:main"
 
