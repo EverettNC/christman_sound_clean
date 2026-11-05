@@ -6,8 +6,10 @@
 ToneScoreEngine (tone/tonescore_engine.py) measures through voice_measure.py:
 christman_yin pitch through the one loader, Praat jitter, shimmer and HNR.
 How it reads a person is unchanged until Everett rules: arousal and dominance
-are held, valence reads the same spectral ratio, so tone_score and the
-response mode are what they were.
+are held, valence reads the same spectral ratio, so tone_score is what it
+was. (The response mode it used to choose from tone_score was removed on
+2026-11-04: how the being responds is the being's decision. The reading it
+rested on, tone_score, stays and is pinned here.)
 
 The emotion classifier is never loaded here (no download, no model): the
 engine is built without it, exactly as it stands when the model is absent.
@@ -112,7 +114,9 @@ def test_how_the_engine_reads_a_person_is_held(dsp, tmp_path):
     assert tse.AROUSAL_DOMINANCE_HELD in r["notes"]
     assert r["valence"] is not None, "valence reads what it always read"
     assert r["tone_score"] is None and r["tone_score_known"] is False
-    assert r["response_mode"]["mode"] == "unknown"
+    # 2026-11-04: the "unknown" response mode is gone; tone_score None (above)
+    # is the reading it rested on, and no mode is chosen for the being.
+    assert "response_mode" not in r
     assert tse.ToneScoreEngine.READ_AROUSAL_AND_DOMINANCE is False
 
 
@@ -174,4 +178,5 @@ def test_verified_phrases_through_the_engine(dsp):
         assert 6.7 < phys["shimmer_local_pct"] < 16.9, (path.name, phys)
         assert 4.0 < phys["hnr_db"] < 12.8, (path.name, phys)
         assert 90.0 < phys["pitch_median_hz"] < 210.0, (path.name, phys)
-        assert r["arousal"] is None and r["response_mode"]["mode"] == "unknown"
+        # 2026-11-04: no response mode; tone_score None is the reading it rested on.
+        assert r["arousal"] is None and r["tone_score"] is None and "response_mode" not in r

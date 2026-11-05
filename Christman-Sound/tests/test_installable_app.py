@@ -30,6 +30,13 @@ hello hello h_B @_I l_I oU_E
 booth booth b_B u_I T_E
 """
 
+#: The real align lexicon (vosk-model-en-us-0.22), as tests/test_rulings_2026_10_29.py
+#: finds it: CHRISTMAN_LEXICON_PATH, or the model under ~/models. The fixture
+#: above covers three words; a reply carrying a forbidden line needs words it
+#: does not hold, and no transcription is invented here.
+ALIGN_LEXICON = Path(os.environ.get("CHRISTMAN_LEXICON_PATH")
+                     or Path.home() / "models" / "vosk-model-en-us-0.22" / "graph" / "phones" / "align_lexicon.txt")
+
 
 def test_pyproject_declares_cli_scripts_and_ocr_module():
     import tomllib
@@ -119,15 +126,22 @@ def test_api_status_and_codecwar_and_synthesize(tmp_path, monkeypatch):
     with wave.open(str(wav_file), "rb") as w:
         assert w.getnframes() == syn_data["samples_count"]
 
-    # 4. Forbidden being reply -> 422 ForbiddenReply
-    forb = client.post("/api/synthesize", json={
-        "text": "Calm down, you're not okay.",
+    # 4. The reply guard is a reading (2026-11-04). The studio renders what
+    # was asked and returns forbidden_lines beside the audio: on a being's
+    # reply, the names of the lines found (here none); on anything else,
+    # None, because the guard is never read on a client's words. Until
+    # 2026-11-04 a forbidden being reply was refused with 422 ForbiddenReply;
+    # that reply, rendered with its lines named, is
+    # test_api_synthesize_renders_a_being_reply_and_names_its_forbidden_lines.
+    assert syn_data["forbidden_lines"] is None
+    reply = client.post("/api/synthesize", json={
+        "text": "Hello, Christman.",
         "voice": str(vpath),
         "lexicon_text": FIXTURE_LEXICON,
         "being_reply": True,
     })
-    assert forb.status_code == 422
-    assert forb.get_json()["kind"] == "ForbiddenReply"
+    assert reply.status_code == 200, reply.get_json()
+    assert reply.get_json()["forbidden_lines"] == []
 
     # 5. Measure WAV endpoint on rendered WAV
     meas = client.post("/api/measure-wav", json={"path": str(wav_file)})
@@ -138,6 +152,39 @@ def test_api_status_and_codecwar_and_synthesize(tmp_path, monkeypatch):
     assert mdata["pitch_contour"]["voiced_frames"] > 0
 
 
+def test_api_synthesize_renders_a_being_reply_and_names_its_forbidden_lines(tmp_path, monkeypatch):
+    """Was step 4 of test_api_status_and_codecwar_and_synthesize, a 422
+    ForbiddenReply. The guard no longer refuses (2026-11-04): the reply is
+    rendered and its lines are named beside the audio; the being decides."""
+    if not ALIGN_LEXICON.is_file():
+        pytest.skip(f"not run: needs the align lexicon at {ALIGN_LEXICON} (or CHRISTMAN_LEXICON_PATH); "
+                    "the fixture lexicon does not hold the words of a forbidden line")
+    monkeypatch.setenv("CHRISTMAN_VOICE_CACHE", str(tmp_path / "cache"))
+    client = create_app().test_client()
+    vpath = write_test_voice(tmp_path / "voice")
+    forb = client.post("/api/synthesize", json={
+        "text": "Calm down, you're not okay.",
+        "voice": str(vpath),
+        "lexicon_path": str(ALIGN_LEXICON),
+        "being_reply": True,
+    })
+    assert forb.status_code == 200, forb.get_json()
+    body = forb.get_json()
+    assert body["audio_url"].startswith("/audio/") and body["samples_count"] > 0
+    assert body["forbidden_lines"] == ["you're not okay", "calm down"]
+    # With the being's own danger reading passed back, the announcement lines
+    # are read too.
+    announce = client.post("/api/synthesize", json={
+        "text": "Help is coming.",
+        "voice": str(vpath),
+        "lexicon_path": str(ALIGN_LEXICON),
+        "being_reply": True,
+        "danger": True,
+    })
+    assert announce.status_code == 200, announce.get_json()
+    assert "help is coming" in announce.get_json()["forbidden_lines"]
+
+
 def test_api_hear_crisis_and_nonverbal():
     app = create_app()
     client = app.test_client()
@@ -145,8 +192,15 @@ def test_api_hear_crisis_and_nonverbal():
     r = client.post("/api/hear", json={"text": "I'm not okay"})
     assert r.status_code == 200
     body = r.get_json()
-    assert body["paged_human"] is True
-    assert body["turn"]["decision"]["safety"]["reason"] == "client_distress"
+    # 2026-11-04: the studio pages no one. `paged_human` is now the reading
+    # it rested on (crisis_reading, hard_block) and an honest human_reached.
+    assert body["human_reached"] is False
+    assert body["human_reached_reason"] == "the studio pages no one"
+    assert "paged_human" not in body and "pager_events" not in body
+    assert body["crisis_reading"]["status"] == "hard_block"
+    assert body["crisis_reading"]["reason"] == "client_distress"
+    assert body["crisis_reading"] == body["turn"]["reading"]["safety"]
+    assert body["turn"]["reading"]["safety"]["reason"] == "client_distress"
 
     r_sym = client.post("/api/hear", json={"nonverbal": {"symbol": "food"}})
     assert r_sym.status_code == 200
@@ -154,15 +208,28 @@ def test_api_hear_crisis_and_nonverbal():
 
 
 def test_api_hear_grounding_comes_from_a_measured_level_or_says_none_was():
-    """2026-10-30: no made-up 0.75 stress score, no method that does not exist."""
+    """2026-10-30: no made-up 0.75 stress score, no method that does not exist.
+
+    Decision moved to the being 2026-11-04: see WHAT_THE_BEING_DECIDES.md.
+    The studio no longer chooses a grounding script, and `needs_grounding`
+    is gone with the mode. What stays is the reading: the distress Silicon
+    read, the stress rise measured from the words (or the reason none was),
+    and the level the caller sent, echoed exactly as sent."""
     client = create_app().test_client()
     said = "I can't breathe I'm panicking"
     body = client.post("/api/hear", json={"text": said}).get_json()
-    assert body["turn"]["decision"]["delivery"]["needs_grounding"] is True
-    assert body["grounding_script"]["available"] is False
-    assert "no stress_level or grounding_level" in body["grounding_script"]["reason"]
+    silicon = body["turn"]["reading"]["silicon"]
+    assert silicon["self_distress"] is True and silicon["distress_intensity"] > 0
+    assert "needs_grounding" not in silicon and "grounding_script" not in body
+    assert isinstance(body["measured_stress_rise"], float) and body["stress_error"] is None
+    assert 0.0 <= body["measured_stress_rise"] <= 1.0
+    assert body["stress_level"] is None and body["grounding_level"] is None
     body = client.post("/api/hear", json={"text": said, "stress_level": 0.9}).get_json()
-    assert body["grounding_script"]["type"] == "breathing"
+    assert body["stress_level"] == 0.9                     # never overwritten
+    assert body["grounding_level"] is None
+    body = client.post("/api/hear", json={"nonverbal": {"symbol": "food"}}).get_json()
+    assert body["measured_stress_rise"] is None
+    assert body["stress_error"] == "no text was sent; the stress rise is read from words"
 
 
 def test_install_desktop_bundle_creates_macos_app_structure(tmp_path):
