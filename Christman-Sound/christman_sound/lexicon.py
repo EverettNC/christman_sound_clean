@@ -64,6 +64,21 @@ The factor multiplies the phone's Codec War table duration, on top of Codec
 War's own word-position factor (1.05 at the edges of a word, 0.95 inside).
 These are chosen starting values with their reasons written beside them,
 held until measurements of a being's recorded voice replace them.
+
+WHAT CHANGED AND WHY (2026-11-05)
+---------------------------------
+Everett ruled on 2026-10-29 that the mouth say Porch's words right and stop
+refusing names a caller hands in. Two things were added here for the mouth
+(christman_sound.synth.Pronouncer), and nothing that was here changed:
+  * parse_phones reads a pronunciation a caller hands in, in this lexicon's
+    own phones, and checks every phone against the inventory above. A phone
+    with no Codec War counterpart is PhoneNotMapped, as for the lexicon's own.
+  * PronunciationNotInLexicon: Porch writes a pronunciation for a word the
+    lexicon holds, but none of the lexicon's pronunciations of it is Porch's.
+    The mouth refuses rather than say it another way than Porch writes it.
+Lexicon.phones / phones_timed still take the first pronunciation in file
+order; the choice by Porch's rule is made in the mouth, among the
+pronunciations this file holds (Lexicon.pronunciations).
 """
 
 from __future__ import annotations
@@ -72,7 +87,7 @@ import os
 import re
 import threading
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 __all__ = [
     "LexiconError",
@@ -80,6 +95,9 @@ __all__ = [
     "LexiconFormatError",
     "WordNotInLexicon",
     "PhoneNotMapped",
+    "PronunciationNotInLexicon",
+    "parse_phones",
+    "timed_phones",
     "VOSK_TO_CODECWAR",
     "DURATION_REASONS",
     "NOT_MAPPED",
@@ -133,6 +151,27 @@ class PhoneNotMapped(LexiconError):
             why = "not in the known vosk-model-en-us-0.22 phone inventory"
         in_word = f" in {word!r}" if word else ""
         super().__init__(f"lexicon phone {phone!r}{in_word} has no Codec War phone ({why})")
+
+
+class PronunciationNotInLexicon(LexiconError):
+    """
+    A rule writes a pronunciation of a word the lexicon holds, and none of the
+    lexicon's pronunciations of that word is it. Nothing was looked up past it.
+    """
+
+    def __init__(self, word: str, wanted: Tuple[str, ...], held: List[Tuple[str, ...]],
+                 rule: str, path: Optional[Path] = None) -> None:
+        self.word = word
+        self.wanted = tuple(wanted)
+        self.held = [tuple(h) for h in held]
+        self.rule = rule
+        self.path = path
+        where = f" ({path})" if path else ""
+        super().__init__(
+            f"{word!r}: {rule} writes it {' '.join(self.wanted)}, and the lexicon{where} holds only "
+            f"{'; '.join(' '.join(h) for h in self.held)}. The mouth does not say it another way than the "
+            "rule writes it; the caller may hand in its own pronunciation (pronunciations=...)"
+        )
 
 
 # ------------------------------------------------------------------------------
@@ -262,6 +301,40 @@ def map_phone(vosk_phone: str, word: Optional[str] = None) -> Tuple[str, float]:
         raise PhoneNotMapped(vosk_phone, word) from None
 
 
+def timed_phones(phones: Sequence[str], word: Optional[str] = None) -> List[Tuple[str, float]]:
+    """(Codec War id, duration factor) for each Vosk phone of one pronunciation."""
+    return [map_phone(p, word) for p in phones]
+
+
+def parse_phones(spec: Union[str, Sequence[str]], word: str) -> Tuple[str, ...]:
+    """
+    A pronunciation a caller hands in for `word`, in this lexicon's own phones
+    (the X-SAMPA of vosk-model-en-us-0.22, as align_lexicon.txt writes them):
+    a string "k r I s t m @ n" or a sequence of phones. Vosk's position markers
+    (k_B, n_E) may be left on; they are stripped. Every phone must be a speech
+    phone the mapping above reaches, or PhoneNotMapped names it: Codec War's
+    ARPAbet ("AH", "IY") is not this alphabet and is refused, never read as
+    something else. An empty pronunciation is a ValueError.
+    """
+    if isinstance(spec, str):
+        raw = spec.split()
+    elif isinstance(spec, (list, tuple)):
+        raw = list(spec)
+    else:
+        raise TypeError(f"pronunciation of {word!r}: a string of phones or a list of phones, "
+                        f"not {type(spec).__name__}")
+    if not raw:
+        raise ValueError(f"pronunciation of {word!r} is empty")
+    out: List[str] = []
+    for p in raw:
+        if not isinstance(p, str) or not p.strip():
+            raise ValueError(f"pronunciation of {word!r}: {p!r} is not a phone")
+        ph = strip_position(p.strip())
+        map_phone(ph, word)  # PhoneNotMapped, naming the phone and the word
+        out.append(ph)
+    return tuple(out)
+
+
 _NON_WORD_1 = re.compile(r"[^a-zA-Z'-]")
 _NON_WORD_2 = re.compile(r"[^a-z']")
 
@@ -351,10 +424,12 @@ class Lexicon:
         (Codec War id, duration factor) for each phone of `word`, first
         pronunciation in file order. The factor is the mapping table's
         (1.0 except the flap and the long E). Raises WordNotInLexicon or
-        PhoneNotMapped.
+        PhoneNotMapped. The mouth (christman_sound.synth.Pronouncer) may say
+        another of the word's pronunciations, by Porch's rule or the caller's
+        word; this method is file order only.
         """
         first = self.pronunciations(word)[0]
-        return [map_phone(p, word) for p in first]
+        return timed_phones(first, word)
 
 
 _cache: Dict[Tuple[str, int, int], Lexicon] = {}
