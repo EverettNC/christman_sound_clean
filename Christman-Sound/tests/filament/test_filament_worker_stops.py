@@ -30,7 +30,7 @@ def ear(tmp_path, monkeypatch):
     return seated_server()
 
 
-def test_a_stopped_worker_is_told_to_every_open_stream(ear):
+def test_a_stopped_worker_reaches_every_open_stream(ear):
     music = pcm("music")
     half = (len(music) // 4) * 2
     assert ear.live_hear(b"", reset=True, session="speaking")["ok"] is True
