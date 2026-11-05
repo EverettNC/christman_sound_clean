@@ -1,0 +1,11 @@
+{
+  "meta": {
+    "version": "2.0.0",
+    "last_updated": "2026-10-28T22:28:17.722261+00:00",
+    "total_phrases": 0,
+    "express_target_ms": 50,
+    "priority_target_ms": 500,
+    "format": "One entry per phrase, written only by voice_express.register_phrase. duration_seconds and sample_rate are read from the audio file; source says where the audio came from, text_from where the text came from."
+  },
+  "phrases": []
+}
