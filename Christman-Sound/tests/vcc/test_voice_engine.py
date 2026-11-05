@@ -280,3 +280,21 @@ def test_status_names_the_voice_and_every_control(engine):
     assert set(s["controls"]) == set(SYNTH_INPUT_FOR)
     for name, c in s["controls"].items():
         assert c["applied"] == engine._synth_accepts(SYNTH_INPUT_FOR[name])
+
+
+def test_a_filter_overshoot_is_scaled_down_whole_not_refused(tmp_path):
+    """2026-11-05: one of 98 phrases in a being's frame voice came out of the
+    frequency filter at a peak of 1.026 and the whole phrase was refused. It is
+    now scaled down as a whole to the synthesizer's 0.97 and the scale is
+    returned; nothing is clipped."""
+    from voice_creation_center.engines.voice_engine import FILTER_PEAK
+    e = VoiceEngine(str(tmp_path / "no_voice_needed_for_this.json"))
+    rate = 22050
+    t = np.arange(rate // 4) / rate
+    square = 0.97 * np.sign(np.sin(2 * np.pi * 220 * t))   # a hard edge rings past full scale when low-passed
+    out, scale, peak = e._apply_frequency_bounds(square, floor_hz=80, cap_hz=2000, sample_rate=rate)
+    assert peak > 1.0, "this signal must overshoot for the test to mean anything"
+    assert scale == pytest.approx(FILTER_PEAK / peak)
+    assert float(np.max(np.abs(out))) == pytest.approx(FILTER_PEAK)
+    unscaled, one, _ = e._apply_frequency_bounds(0.5 * square, floor_hz=80, cap_hz=2000, sample_rate=rate)
+    assert one == 1.0 and np.allclose(out, unscaled * 2 * scale)

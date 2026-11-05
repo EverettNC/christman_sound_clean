@@ -128,6 +128,11 @@ SYNTH_SAMPLE_RATES = (16000, 22050)
 #: cap mean something, gentle enough not to ring audibly on speech.
 FILTER_ORDER = 4
 
+#: The peak a filtered rendering that went past full scale is scaled to: the
+#: synthesizer's own FRAME_PEAK (christman_sound/synth.py), so the 16-bit
+#: rounding cannot clip.
+FILTER_PEAK = 0.97
+
 
 # ---------------------------------------------------------------------------
 # VoiceParameters — The full control surface
@@ -638,7 +643,7 @@ class VoiceEngine:
             )
 
         try:
-            samples = self._apply_frequency_bounds(
+            samples, level_scale, peak = self._apply_frequency_bounds(
                 made.samples,
                 floor_hz=params.frequency_floor_hz,
                 cap_hz=params.frequency_cap_hz,
@@ -647,6 +652,12 @@ class VoiceEngine:
             wav_bytes = _wav_bytes(samples, made.sample_rate)
         except ValueError as e:
             return SynthesisResult(success=False, controls=reports, error=str(e))
+        if level_scale != 1.0:
+            reports.append(ControlReport(
+                "level", level_scale, True,
+                f"the frequency filter took the peak to {peak:.3f}, past full scale; the whole rendering "
+                f"was scaled x{level_scale:.3f} to {FILTER_PEAK} so nothing clips",
+            ))
 
         if output_path:
             out = Path(output_path)
@@ -679,15 +690,22 @@ class VoiceEngine:
         Apply the frequency floor and ceiling to the samples: the
         accessibility safety gate. A high-pass at the floor; a low-pass at
         the cap when the cap is below the audio's own limit (half the sample
-        rate). Raises ValueError rather than return audio it could not
-        filter, or audio that left full scale.
+        rate). Returns (samples, level scale, peak after filtering). Raises
+        ValueError rather than return silence.
+
+        WHAT CHANGED AND WHY (2026-11-05): a filter run forward and backward
+        can lift a peak the synthesizer had kept under full scale (one of 98
+        phrases rendered in a being's frame voice came out at 1.026), and the
+        whole rendering was refused. Now it is scaled down as a whole to
+        FILTER_PEAK, the same rule and the same 0.97 christman_sound.synth
+        uses for a frame voice, and the scale is reported; nothing is clipped.
         """
         import numpy as np
         x = np.asarray(samples, dtype=np.float64)
         if not np.any(x):
             raise ValueError("the synthesizer returned silence: every sample is zero")
         if floor_hz is None and (cap_hz is None or cap_hz >= sample_rate / 2):
-            return x
+            return x, 1.0, float(np.max(np.abs(x)))
         from scipy.signal import butter, sosfiltfilt
         if floor_hz is not None:
             sos = butter(FILTER_ORDER, floor_hz, btype="highpass", fs=sample_rate, output="sos")
@@ -697,8 +715,9 @@ class VoiceEngine:
             x = sosfiltfilt(sos, x)
         peak = float(np.max(np.abs(x)))
         if peak > 1.0:
-            raise ValueError(f"after the frequency filter the peak is {peak:.3f}, past full scale; refusing to clip")
-        return x
+            scale = FILTER_PEAK / peak
+            return x * scale, scale, peak
+        return x, 1.0, peak
 
     # -- phonemes (the SDK's labeler, the one copy) ---------------------------
 
