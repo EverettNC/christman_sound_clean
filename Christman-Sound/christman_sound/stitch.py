@@ -35,9 +35,15 @@ own recordings:
 Speaking a sentence:
   1. select_units: one recorded phone unit for every phone (Viterbi). A unit
      followed by the unit that followed it in the recording joins for
-     nothing, so whole words and runs of words come out whole.
+     nothing, so whole words and runs of words come out whole. A unit whose
+     recording did not go on into the phone the sentence needs next pays
+     COST_NEXT (2026-11-05, with stitch.ts: the move from one sound into the
+     next has to be real recorded speech).
   2. join_units: their frames end to end, the recording's own silence at
-     both edges, joins the recordings do not hold smoothed.
+     both edges, joins the recordings do not hold smoothed. When the previous
+     unit's recording went on into the phone, it carries on through the first
+     half of the phone and the chosen unit starts from its own middle, so the
+     seam falls where the sound holds steady (2026-11-05, with stitch.ts).
   3. apply_voice: the measured profile and every control, each applied and
      listed with its value, or StitchRefused with the reason.
   4. render: christman_vocoder (C, the port of Codec War's vocoder.ts).
@@ -81,7 +87,8 @@ __all__ = [
 
 # --- constants: the same values as stitch.ts, reasons there ------------------
 COST_WORD = 2.0
-COST_CONTEXT = 1.0
+COST_NEXT = 3.0
+COST_EDGE_SEAM = 2.0
 COST_EDGE = 0.5
 COST_DURATION = 0.5
 COST_BREAK = 1.5
@@ -303,10 +310,8 @@ def _target_cost(u: Unit, t: Dict[str, Any], med: Dict[str, int]) -> float:
     c = 0.0
     if u.word != t["word"] or u.pos != t["pos"] or u.wordLen != t["wordLen"]:
         c += COST_WORD
-    if u.prev != t["prev"]:
-        c += COST_CONTEXT
     if u.next != t["next"]:
-        c += COST_CONTEXT
+        c += COST_NEXT
     if t["first"] != u.phraseStart:
         c += COST_EDGE
     if t["last"] != u.phraseEnd:
@@ -328,15 +333,34 @@ def _frame_dist(a: Tuple, b: Tuple, ne: int) -> float:
     return c
 
 
+def _mid(u: "Unit") -> int:
+    """The frame in the middle of a unit: where a mid-phone seam is cut (stitch.ts mid)."""
+    return u.start + ((u.end - u.start) >> 1)
+
+
+def _carried_into(bank: FrameBank, u: "Unit", v: "Unit") -> Optional["Unit"]:
+    """The unit that carries u on into v's phone in u's own recording, when the
+    seam between u and v can fall in the middle of v's phone; else None (stitch.ts carriedInto)."""
+    if u.succ < 0:
+        return None
+    s = bank.units[u.succ]
+    return s if s.phone == v.phone and s.end - s.start >= 2 and v.end - v.start >= 2 else None
+
+
 def _join_cost(bank: FrameBank, ui: int, vi: int) -> float:
     u = bank.units[ui]
     if u.succ == vi:
         return 0.0
     v = bank.units[vi]
+    s = _carried_into(bank, u, v)
+    if s is not None:
+        # The seam falls in the middle of v's phone: the last frame of the first
+        # half that u's recording carries on into, against v's middle frame.
+        return COST_BREAK + _frame_dist(bank.frame(s.rec, _mid(s) - 1), bank.frame(v.rec, _mid(v)), bank.ne)
     n_u = int(bank.recordings[u.rec]["n"])
     after = min(u.end, n_u - 1)
     before = max(v.start - 1, 0)
-    return COST_BREAK + 0.5 * (
+    return COST_EDGE_SEAM + COST_BREAK + 0.5 * (
         _frame_dist(bank.frame(u.rec, after), bank.frame(v.rec, v.start), bank.ne)
         + _frame_dist(bank.frame(u.rec, u.end - 1), bank.frame(v.rec, before), bank.ne)
     )
@@ -470,9 +494,19 @@ def join_units(bank: FrameBank, sel: Selection) -> Stitched:
     pauses = set(sel.pauses_after)
     for n, ui in enumerate(sel.units):
         u = bank.units[ui]
+        start = u.start
         if n > 0 and (n - 1) not in pauses and bank.units[sel.units[n - 1]].succ != ui:
+            # A join the recordings do not hold. When the previous unit's
+            # recording went on into this phone, it carries on through the first
+            # half of this phone as recorded, and this unit starts from its
+            # middle; else the seam falls at the edge (stitch.ts joinUnits).
+            s = _carried_into(bank, bank.units[sel.units[n - 1]], u)
+            if s is not None:
+                for i in range(s.start, _mid(s)):
+                    push(s.rec, i, u.phone)
+                start = _mid(u)
             joins_at.append(len(f0))
-        for i in range(u.start, u.end):
+        for i in range(start, u.end):
             push(u.rec, i, u.phone)
         if n in pauses:
             a, b = bank.recordings[u.rec]["pause"]
