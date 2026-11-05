@@ -9,6 +9,16 @@ THEFILAMENT ear/mouth.py).
 
 Being-neutral: holds no person's or being's name by default. Callers may pass
 `extra_mangles` when recovering custom vocabulary.
+
+WHAT CHANGED AND WHY (2026-11-05)
+Two failures were swallowed. A Carbon pile that could not be read, or was not
+a JSON list, read as an empty pile, and the next word set aside wrote over it;
+now a missing pile is empty (nothing set aside yet), and an unreadable one
+raises, naming the file, and is left as it is. And a residual-board write that
+failed for an unsure word was passed over with `except Exception: pass`; now
+it raises. The Filament ear server (christman_sound/filament) runs through
+this file and still returns the words heard when the pile fails, with the
+failure named in its reply.
 """
 
 from __future__ import annotations
@@ -19,6 +29,8 @@ import re
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+from .board import add_residual
 
 __all__ = [
     "CONF_FLOOR",
@@ -107,15 +119,18 @@ def shape_words(
 
 
 def load_carbon(path: Optional[Path] = None) -> List[Dict[str, Any]]:
+    """The words set aside for Carbon. No pile yet is empty; a pile that cannot
+    be read or is not a JSON list raises, and is left as it is."""
     target = path or carbon_path()
+    if not target.exists():
+        return []
     try:
-        if target.is_file():
-            data = json.loads(target.read_text(encoding="utf-8"))
-            if isinstance(data, list):
-                return data
-    except (OSError, json.JSONDecodeError):
-        pass
-    return []
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"The Carbon pile at {target} is not readable JSON ({exc}); it was left as it is.") from exc
+    if not isinstance(data, list):
+        raise ValueError(f"The Carbon pile at {target} holds {type(data).__name__}, not a list; it was left as it is.")
+    return data
 
 
 def save_carbon(rows: List[Dict[str, Any]], path: Optional[Path] = None) -> None:
@@ -141,11 +156,7 @@ def aside_for_carbon(words: List[Dict[str, Any]], heard: str, path: Optional[Pat
         }
         pile.insert(0, row)
         added.append(row)
-        try:
-            from .board import add_residual
-            add_residual(str(row.get("word") or ""), "", "unsure")
-        except Exception:
-            pass
+        add_residual(str(row.get("word") or ""), "", "unsure")
     if added:
         save_carbon(pile, path)
     return added
