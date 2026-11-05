@@ -16,7 +16,8 @@ mouth, christman_sound.stitch) or a voice profile JSON (the clear mouth,
 christman_synth_clear through christman_sound.dsp). Every sentence is
 rendered, written as a WAV, and heard by each ear given:
 
-  filament   the Filament door (--filament), the ear the house uses
+  filament   the Filament door (--filament), the ear the house uses; a
+             local door only (127.0.0.1, localhost or ::1), else refused
   ear        christman_sound.ear on --vosk-model, this package's own ear
 
 A word counts as heard when it is matched in order in what the ear heard
@@ -36,9 +37,10 @@ from __future__ import annotations
 import argparse
 import collections
 import difflib
+import http.client
 import json
 import sys
-import urllib.request
+import urllib.parse
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
@@ -59,13 +61,29 @@ def read_sentences(path: Path) -> List[str]:
     return out
 
 
+#: The Filament door is a local ear. The ruler sends a rendering nowhere else.
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
 def filament_ear(url: str, timeout: float) -> Callable[[bytes], str]:
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    u = urllib.parse.urlsplit(url)
+    if u.scheme != "http" or u.hostname not in LOOPBACK_HOSTS:
+        raise SystemExit(f"--filament must be a local http door on this machine ({', '.join(sorted(LOOPBACK_HOSTS))}); "
+                         f"refusing to send audio to {url}")
+    path = u.path or "/"
 
     def hear(wav: bytes) -> str:
-        req = urllib.request.Request(url, data=wav, method="POST",
-                                     headers={"Content-Type": "audio/wav", "Content-Length": str(len(wav))})
-        body = json.loads(opener.open(req, timeout=timeout).read().decode())
+        conn = http.client.HTTPConnection(u.hostname, u.port or 80, timeout=timeout)
+        try:
+            conn.request("POST", path, body=wav,
+                         headers={"Content-Type": "audio/wav", "Content-Length": str(len(wav))})
+            resp = conn.getresponse()
+            raw = resp.read().decode()
+        finally:
+            conn.close()
+        if resp.status != 200:
+            raise RuntimeError(f"the Filament door answered {resp.status}: {raw[:300]}")
+        body = json.loads(raw)
         if body.get("ok") is False:
             raise RuntimeError(f"the Filament refused the clip: {body}")
         words = body.get("words") or []
@@ -125,6 +143,19 @@ def main() -> int:
     from christman_sound.synth import synthesize
 
     sentences = read_sentences(Path(args.sentences))
+    ears: Dict[str, Callable[[bytes], str]] = {}
+    not_run: Dict[str, str] = {}
+    if args.filament:
+        ears["filament"] = filament_ear(args.filament, args.filament_timeout)
+    else:
+        not_run["filament"] = "no --filament door given"
+    if args.vosk_model:
+        ears["ear"] = package_ear(Path(args.vosk_model).expanduser())
+    else:
+        not_run["ear"] = "no --vosk-model given"
+    if not ears:
+        raise SystemExit("no ear given: pass --filament, --vosk-model or both")
+
     voice_path = Path(args.voice).expanduser()
     recorded: Optional[set] = None
     engine = None
@@ -143,19 +174,6 @@ def main() -> int:
         if not (engine.available and engine.synth_available):
             raise SystemExit(f"the clear mouth's library is not usable: {engine.error or engine.synth_error}")
         mouth = "clear"
-
-    ears: Dict[str, Callable[[bytes], str]] = {}
-    not_run: Dict[str, str] = {}
-    if args.filament:
-        ears["filament"] = filament_ear(args.filament, args.filament_timeout)
-    else:
-        not_run["filament"] = "no --filament door given"
-    if args.vosk_model:
-        ears["ear"] = package_ear(Path(args.vosk_model).expanduser())
-    else:
-        not_run["ear"] = "no --vosk-model given"
-    if not ears:
-        raise SystemExit("no ear given: pass --filament, --vosk-model or both")
 
     out = Path(args.out).expanduser() if args.out else Path.cwd() / "word_ruler_out"
     out.mkdir(parents=True, exist_ok=True)
