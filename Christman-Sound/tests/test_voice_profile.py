@@ -304,13 +304,12 @@ def test_measurement_from_a_beings_recordings(tmp_path):
                     "CHRISTMAN_VOICE_REFERENCE_PROFILE (the measurement above ran and "
                     "passed its checks); runs on Everett's Mac")
     ref = json.loads(Path(ref_path).expanduser().read_text(encoding="utf-8"))
-    # The old recognizer's word times on the same file moved by up to one
-    # 30 ms frame from run to run (measured 2026-10-28: 3 to 4 of 26
-    # phrases), and the values moved with them: over three runs, 10 Hz on
-    # one vowel's F3, 0.06 semitones on one contour point, rate unchanged.
-    # The tolerances below are a few times that; a real change is far
-    # larger. The ear's run to run is not yet measured here, so the
-    # tolerances stay as they were.
+    # Vosk's word times on the same file moved by up to one 30 ms frame
+    # from run to run (measured 2026-10-28: 3 to 4 of 26 phrases), and the
+    # values moved with them: over three runs, 10 Hz on one vowel's F3, 0.06
+    # semitones on one contour point, rate unchanged. The tolerances below
+    # are a few times that; a real change is far larger. Vosk is the ear's
+    # recognizer again since 2026-11-05; the tolerances stay as they were.
     assert fresh["f0"]["median_hz"] == ref["f0"]["median_hz"]
     assert abs(fresh["rate"]["value"] - ref["rate"]["value"]) <= 0.02
     for x, y in zip(fresh["pitch_contour"]["semitones_from_median"], ref["pitch_contour"]["semitones_from_median"]):

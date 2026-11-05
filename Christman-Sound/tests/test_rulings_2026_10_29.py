@@ -739,7 +739,7 @@ def test_9_corti_receiver_route_returns_the_mapped_words_unaltered():
         server.server_close()
 
 
-# -- 8. the old recognizer is gone ------------------------------------------------
+# -- 8. Vosk is the ear (2026-11-05; was: the old recognizer is gone) -------------
 
 def test_8_the_old_recognizers_name_appears_only_where_vosk_is_called():
     # Was (2026-10-29): the name appears nowhere. Vosk's recognizer class carries

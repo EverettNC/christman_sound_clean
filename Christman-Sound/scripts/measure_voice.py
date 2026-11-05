@@ -311,8 +311,8 @@ def align(phrases: List[Phrase], model_dir: str) -> dict:
         "christman_sound_version": _pip_version("christman-sound"),
         "model": Path(model_dir).name,
         "phrase_text": "from the file name; a phrase whose decoded words differ is left out",
-        "run_to_run": "not yet measured on the ear. The old recognizer's word times moved by up "
-                      "to one 30 ms frame between runs (measured 2026-10-28)",
+        "run_to_run": "Vosk's word times moved by up to one 30 ms frame between runs "
+                      "(measured 2026-10-28, on the recognizer the ear runs again since 2026-11-05)",
     }
 
 

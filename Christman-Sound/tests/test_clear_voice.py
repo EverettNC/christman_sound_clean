@@ -20,8 +20,8 @@ text as "the": 4 of 53 words on twelve sentences. These tests hold:
   * AY glides from the voice's measured onset to its measured offset;
   * a measured voice is rendered by the clear renderer, and says so;
   * words: with the model folder on the machine, twelve sentences are
-    synthesized in the test voice and heard by christman_sound.ear (the old
-    recognizer is removed, Everett's ruling 2026-10-29); the clear renderer
+    synthesized in the test voice and heard by christman_sound.ear (Vosk's
+    recognizer on the full model, Everett 2026-11-05); the clear renderer
     must be heard far better than christman_synth_voiced. Without the model
     folder or its lexicon, NOT RUN.
 
@@ -247,7 +247,12 @@ def test_free_text_is_heard_word_for_word_far_more_often(dsp, tmp_path, voice):
     (34.0%), under the 40% floor. The floor is NOT lowered: it is Everett's
     to keep or change. The ear reads no rescoring step (the full model's
     rescore/ folder is not used by christman_sound.ear), which may be why it
-    hears these renderings less well; that is not yet proven. Needs
+    hears these renderings less well; that is not yet proven.
+
+    Measured on Vosk again on his Mac, 2026-11-05 (the ear is Vosk's
+    recognizer on vosk-model-en-us-0.22 once more, with the Klatt mouth fixes
+    of PR #7): christman_synth_voiced 3 of 53 (5.7%); christman_synth_clear
+    27 of 53 (50.9%). Needs
     CHRISTMAN_VOSK_MODEL (the model folder) and CHRISTMAN_LEXICON_PATH.
     """
     need = {k: os.environ.get(k) for k in ("CHRISTMAN_VOSK_MODEL", "CHRISTMAN_LEXICON_PATH")}
