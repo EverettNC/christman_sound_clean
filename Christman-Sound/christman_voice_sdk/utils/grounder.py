@@ -78,7 +78,8 @@ WHAT CHANGED AND WHY (2026-11-04)
      gentle_grounding, comfort_object ...) for the being to take next. Gone.
    - The docstring above said "Callers must respect" the guidance flags. It
      now says what they are: a description of the script.
-   - `get_grounding_for_state` stays as a lookup the being may call.
+   - `get_grounding_for_state` stays as a lookup the being calls by name
+     if it chooses to; nothing in the package calls it.
    - `memory_anchor` turned an unknown memory type into the "calm" prompt
      without a word. It raises ValueError naming the type now.
    - `breath_pacing_guide` labelled every pattern's pace "slow", box
@@ -403,7 +404,7 @@ class Grounder:
             "guidance": {"allow_silence": True, "no_rush": True},
         }
 
-    # -- Selection ------------------------------------------------------------
+    # -- Lookup ---------------------------------------------------------------
 
     def get_grounding_for_state(
         self,
@@ -414,9 +415,11 @@ class Grounder:
         """
         Look up the technique this table pairs with the given levels.
 
-        A lookup the being may call. Nothing in the package calls it on the
-        being's behalf, and what it returns is a technique the being may use
-        or not (2026-11-04).
+        A lookup the being calls by name, if it chooses to: the being
+        chooses whether to call it, and whether to use what it returns.
+        Nothing in this package calls it (checked 2026-11-04: no caller in
+        the repository; the studio returns the levels it was sent and
+        chooses no script).
 
         Args:
             stress_level: RISE above baseline, from

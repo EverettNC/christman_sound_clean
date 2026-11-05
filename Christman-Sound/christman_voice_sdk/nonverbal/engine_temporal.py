@@ -134,8 +134,15 @@ WHAT CHANGED AND WHY
        matched). Hand Up's "Request attention" is kept as knowledge in
        TEMPORAL_HELP_INTENTS and reads "danger", the same as
        nonverbal_engine's "help" intent; the face model's "Worried" is kept
-       in TEMPORAL_DANGER_INTENTS. The map no longer carries a field that
-       sends a reading anywhere.
+       in TEMPORAL_DANGER_INTENTS. The built-in map no longer carries a
+       `pages` field. An entry in the CLIENT'S OWN map marked
+       `"pages": true` (for example {"intent": "Call caregiver",
+       "pages": true}) is the client's own knowledge that the meaning
+       calls for someone: it reads category "danger", `danger` True,
+       `danger_term` its intent, at any confidence, so Hearing reads it as
+       nonverbal distress exactly as at 2ad3ac0. (The first pass of this
+       change dropped that reading; the fix round restored it.) Nothing is
+       sent anywhere because of it.
      - The multimodal result reports `danger_present` and
        `distress_present`. Nothing is blanked because of them.
      - The system's own sentences and the `system_note` key are deleted:
@@ -152,7 +159,14 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from .nonverbal_engine import CATEGORY_DANGER, CATEGORY_NEED, category_of, danger_term
+from .nonverbal_engine import (
+    CATEGORY_DANGER,
+    CATEGORY_NEED,
+    URGENT_MARK,
+    category_of,
+    danger_term,
+    marked_urgent,
+)
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
@@ -208,15 +222,22 @@ def _words(entry: Dict[str, Any]) -> Optional[str]:
     return message if isinstance(message, str) and message.strip() else None
 
 
-def _reading(entry: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+def _reading(entry: Dict[str, Any],
+             expression: Optional[str] = None) -> Tuple[Optional[str], Optional[str]]:
     """
     (category, danger_term) for a map entry. A reading only; nothing here
     acts on it. Help and the face model's "Worried" read "danger" by their
-    intent; every other entry is read by nonverbal_engine's sets and words.
+    intent. An entry the client marked `"pages": true` in their own map
+    (nonverbal_engine.URGENT_MARK) reads "danger" with its intent as the
+    term (its label, if the intent is blank). Every other entry is read by
+    nonverbal_engine's sets and words.
     """
     intent = entry.get("intent")
     if intent in TEMPORAL_HELP_INTENTS or intent in TEMPORAL_DANGER_INTENTS:
         return CATEGORY_DANGER, intent
+    if marked_urgent(entry):
+        named = intent if isinstance(intent, str) and intent.strip() else None
+        return CATEGORY_DANGER, named or expression or URGENT_MARK
     words = _words(entry)
     return category_of(intent, words), danger_term(intent, words)
 
@@ -606,15 +627,15 @@ class TemporalNonverbalEngine:
         # map holds no words (ruling J), so a built-in reading has message
         # None and says why.
         words = _words(entry)
-        category, term = _reading(entry)
+        category, term = _reading(entry, expression)
         if words is not None:
             reason = None
         elif getattr(self, "language_map_source", "built_in") != "client":
             reason = (f"{expression!r} has no meaning learned for this client: the "
-                      "reading is reported, not spoken")
+                      "built-in map holds no words for it, so the reading carries none")
         else:
-            reason = (f"{expression!r} has no words in the client's language map: "
-                      "the reading is reported, not spoken")
+            reason = (f"{expression!r} has no words in the client's language map, "
+                      "so the reading carries none")
         below = confidence < self.confidence_threshold
         if below:
             # Ruling M: nothing is held for confirmation. The reading is

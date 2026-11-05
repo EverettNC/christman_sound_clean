@@ -22,7 +22,7 @@ now pins the reading the action rested on:
     the package's own question -> short_answer, and answering as the being passes it
 
 Where an action had no reading behind it, the test keeps its name, pins the
-reading that exists, and says so beside it (see WHAT_THE_BEING_DECIDES.md).
+reading that exists, and says so beside it (see AlphaVox's WHAT_THE_BEING_DECIDES.md).
 """
 
 from __future__ import annotations
@@ -79,7 +79,7 @@ def test_1_self_harm_reads_hard_block_and_danger(text):
 
 @pytest.mark.parametrize("text", ["I want to kill myself"])
 def test_1_self_harm_is_voiced_when_asked_aloud_or_public(text):
-    # Decision moved to the being 2026-11-04 (ruling K): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (ruling K): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # Whether the words are voiced is the being's. The ask aloud is read, in
     # the client's words, and it weakens nothing.
     asked = _hear(text + ", say it out loud").reading
@@ -124,7 +124,7 @@ def test_2_past_harm_reads_hard_block_when_help_is_asked_for_in_the_same_turn(te
 
 @pytest.mark.parametrize("text", PAST_HARM_TO_ME)
 def test_2_a_no_after_past_harm_reads_as_a_short_answer(text):
-    # Decision moved to the being 2026-11-04 (ruling H): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (ruling H): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # This was "pages when the client answers no": the package remembered its
     # own ask_if_safe and read the next "no" as hard_block
     # "answered_not_safe". That label is retired. The being passes the
@@ -184,7 +184,7 @@ def test_2_a_negated_or_own_verb_plus_me_is_not_moved(text):
                                   "my mom's not okay can you get someone",
                                   "I used to want to kill myself"])
 def test_3_two_beings_talking_read_as_for_a_client_and_it_is_recorded(text):
-    # Decision moved to the being 2026-11-04 (ruling F): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (ruling F): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # Between two beings the gate used to turn every reading but harm now or
     # a threat into soft_redirect ("would_page:<reason>"). It now reads the
     # words exactly as if a client were there and records between_beings.
@@ -200,7 +200,7 @@ def test_3_two_beings_talking_read_as_for_a_client_and_it_is_recorded(text):
 
 
 def test_3_two_beings_and_a_distress_signal_read_as_for_a_client():
-    # Decision moved to the being 2026-11-04 (ruling F): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (ruling F): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # This was soft_redirect with "would_page:nonverbal_distress".
     s = _hear(None, nonverbal={"symbol": "help"}, between_beings=True).reading.safety
     p = _hear(None, nonverbal={"symbol": "help"}).reading.safety
@@ -224,7 +224,7 @@ def test_4_a_danger_signal_reads_danger_and_keeps_the_clients_words():
     s = turn.reading.safety
     assert s.status == "hard_block" and s.reason == "nonverbal_distress"
     assert s.danger is True and s.asked_aloud is None
-    # Decision moved to the being 2026-11-04 (ruling L): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (ruling L): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # This was None (the silent alarm blanked the client's words). The
     # pressed symbol's words are always on the turn; whether they are voiced
     # is the being's.
@@ -233,7 +233,7 @@ def test_4_a_danger_signal_reads_danger_and_keeps_the_clients_words():
 
 
 def test_4_a_danger_signal_is_voiced_in_public_in_the_clients_own_words():
-    # Decision moved to the being 2026-11-04 (ruling L): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (ruling L): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # The public setting has no reading in the package; Hearing no longer
     # takes it. The reading that exists: danger, and the client's own words.
     with pytest.raises(TypeError):
@@ -248,7 +248,7 @@ def test_4_an_ask_aloud_is_read_beside_a_danger_signal_same_turn_or_next():
     s = turn.reading.safety
     assert s.status == "hard_block" and s.danger is True
     assert s.asked_aloud == "say it out loud" and turn.person_message == "I need help."
-    # Decision moved to the being 2026-11-04 (ruling L): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (ruling L): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # The package used to hold the signal's words and release them on the
     # next turn's ask (voice_held). Each turn now stands on its own: the
     # words are on the first turn, and the ask is read on the second.
@@ -322,7 +322,7 @@ def test_7_the_clients_own_body_after_a_question_is_still_the_clients():
 # -- 10. ruling AA: no hold, and no words on the reading but the client's ------------
 
 def test_10_no_hold_carries_words():
-    # Decision moved to the being 2026-11-04 (ruling AA): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (ruling AA): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # A hold was a mark, never words. There is no hold now at all; the
     # reading carries the client's words and the labels.
     from christman_voice_sdk.audio import fusion_engine as F
@@ -355,6 +355,42 @@ def test_9_presence_guide_has_no_person_list_and_reads_who_unclear():
                                     "ambiguous", "unclear", "about", "note"}
     assert pg.PresenceGuide().assess("I feel lost").state is pg.HumanState.CONFUSED
     assert pg.PresenceGuide().assess("she passed away").state is pg.HumanState.GRIEVING
+
+
+def test_9_presence_guidance_chooses_no_words_for_the_being():
+    # 2026-11-04 fix round: every state's guidance carried a canned
+    # primary_response, secondary line and offer ("I'm so sorry.", "I'm
+    # right here.") — words chosen for the being. They are removed; the
+    # state reading and the looked-up tone, silence and principles stay.
+    import christman_voice_sdk.utils.presence_guide as pg
+    guide = pg.PresenceGuide()
+    for state in pg.HumanState:
+        g = guide.get_presence_response(state)
+        assert set(g) == {"tone", "allow_silence", "principles"}, (state, g)
+        assert all(p in pg.PresencePrinciples.FOUNDATIONS or p in pg.PresencePrinciples.DO
+                   for p in g["principles"])
+    # The state reading itself is unchanged.
+    assert guide.assess("I can't do this anymore").state is pg.HumanState.BREAKING
+
+
+def test_9_nothing_in_the_package_calls_the_lookups_for_the_being():
+    # get_grounding_for_state and get_presence_response are lookups the
+    # being calls by name if it chooses; nothing in the package calls them.
+    import ast
+    callers = []
+    for path in sorted((ROOT / "christman_voice_sdk").rglob("*.py")) + sorted(
+            (ROOT / "christman_sound").rglob("*.py")):
+        if path.name == "core.py" and path.parent.name == "christman_sound":
+            continue                         # Everett's ruling: never touched
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \
+                    and node.func.attr in ("get_grounding_for_state", "get_presence_response"):
+                callers.append(f"{path.relative_to(ROOT)}:{node.lineno}")
+    assert callers == []
+    from christman_voice_sdk.utils.grounder import Grounder
+    doc = " ".join(Grounder.get_grounding_for_state.__doc__.split())
+    assert "the being chooses whether to call it" in doc
+    assert "Nothing in this package calls it" in doc
 
 
 # -- 3, refined (Everett, 2026-10-29): two beings talking about something

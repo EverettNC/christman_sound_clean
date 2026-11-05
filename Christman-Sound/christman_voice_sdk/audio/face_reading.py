@@ -15,7 +15,25 @@ it: "my mama's scared" is never the client's. It is NOT a being's face
 moving with a feeling, and nothing here renders a face or drives an
 avatar. Everett: avatar work is "not where it needs to be until avatars
 get better"; it is not done in this package. Below, "the face" means
-whatever later reads this data, and the rules are what it must respect.
+whatever later reads this data.
+
+WHAT CHANGED AND WHY (2026-11-04)
+---------------------------------
+Everett's ruling, in his words: "we can have this knowledge in the sound
+package, but it can't be making those decisions. It's up to the being to make
+those decisions, not something that just creates a voice."
+
+This module told the being how to stand and what to do: `stance` was "how
+the face and the response should stand", its other-state value was named
+"empathy" (a response, not a reading), `hold_baseline` told the face to
+hold still, `defer_to_human` and the note "surface to a human" told the
+being whom to bring in, and the other-state note said "The response should
+acknowledge it". The readings stay; the instructions go. `stance` is whose
+state the reading is about ("own_state", "other_state", "none"); in place of
+`defer_to_human` the reading carries `channels_disagree` and
+`voice_elevated` (prosody.reconcile); `hold_baseline` is removed, and the
+two readings it was made of, `reading_known` and `channels_disagree`, are
+on the reading.
 
 WHY THERE IS NO 8-DIM VECTOR HERE
 ---------------------------------
@@ -56,13 +74,13 @@ and stops. It does not map to physics: those constants are Everett's, they
 belong to the face, and inventing them here would be the same error one layer
 down.
 
-WHAT ANY READER OF THIS MUST GATE ON
-------------------------------------
-    `speaker_state_known`  — False means nothing is known of the speaker's state.
-    `defer_to_human`       — words and voice disagree; do not act confidently.
-    `attribution`          — only SELF is the speaker's own state. Someone
-                             else's pain, or an impersonal topic, must not
-                             drive this person's expression.
+WHAT THE READING CARRIES ABOUT ITS OWN LIMITS
+---------------------------------------------
+    `self_state_known`   — False means nothing is known of the speaker's state.
+    `channels_disagree`  — the words and the voice point different ways.
+    `attribution`        — only SELF is the speaker's own state. Someone
+                           else's pain, or an impersonal topic, is not the
+                           speaker's.
 """
 
 from __future__ import annotations
@@ -77,10 +95,12 @@ from .prosody import Agreement, ProsodyReading, Reconciliation, reconcile
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
-#: How the face and the response should stand toward this reading.
+#: Whose state the reading is about. (Until 2026-11-04 these named how the
+#: face and the response should stand, and the other-state value was
+#: "empathy".)
 STANCE_OWN = "own_state"      # the speaker's own state
-STANCE_EMPATHY = "empathy"    # someone else's state, told to us
-STANCE_NONE = "none"          # nothing to stand toward
+STANCE_OTHER = "other_state"  # someone else's state, told to us
+STANCE_NONE = "none"          # no state was read
 
 
 @dataclass(frozen=True)
@@ -123,7 +143,7 @@ class FaceReading:
     """
 
     reading_known: bool
-    stance: str                       # own_state | empathy | none
+    stance: str                       # own_state | other_state | none
     valence: Optional[float]          # signed, or None
     intensity: Optional[float]
     attribution: str
@@ -132,7 +152,10 @@ class FaceReading:
     arousal_reference: Optional[str]
     arousal_is_unvalidated: bool
     agreement: str
-    defer_to_human: bool
+    #: The words and the voice disagree (prosody.reconcile).
+    channels_disagree: bool
+    #: The measured arousal is above prosody.CONFLICT_AROUSAL; None with none.
+    voice_elevated: Optional[bool]
     reason: str
     objects: List[AffectObject] = field(default_factory=list)
     requests: List[str] = field(default_factory=list)
@@ -154,32 +177,11 @@ class FaceReading:
         """The reading is about the SPEAKER."""
         return self.reading_known and self.stance == STANCE_OWN
 
-    @property
-    def hold_baseline(self) -> bool:
-        """
-        True only when there is nothing to react to, or the channels disagree.
-
-        Everett, 2026-08-15, on being told someone's mother is hurting:
-
-            "I would expect as a carbon, like, a look of empathy, but I would
-            also expect a vocal response as well. Oh, I hope she gets better.
-            ...Some people, you tell them your mother's hurting, they cold-face
-            you, which means their face don't move because they don't know how
-            to react."
-
-        Other-attributed pain is NOT a reason to hold. It is a reason to
-        respond as empathy — a moving face and words — rather than as the
-        speaker's own distress. The cold face is what this system exists not
-        to be.
-        """
-        return (not self.reading_known) or self.defer_to_human
-
     def to_dict(self) -> Dict[str, Any]:
         return {
             "reading_known": self.reading_known,
             "stance": self.stance,
             "self_state_known": self.self_state_known,
-            "hold_baseline": self.hold_baseline,
             "valence": self.valence, "valence_known": self.valence is not None,
             "intensity": self.intensity,
             "attribution": self.attribution,
@@ -189,7 +191,8 @@ class FaceReading:
             "arousal_reference": self.arousal_reference,
             "arousal_is_unvalidated": self.arousal_is_unvalidated,
             "agreement": self.agreement,
-            "defer_to_human": self.defer_to_human,
+            "channels_disagree": self.channels_disagree,
+            "voice_elevated": self.voice_elevated,
             "reason": self.reason,
             "objects": [o.to_dict() for o in self.objects],
             "requests": list(self.requests),
@@ -284,8 +287,8 @@ def build_face_reading(
         notes.append("no voice captured — arousal unavailable")
 
     rec: Reconciliation = reconcile(valence, self_distress_gate, prosody)
-    if rec.defer_to_human:
-        notes.append("CHANNELS DISAGREE — nothing is concluded; surface to a human.")
+    if rec.channels_disagree:
+        notes.append(f"channels disagree: {rec.reason}")
     notes.extend(rec.notes)
 
     known = bool(objects) or arousal is not None
@@ -294,11 +297,10 @@ def build_face_reading(
     elif attribution == Attribution.SELF.value:
         stance = STANCE_OWN
     elif attribution == Attribution.OTHER.value:
-        stance = STANCE_EMPATHY
+        stance = STANCE_OTHER
         notes.append(
-            "stance=empathy — this is someone else's state, theirs and not "
-            "the client's. The response should acknowledge it; it must not "
-            "be recorded as the speaker's own distress."
+            "stance=other_state — this is someone else's state, theirs and "
+            "not the client's; it is not the speaker's own distress."
         )
     else:
         stance = STANCE_NONE
@@ -311,7 +313,8 @@ def build_face_reading(
         arousal=arousal, arousal_reference=arousal_ref,
         arousal_is_unvalidated=arousal_unvalidated,
         agreement=rec.agreement.value,
-        defer_to_human=rec.defer_to_human,
+        channels_disagree=rec.channels_disagree,
+        voice_elevated=rec.voice_elevated,
         reason=rec.reason,
         objects=objects, requests=requests, notes=notes,
     )
@@ -326,8 +329,8 @@ def unavailable(reason: str) -> FaceReading:
     An explicit no-reading.
 
     For the paths that returned `{"valence": 0.5, "status": "NORMAL"}` when the
-    model was missing or the buffer was empty. A face given this holds its
-    baseline. It does not perform calm.
+    model was missing or the buffer was empty. It carries no reading at all;
+    it is not a reading of calm.
     """
     return FaceReading(
         reading_known=False,
@@ -337,7 +340,8 @@ def unavailable(reason: str) -> FaceReading:
         certainty=AffectCertainty.NO_SIGNAL.value,
         arousal=None, arousal_reference=None, arousal_is_unvalidated=False,
         agreement=Agreement.UNKNOWN.value,
-        defer_to_human=False,
+        channels_disagree=False,
+        voice_elevated=None,
         reason=reason,
         notes=[
             "No measurement was taken. This is NOT a reading of neutral or calm.",
@@ -347,7 +351,7 @@ def unavailable(reason: str) -> FaceReading:
 
 
 __all__ = ["FaceReading", "AffectObject", "build_face_reading", "unavailable",
-           "STANCE_OWN", "STANCE_EMPATHY", "STANCE_NONE"]
+           "STANCE_OWN", "STANCE_OTHER", "STANCE_NONE"]
 
 # ==============================================================================
 # Patent Pending — The Christman AI Project / Luma Cognify AI

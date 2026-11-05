@@ -93,7 +93,7 @@ def test_help_request_reaches_the_being_as_a_danger_reading_and_the_loop_listens
     # escalation (EscalationNotDelivered, the loop's fatal stop) is now the
     # category label it rested on: help is "danger", reported to the being's
     # callback with the client's words. Decision moved to the being
-    # 2026-11-04: see WHAT_THE_BEING_DECIDES.md
+    # 2026-11-04: see AlphaVox's WHAT_THE_BEING_DECIDES.md
     from christman_voice_sdk.audio.recognition_result import RecognitionResult
 
     engine = _SpeechEngine()

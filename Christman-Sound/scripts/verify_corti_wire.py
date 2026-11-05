@@ -122,9 +122,10 @@ def main() -> None:
             fail("null f0 filled in on the serialized tape")
         if "no text — structural_affect and harm_frame not run" not in body["notes"]:
             fail(f"turn must say text organs did not run, notes={body['notes']}")
-        if body["decision"] is not None:
-            fail("a card with no text must not produce a fusion decision")
-        ok("card crossed: kind stripped, f0 hole kept, units converted, no fake decision")
+        # 2026-11-04: HearingTurn.decision is HearingTurn.reading (a Reading).
+        if body["reading"] is not None:
+            fail("a card with no text must not produce a fusion reading")
+        ok("card crossed: kind stripped, f0 hole kept, units converted, no fake reading")
 
         if len(turns) != 1:
             fail(f"consumer callback saw {len(turns)} turns, expected 1")

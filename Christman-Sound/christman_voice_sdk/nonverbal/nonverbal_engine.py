@@ -135,7 +135,9 @@ WHAT CHANGED AND WHY
      - A danger meaning is reported, not acted on: `danger` True and
        `danger_term`, the intent or the word in the message that matched.
      - Every recognized reading carries `category`: "danger", "need" or
-       "other" (None when nothing was recognized). The intent sets stay as
+       "other" (None when nothing was recognized). An entry in the client's
+       own map marked `"pages": true` (URGENT_MARK) reads "danger", with the
+       entry's intent as `danger_term`. The intent sets stay as
        knowledge, named for what they are: DANGER_CATEGORY_INTENTS (was
        DANGER_INTENTS), NEED_CATEGORY_INTENTS (was the need list named for
        paging, same members), DISTRESS_INTENTS (both).
@@ -317,9 +319,36 @@ GENERIC_FEELING_INTENTS = frozenset({
     "self_regulate", "overwhelmed", "thinking", "unsure", "excited",
     "frustrated", "focus", "searching",
 })
-#: A camera, eye or sound reading whose map entry has no words (ruling J).
-NOT_LEARNED_REASON = ("no meaning learned for this client: the reading is reported, "
-                      "not spoken")
+#: A camera, eye or sound reading from a BUILT-IN map (ruling J): the
+#: built-in maps hold no words, so the reading carries none.
+NOT_LEARNED_REASON = ("no meaning learned for this client: the built-in map holds no "
+                      "words for this reading, so it carries none")
+#: A camera, eye or sound reading from the CLIENT'S OWN map whose entry has
+#: no words. The meaning is the client's; the map holds no words for it.
+#: Until 2026-11-04 these readings carried NOT_LEARNED_REASON, which said no
+#: meaning was learned for the client, and that was not true of them.
+NO_WORDS_IN_CLIENT_MAP_REASON = ("the client's own map holds no words for this "
+                                 "meaning, so the reading carries none")
+
+#: THE CLIENT'S OWN URGENT MARK. A map entry in the client's own map may carry
+#: `"pages": true`: the client (with the people who built the map with them)
+#: marked that meaning as one that calls for someone, e.g.
+#: {"intent": "Call caregiver", "pages": true}. The field keeps the name it
+#: has in the client's map files. It is knowledge from the client's map, so
+#: it is read: such an entry reads category "danger", `danger` True, and
+#: `danger_term` is the entry's intent. What is done with that reading is the
+#: being's decision. Restored 2026-11-04 (fix round): the read-only change
+#: had dropped it in engine_temporal, where it was read at 2ad3ac0 (there it
+#: made Hearing read nonverbal_distress, at any confidence). This engine
+#: never read the field before 2026-11-04; it now reads it the same way, so
+#: one client's map means the same thing on every channel.
+URGENT_MARK = "pages"
+
+
+def marked_urgent(entry: Any) -> bool:
+    """True when a map entry carries the client's own urgent mark
+    (`"pages": true`, exactly True). A reading only; nothing acts on it."""
+    return isinstance(entry, dict) and entry.get(URGENT_MARK) is True
 
 
 def distress_readings(readings: "List[Interpretation]") -> "List[Interpretation]":
@@ -833,12 +862,21 @@ class NonverbalEngine:
         # The client's words, exactly as the map holds them. Never taken
         # away: not for danger, not for the bar (2026-11-04). The built-in
         # camera and microphone maps hold no words (ruling J), so a built-in
-        # gesture, eye or sound reading has message None and says why.
+        # gesture, eye or sound reading has message None and says why; so
+        # does an entry in the client's own map that holds no words.
         message: Optional[str] = entry["message"]
         reason: Optional[str] = None
         if modality in (Modality.GESTURE, Modality.EYE, Modality.SOUND) and not message:
-            reason = NOT_LEARNED_REASON
+            reason = (NO_WORDS_IN_CLIENT_MAP_REASON
+                      if self.map_source.get(modality) == "client" else NOT_LEARNED_REASON)
         term = danger_term(entry["intent"], message)
+        category = category_of(entry["intent"], message)
+        if marked_urgent(entry):
+            # The client's own urgent mark (URGENT_MARK): read as danger,
+            # the matched term is the entry's intent (or its key, if the
+            # intent is blank).
+            term = entry["intent"] or key
+            category = CATEGORY_DANGER
         interp = Interpretation(
             modality=modality,
             status=Status.OK,
@@ -852,7 +890,7 @@ class NonverbalEngine:
             threshold=self.confidence_threshold,
             confirmed_samples=confirmed,
             interaction_id=self._next_id(),
-            category=category_of(entry["intent"], message),
+            category=category,
             danger=term is not None,
             danger_term=term,
         )
@@ -1240,6 +1278,7 @@ __all__ = [
     "CATEGORY_DANGER", "CATEGORY_NEED", "CATEGORY_OTHER", "CATEGORIES",
     "is_danger", "danger_term", "category_of", "DANGER_WORDS",
     "GENERIC_FEELING_INTENTS", "NOT_LEARNED_REASON",
+    "NO_WORDS_IN_CLIENT_MAP_REASON", "URGENT_MARK", "marked_urgent",
 ]
 
 # ==============================================================================

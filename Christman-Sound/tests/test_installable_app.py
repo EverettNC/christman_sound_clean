@@ -207,10 +207,32 @@ def test_api_hear_crisis_and_nonverbal():
     assert r_sym.get_json()["turn"]["person_message"] == "I'm hungry."
 
 
+@pytest.mark.parametrize("path", ["/api/hear", "/api/synthesize"])
+@pytest.mark.parametrize("key,value,replaced_by", [
+    ("public_setting", True, "`danger` and `asked_aloud`"),
+    ("auto_route_grunt", True, "`acoustic_key`"),
+    ("silent_alarm", True, "pass `danger`"),
+    ("answering_follow_up", "ask_if_safe", "pass `answering`"),
+])
+def test_a_removed_request_key_is_refused_by_name(path, key, value, replaced_by):
+    """Fix round, 2026-11-04 (Rule 6): the studio quietly ignored these keys
+    after they were removed, so a caller sending one believed it was doing
+    something. Each is now a 400 that names the key and what replaced it,
+    before anything is heard or rendered."""
+    client = create_app().test_client()
+    r = client.post(path, json={"text": "I'm scared for my safety", key: value})
+    assert r.status_code == 400
+    body = r.get_json()
+    assert body["kind"] == "RemovedRequestKey"
+    assert [item["key"] for item in body["removed"]] == [key]
+    assert replaced_by in body["removed"][0]["replaced_by"]
+    assert repr(key) in body["reason"] and "turn" not in body
+
+
 def test_api_hear_grounding_comes_from_a_measured_level_or_says_none_was():
     """2026-10-30: no made-up 0.75 stress score, no method that does not exist.
 
-    Decision moved to the being 2026-11-04: see WHAT_THE_BEING_DECIDES.md.
+    Decision moved to the being 2026-11-04: see AlphaVox's WHAT_THE_BEING_DECIDES.md.
     The studio no longer chooses a grounding script, and `needs_grounding`
     is gone with the mode. What stays is the reading: the distress Silicon
     read, the stress rise measured from the words (or the reason none was),

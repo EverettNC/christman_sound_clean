@@ -21,7 +21,7 @@ hearing.py + corti_ingest.py       speech_recognition_engine    the mouth (voice
    ├─ structural_affect       (clauses, not bag-of-words)    christman_sound: lexicon → synth / stitch
    └─ harm_frame              (who did what to whom)                ↓
           ↓                                                  christman_dsp.so (C) → sound
-   fusion + face  (decide, or MODE_UNKNOWN)
+   fusion + face  (read, or say it cannot)
 ```
 
 `listen()` (`voice_capture_client.capture_audio`) is a timed microphone grab. It is not hearing.
@@ -58,11 +58,11 @@ Do not wire the card source as a `SoundDetectorBackend`.
 - `corti_canal.py` — Greenwood (1961) cochlear place map, cycle-by-cycle DSP voice quality, SpeakerSeat (>= 3 voiced locks), AlphaVox grunt physics & stimming router, and continuous 20 Hz CanalRecorder
 - `lucent_reader.py` — Gullstrand two-surface cornea optics across 5 layers and 6 pathologies, 4x4 head pose, AlphaVox 9-cell gaze, BlinkLog, 5-part RhythmTracker, and producer bridge into `body_signals.py`
 - `whole_house.py` — OpenSmell 21-profile classifier (with 1-scalar refusal guard), Skin haptic posture classifier, House Fifth Stream, and TCAP-V-0044 Five-Element Memory Chamber
-- `corti_receiver.py` — Localhost receiver (127.0.0.1:5486) that seats a posted card under Hearing. Not running unless you start it
+- `corti_receiver.py` — Localhost receiver (127.0.0.1:5486) that seats a posted card under Hearing. An acoustic key's turn goes to the attached being (`on_turn`); the device gets one fixed receipt for every key, and with no being attached every key is refused with 503. Not running unless you start it
 - `word_ear_receiver.py` — Localhost-only receiver for words: one WAV in, local recognition out. It has no default port; pass `--port` or set `CHRISTMAN_WORD_EAR_PORT` (5173, 5485, 5486, 5487 and 5497 are refused)
 - `prosody.py` — Relative arousal from the card. No valence
 - `tape_contour.py` — Tape contour (null F0 is a hole)
-- `structural_affect.py` — Clause-level affect. Structure decides
+- `structural_affect.py` — Clause-level affect. The reading comes from sentence structure, not single words
 - `harm_frame.py` — Who did what to whom. Grief is not crisis
 - `fusion_engine.py` — Carbon and silicon signals fused into a Reading: the safety reading, the affect reading, and resolved or unresolved with the reason. It decides nothing; the being decides
 - `face_reading.py` — A reading of the carbon (the client and the people they speak of): whose feeling it is, the clause that moved it, and arousal; data only, no emotion names, no face rendered
@@ -100,7 +100,7 @@ Do not wire the card source as a `SoundDetectorBackend`.
 - `emotion_embedder.py` — Maps emotional states to voice parameters
 - `emotion_labels.py` — Labels from model.config.id2label
 - `analyze_emotion.py` — Emotional tagging for a memory file
-- `tone_manager.py` — Communication adjustments after tone is read
+- `tone_manager.py` — Tone cues read from words, or from a tone profile the caller holds. It sets no pacing, warmth or structure and does not touch the being's reply
 - `tone_classifier.py` — Superseded; delegates to `written_tone.py`
 - `written_tone.py` — Tone analysis for text
 

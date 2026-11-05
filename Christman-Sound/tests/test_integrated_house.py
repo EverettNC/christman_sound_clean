@@ -289,10 +289,16 @@ def test_corti_canal_greenwood_dsp_seat_and_grunt_router(tmp_path):
     assert detect_vocal_stimming(stim_events) is True
     route_stim = analyze_grunt_physics(stim_events[-1], seat=seat, recent_events=stim_events)
     assert route_stim.key == "vocal_stimming"
-    assert route_stim.regulatory is True and route_stim.urgent is False
+    assert route_stim.regulatory is True
+    # 2026-11-04 fix round: the label says what was measured, not what to
+    # do ("do not interrupt or treat as distress" is gone), and `urgent`,
+    # which only repeated key == "grunt_distress", is removed.
+    assert "steady cadence" in route_stim.intent and "do not" not in route_stim.intent
+    assert "urgent" not in route_stim.to_dict() and not hasattr(route_stim, "urgent")
 
     route_distress = analyze_grunt_physics({"durationMs": 190.0, "attackMs": 35.0, "peakRms": 0.18, "f0": 290.0}, seat=seat)
-    assert route_distress.key == "grunt_distress" and route_distress.urgent is True
+    assert route_distress.key == "grunt_distress"
+    assert route_distress.attack_ms == 35.0 and route_distress.peak_rms == 0.18
 
     # CanalRecorder & disk round-trip
     rec = CanalRecorder()

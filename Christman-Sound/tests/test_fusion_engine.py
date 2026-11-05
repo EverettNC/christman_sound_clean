@@ -17,7 +17,7 @@ returns a Reading: the safety reading, the affect reading, resolved /
 unresolved_reason and provenance. It picks no mode, no delivery, pages no one
 and never raises because of what it read. Every test below that pinned one of
 those actions now pins the reading it rested on (see
-WHAT_THE_BEING_DECIDES.md).
+AlphaVox's WHAT_THE_BEING_DECIDES.md).
 """
 
 from __future__ import annotations
@@ -72,7 +72,7 @@ def test_invalid_live_state_is_named_not_silent():
 def test_valid_live_state_is_used_and_sourced():
     # A fear with its context (ruling O). The live tone score is read as
     # given; nothing in it was rejected, and the reading resolves.
-    # Decision moved to the being 2026-11-04 (response mode, no lettered ruling): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (response mode, no lettered ruling): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # (the tone score no longer sets a response mode here).
     d = _engine().fuse("I am scared of the dark", live_state={"tone_score": 90})
     assert d.silicon["tone_score"] == 90, d.silicon
@@ -111,7 +111,7 @@ def test_failed_gate_still_hard_blocks_on_the_floor():
 
 
 def test_crisis_without_a_human_raises():
-    # Decision moved to the being 2026-11-04 (paging, rulings A to F): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (paging, rulings A to F): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # The engine reaches no one, so there is no "no human reached" to raise.
     # The reading a human was paged on stands, and nothing raises.
     d = _engine().fuse("I want to kill myself")
@@ -126,7 +126,7 @@ def test_crisis_without_a_human_raises():
 
 
 def test_plain_distress_is_still_gentle_lift():
-    # Decision moved to the being 2026-11-04 (response mode, no lettered ruling): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (response mode, no lettered ruling): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # The gentle lift was chosen from this reading: the speaker's own
     # distress, measured, with its intensity.
     d = _engine().fuse("I am so sad and alone")
@@ -177,7 +177,7 @@ def test_someone_else_at_risk_reads_hard_block_when_asked_and_keeps_every_word()
         assert f"asked_for_help:{ask}" in d.safety.flags
         # The client's words are never withheld.
         assert d.input_text == text and d.safety.said == text
-        # Decision moved to the being 2026-11-04 (ruling D): see WHAT_THE_BEING_DECIDES.md
+        # Decision moved to the being 2026-11-04 (ruling D): see AlphaVox's WHAT_THE_BEING_DECIDES.md
         # (whether the client's words are voiced and whether the being's own
         # reply waits; the Reading carries neither).
         assert set(d.to_dict()) == READING_KEYS
@@ -200,7 +200,7 @@ def test_between_beings_someone_else_at_risk_reads_as_for_a_client():
 # is the being's: the engine keeps no delivery at all.
 
 def test_held_safety_hold_delivery_is_mains():
-    # Decision moved to the being 2026-11-04 (ruling M): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (ruling M): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # Pace, no_rush, "confirm before acting" and "page sent first" were the
     # delivery of a safety hold. The reading they rested on stands.
     d = _engine().fuse("I want to kill myself")
@@ -256,7 +256,7 @@ def test_removing_the_steering_table_did_not_change_how_affect_words_are_read():
 
 
 def test_ordinary_turn_stays_standard():
-    # Decision moved to the being 2026-11-04 (response mode, no lettered ruling): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (response mode, no lettered ruling): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # "standard" and a normal pace were chosen from this reading: nothing
     # flagged, nothing unresolved, no distress.
     d = _engine().fuse("pass the salt")
@@ -301,3 +301,94 @@ def test_no_rewrite_api_is_left():
             assert not hasattr(module, name), (module.__name__, name)
     assert "sanitized_text" not in SafetyResult.__dataclass_fields__
 
+
+
+# -- 2026-11-04 fix round: instructions to the being become readings ----------
+# Everett: "we can have this knowledge in the sound package, but it can't be
+# making those decisions. It's up to the being to make those decisions, not
+# something that just creates a voice."
+
+def _elevated_voice():
+    """A real prosody reading: thirty calm events build this speaker's
+    baseline, then one loud, high, fast-attack event is read against it."""
+    from christman_voice_sdk.audio.prosody import (
+        ProsodyAnalyzer, VocalEvent, build_speaker_baseline)
+    calm = [VocalEvent(duration=0.4, attack=0.02, peak_rms=0.1 + 0.002 * (i % 5),
+                       median_f0=120.0 + (i % 3), mean_zcr=0.08) for i in range(30)]
+    baseline = build_speaker_baseline(calm, "speaker-a")
+    loud = VocalEvent(duration=0.9, attack=0.005, peak_rms=0.6, median_f0=260.0, mean_zcr=0.2)
+    reading = ProsodyAnalyzer(baseline=baseline).analyze(loud)
+    assert reading.arousal is not None and reading.arousal > 0.35
+    return reading
+
+
+def test_a_disagreement_is_a_reading_with_its_values_not_an_instruction():
+    from christman_voice_sdk.audio.prosody import CONFLICT_AROUSAL, reconcile
+    voice = _elevated_voice()
+    rec = reconcile(0.85, False, voice).to_dict()
+    # Was: defer_to_human True ("a person should look").
+    assert "defer_to_human" not in rec
+    assert rec["agreement"] == "conflict" and rec["channels_disagree"] is True
+    assert rec["voice_elevated"] is True and rec["text_is_self_distress"] is False
+    assert rec["text_valence"] == 0.85 and rec["prosody_arousal"] == voice.arousal
+    assert rec["arousal_bar"] == CONFLICT_AROUSAL
+    assert not any("surface" in n or "Do not" in n for n in rec["notes"])
+    calm = reconcile(0.85, False, None).to_dict()
+    assert calm["channels_disagree"] is False and calm["voice_elevated"] is None
+
+
+def test_the_reading_carries_the_disagreement_in_its_provenance():
+    d = _engine().fuse("I am happy today", prosody=_elevated_voice())
+    # Resolved exactly as before (the old flag left it unresolved too); the
+    # reason is the reconciliation's own.
+    assert d.resolved is False and "These disagree" in d.unresolved_reason
+    assert d.provenance["channels"] == "conflict"
+    assert d.provenance["channels_disagree"] is True
+    assert "defer_to_human" not in str(d.to_dict())
+    plain = _engine().fuse("I am happy today")
+    assert plain.provenance["channels"] == "text_only"
+    assert plain.provenance["channels_disagree"] is False
+
+
+def test_the_face_reading_carries_readings_not_instructions():
+    from christman_voice_sdk.audio.face_reading import build_face_reading
+    from christman_voice_sdk.audio.structural_affect import StructuralAffectAnalyzer
+    face = build_face_reading(affect=StructuralAffectAnalyzer().analyze("I am happy today"),
+                              prosody=_elevated_voice())
+    out = face.to_dict()
+    for gone in ("hold_baseline", "defer_to_human"):
+        assert gone not in out
+    assert not hasattr(face, "hold_baseline")
+    assert out["channels_disagree"] is True and out["voice_elevated"] is True
+    assert not any("surface to a human" in n or "should" in n for n in face.notes)
+    other = build_face_reading(affect=StructuralAffectAnalyzer().analyze("my mom's scared"),
+                               prosody=None)
+    # Whose state it is, not how to respond: was "empathy".
+    assert other.stance == "other_state"
+    assert not any("The response should" in n for n in other.notes)
+
+
+def test_tone_manager_reads_and_sets_no_delivery():
+    # Was: "It decides pacing, warmth, structure"; distress >= 0.7 set
+    # "serious_support", speech rate 145 and a guided structure, and
+    # format_response re-laid the being's reply out as bullets.
+    from christman_voice_sdk.tone import tone_manager as tm
+
+    class Profile:
+        needs_validation, wants_action, emotional_intensity = 0.5, 0.6, 0.6
+        humor_score, sarcasm_score, distress_score = 0.0, 0.0, 0.9
+
+    manager = tm.ToneManager()
+    for gone in ("format_response", "get_speech_controls", "profile", "intro_phrases"):
+        assert not hasattr(manager, gone), gone
+    for gone in ("DEFAULT_PROFILE", "extract_speech_controls"):
+        assert not hasattr(tm, gone), gone
+    r = manager.apply_profile(Profile()).to_dict()
+    assert r["emotion_state"] == "high_distress"                # was: serious_support
+    assert r["cues"] == ["validation_needed", "action_needed", "heightened_intensity",
+                         "high_distress"]
+    assert r["scores"]["distress_score"] == 0.9
+    assert "speech_rate" not in str(r) and "serious_support" not in str(r)
+    words = manager.analyze_user_input("I'm so sad and confused, not good").to_dict()
+    assert words["emotion_state"] == "distress"                 # was: compassionate
+    assert words["matched_markers"] == {"distress": ["sad"], "confusion": ["confused"]}

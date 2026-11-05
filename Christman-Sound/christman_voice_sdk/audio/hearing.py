@@ -49,9 +49,15 @@ decisions that counteract the being, because the being is the one that has
 all of the work to make those decisions properly."
 
 Every word list, frame, measurement and classification label stays: the
-gate's status, reason, flags and flagged_terms come out exactly as before for
-a client's words (scripts/run_crisis_table.py, 74 of 74). Removed from this
-module, each a decision the package was making for the being:
+gate's status, reason and flagged_terms come out exactly as at 2ad3ac0 for a
+client's words (scripts/run_crisis_table.py, 74 of 74), and so do its flags,
+less the flags that named a decision: "silent_alarm", "public_setting",
+"follow_up:<mark>" and "would_page:<reason>". The "asked_aloud:<words>"
+flag is kept where it was. Checked on 1,456 sentences and 54 sentence pairs,
+each read plain and beside a nonverbal help and a pain signal, against
+2ad3ac0: no other difference. Between two beings the reading is the plain
+reading plus the flag "between_beings" (below). Removed from this module,
+each a decision the package was making for the being:
   - Hearing paged a human through `crisis_callback` and raised
     `CrisisNotDelivered` into the turn when no human could be reached.
   - The silent alarm (`silent_alarm`, `voice_aloud`, `public_setting`) chose
@@ -735,6 +741,13 @@ def harm_frame_safety(text: str, context: Optional[Dict[str, Any]] = None) -> Sa
     "between_beings" (exactly True: echoed and flagged; the words are read
     exactly as if a client were there), "answering" (the question the being
     says it asked: echoed; the words are read on their own either way).
+    The removed key "answering_follow_up" raises ValueError naming it
+    (REMOVED_CONTEXT_KEYS): the being passes "answering" instead.
+
+    Flags: the gate's flags, then "asked_aloud:<the client's words>" when
+    the words read danger and the client asked for them aloud (as at
+    2ad3ac0), then the nonverbal flags, then "between_beings" when that
+    context was passed.
 
     WHAT CHANGED 2026-10-11: the previous gate required `stated_intent`,
     which excluded hypothetical and ability modalities, and returned a bare
@@ -753,10 +766,23 @@ def harm_frame_safety(text: str, context: Optional[Dict[str, Any]] = None) -> Sa
     2026-11-04 ruling, module docstring). The words are now read alone.
     """
     context = context or {}
+    for removed, instead in REMOVED_CONTEXT_KEYS.items():
+        if removed in context:
+            # Rule 6: a removed key is refused, never quietly ignored.
+            raise ValueError(f"harm_frame_safety: context key {removed!r} was removed "
+                             f"2026-11-04; {instead}")
     # Ruling AE: one client's reading words (ReadingWords.for_client) reach
     # the gate, the clause reader and harm_frame together.
     with using_reading_words(context.get("reading_words")):
         return _harm_frame_safety(text, context)
+
+
+#: Context keys harm_frame_safety no longer reads, and what replaced each.
+#: Passing one raises ValueError naming it (fix round, 2026-11-04).
+REMOVED_CONTEXT_KEYS: Dict[str, str] = {
+    "answering_follow_up": ("the being passes answering= instead: the question "
+                            "the being actually asked, in its own words"),
+}
 
 
 def _harm_frame_safety(text: str, context: Dict[str, Any]) -> SafetyResult:
@@ -767,6 +793,14 @@ def _harm_frame_safety(text: str, context: Dict[str, Any]) -> SafetyResult:
     words = _words_gate(read, str(context.get("previous_turn") or ""))
     words = replace(words, said=original)
     danger = _words_danger(words, read)
+    aloud = asked_aloud(original)
+    if danger and aloud:
+        # The client's ask to say it aloud, beside a danger reading on the
+        # words, is named in the flags exactly as at 2ad3ac0
+        # ("asked_aloud:<their words>", right after the words' own flags).
+        # It is knowledge, not an action: SafetyResult.asked_aloud carries
+        # the same words on every reading, danger or not.
+        words = replace(words, flags=list(words.flags) + [f"asked_aloud:{aloud}"])
     result, nonverbal_danger = _with_nonverbal(words, context)
 
     between = context.get("between_beings") is True
@@ -776,7 +810,7 @@ def _harm_frame_safety(text: str, context: Dict[str, Any]) -> SafetyResult:
         flags=list(result.flags) + (["between_beings"] if between else []),
         danger=danger or nonverbal_danger,
         danger_sentences=danger_sentences_as_said(original),
-        asked_aloud=asked_aloud(original),
+        asked_aloud=aloud,
         asked_for_help=asked_for_help(read),
         between_beings=between,
         short_answer=short_answer(read),
@@ -1556,9 +1590,20 @@ class Hearing:
     Corti in, Reading out.
 
     Reads; decides nothing. It reaches no one, holds nothing back, and never
-    raises because of what it read. Each turn stands on its own: nothing
-    from one turn changes how the next is read, except what the being passes
-    in (`previous_turn`, `answering`).
+    raises because of what it read. The safety gate reads each turn's words
+    on their own, against only what the being passes in (`previous_turn`,
+    `answering`): no question, held sentence or earlier reading of the gate
+    carries to the next turn. Three measurement buffers DO carry from one
+    turn to the next on the same Hearing, because that is how they measure:
+      - the temporal engine's sequence buffers (gesture, eye, emotion): a
+        turn's sequence reading is made over the last `sequence_length`
+        frames, which can include frames sent on earlier turns;
+      - the prosody ring: without a speaker baseline, arousal is read
+        against the last few utterances heard (reference "recent_window");
+      - the nonverbal engine's interaction history and usage counts. They
+        move no confidence unless an outcome is confirmed (confirm_last /
+        reject_last, the being's call).
+    A fresh Hearing starts all three empty.
 
     WHAT CHANGED AND WHY (2026-11-04): `crisis_callback` (a human paged on
     every hard block, `CrisisNotDelivered` raised when none was reached),

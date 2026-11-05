@@ -18,7 +18,7 @@ chosen, a mode) now pins the READING the being acts on: the label
 danger_sentences, asked_aloud, asked_for_help, between_beings,
 short_answer, answering). Test names keep the 2026-10-29 wording of each
 ruling, which now says what the being does with the reading. What the being
-decides is written in WHAT_THE_BEING_DECIDES.md.
+decides is written in AlphaVox's WHAT_THE_BEING_DECIDES.md.
 
   A. The client's OWN distress reads hard_block, every time: "I'm not
      okay", "I don't feel safe", "I'm not safe", "no one cares", "no one
@@ -129,7 +129,7 @@ def test_A_not_the_clients_distress_does_not_page(text):
 
 
 def test_A_no_human_reachable_is_loud():
-    # Decision moved to the being 2026-11-04 (ruling A): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (ruling A): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # Hearing raised CrisisNotDelivered when no human was reached. Reaching
     # one is the being's; hear() returns the reading it reaches one on.
     turn = Hearing().hear(text="I'm not okay")
@@ -285,7 +285,7 @@ def test_E_no_being_says_it(reply):
     from christman_voice_sdk.synthesis.reply_guard import (
         FORBIDDEN_REPLY_LINES, check_being_reply, forbidden_lines)
 
-    # Decision moved to the being 2026-11-04 (ruling E): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (ruling E): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # check_being_reply and speech_response.speak raised ForbiddenReply. The
     # reading the refusal rested on: the line is named on the being's reply.
     names = forbidden_lines(reply)
@@ -327,7 +327,7 @@ def test_E_both_directions_through_the_mouth(tmp_path):
     path = mouth.generate_speech_audio("calm down", play_audio=False, voice=voice,
                                        output_path=str(client_out))
     assert path == str(client_out) and client_out.stat().st_size > 44
-    # Decision moved to the being 2026-11-04 (ruling E): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (ruling E): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # The mouth refused the being's "calm down" (being_reply=True) with
     # nothing written. The reading the refusal rested on: the line's name,
     # read on the being's reply before the being asks the mouth for it.
@@ -341,7 +341,7 @@ def test_E_both_directions_through_the_mouth(tmp_path):
 # -- F. two beings talking to each other: read as if a client were there --------------
 
 @pytest.mark.parametrize("text,status", [(t, "soft_redirect") for t, _ in OBSERVATIONS[:4]] + [
-    # Decision moved to the being 2026-11-04 (ruling F): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (ruling F): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # Each of these four read soft_redirect between beings (the gate turned
     # the hard_block down and did not read the ask). They now read exactly
     # as they do for a client.
@@ -603,7 +603,7 @@ def test_5_hand_up_below_the_speaking_bar_still_pages():
 
 
 def test_5_hand_up_with_no_human_reachable_is_loud():
-    # Decision moved to the being 2026-11-04 (ruling 5): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (ruling 5): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # Hearing raised CrisisNotDelivered when no human was reached. Reaching
     # one is the being's; hear() returns the reading it reaches one on.
     turn = Hearing(temporal_engine=_hand_up_engine()).hear(temporal={"gesture_features": np.zeros(4)})
@@ -705,8 +705,8 @@ def test_9_the_word_ear_payload_carries_the_text_as_recognized():
 
 
 def test_9_corti_receiver_route_returns_the_mapped_words_unaltered():
-    """The acoustic route returns the map's words for the client, as the map
-    holds them; nothing on the way edits them. The built-in sound map holds
+    """The acoustic route hands the being the map's words for the client, as
+    the map holds them; nothing on the way edits them. The built-in sound map holds
     no words (ruling J covers sounds, 2026-10-29), so a built-in grunt
     carries none; nothing is invented on the way either."""
     import http.client
@@ -714,7 +714,11 @@ def test_9_corti_receiver_route_returns_the_mapped_words_unaltered():
     from christman_voice_sdk.audio import corti_receiver as cr
     from christman_voice_sdk.nonverbal.nonverbal_engine import DEFAULT_SOUNDS
 
-    server, _receiver, _thread = cr.start_in_thread(port=0, hearing=Hearing())
+    # Fix round, 2026-11-04: the turn goes to the being through on_turn; the
+    # device gets a fixed receipt, so the words are read on the being's turn.
+    turns = []
+    server, _receiver, _thread = cr.start_in_thread(port=0, hearing=Hearing(),
+                                                    on_turn=turns.append)
     try:
         conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=10)
         raw = json.dumps({"key": "grunt_acknowledge"}).encode()
@@ -722,8 +726,10 @@ def test_9_corti_receiver_route_returns_the_mapped_words_unaltered():
                      headers={"Content-Type": "application/json", "Content-Length": str(len(raw))})
         body = json.loads(conn.getresponse().read())
         conn.close()
+        assert body == {"received": True, "key": "grunt_acknowledge"}
         assert DEFAULT_SOUNDS["grunt_acknowledge"]["message"] is None
-        assert body["person_message"] is None
+        assert turns[0].person_message is None
+        assert turns[0].to_dict()["person_message"] is None
     finally:
         server.shutdown()
         server.server_close()
@@ -825,7 +831,7 @@ def test_H2_past_physical_harm_is_followed_up_by_asking(text):
     assert s.said == text
 
 
-# Decision moved to the being 2026-11-04 (ruling H): see WHAT_THE_BEING_DECIDES.md
+# Decision moved to the being 2026-11-04 (ruling H): see AlphaVox's WHAT_THE_BEING_DECIDES.md
 # The package carried its own question to the next turn and read the answer
 # against it ("no" read hard_block "answered_not_safe", now retired). The
 # being passes the question it asked as `answering`; the words are read on
@@ -853,6 +859,24 @@ def test_H2_the_clients_answer_decides(answer, short, status):
     later = hearing.hear(text="no").reading.safety
     assert later.short_answer == "no" and later.answering is None
     assert later.status == "clear"
+
+
+@pytest.mark.parametrize("value", ["ask_if_safe", "", None])
+def test_H2_the_old_context_key_is_refused_by_name(value):
+    # Fix round, 2026-11-04 (Rule 6): harm_frame_safety quietly ignored the
+    # removed context key answering_follow_up, so a being still passing it
+    # believed its question was being read against. It now raises, naming
+    # the key and what the being passes instead, whatever its value.
+    with pytest.raises(ValueError, match=r"'answering_follow_up'.*answering="):
+        harm_frame_safety("no", {"answering_follow_up": value})
+    # Through FusionEngine, Aegis turns a gate that raised into the floor
+    # reading marked degraded, with the gate's error as the reason: loud on
+    # the reading, never a quiet clear.
+    d = FusionEngine(safety_callback=harm_frame_safety).fuse(
+        "no", live_state={"answering_follow_up": "ask_if_safe"})
+    assert d.safety.degraded is True
+    assert "answering_follow_up" in d.safety.degraded_reason
+    assert harm_frame_safety("no", {"answering": "Are you safe?"}).answering == "Are you safe?"
 
 
 def test_H2_it_pages_when_the_client_asks_for_help():
@@ -895,7 +919,7 @@ def test_H_the_clients_own_accident_is_not_someone_hurting_them(text):
     assert turn.reading.safety.reason != "harm_reported_to_client"
 
 
-# Decision moved to the being 2026-11-04 (ruling D): see WHAT_THE_BEING_DECIDES.md
+# Decision moved to the being 2026-11-04 (ruling D): see AlphaVox's WHAT_THE_BEING_DECIDES.md
 # The package marked ask_if_help_needed, carried it to the next turn and
 # read a "yes" against it (hard_block "answered_yes_help", now retired). The
 # being passes the question it asked as `answering`; the answer is read on
@@ -941,7 +965,7 @@ def _assert_danger_read(turn, words):
     any, stay on the turn exactly as mapped; a built-in reading has none
     (ruling J).
 
-    Decision moved to the being 2026-11-04 (ruling I): see WHAT_THE_BEING_DECIDES.md
+    Decision moved to the being 2026-11-04 (ruling I): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     The package paged once, blanked the words (person_message None), set
     silent_alarm, left no hold marker for a screen, and kept the system's
     own sentence off the turn. Whether anything is voiced, shown or sent is
@@ -970,7 +994,7 @@ def _assert_danger_read(turn, words):
     ({"acoustic_key": "grunt_distress"}, None),              # the acoustic key
 ])
 def test_I_built_in_danger_is_paged_and_never_spoken(kwargs, words):
-    # Decision moved to the being 2026-11-04 (ruling I): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (ruling I): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # The pressed help symbol's words were blanked; they are on the turn now.
     turn = Hearing().hear(**kwargs)
     _assert_danger_read(turn, words)
@@ -993,7 +1017,7 @@ def test_I_learned_danger_on_every_channel_is_paged_and_never_spoken(tmp_path, m
     key = key["region"] if isinstance(key, dict) else key
     engine = _client_map_engine(tmp_path, {map_name: {key: _entry(intent, message)}})
     turn = Hearing(nonverbal_engine=engine).hear(nonverbal=kwargs)
-    # Decision moved to the being 2026-11-04 (ruling I): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (ruling I): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # The client's learned words were blanked; they are on the turn now.
     _assert_danger_read(turn, message)
 
@@ -1017,7 +1041,7 @@ def test_I_temporal_danger_is_paged_and_never_spoken(tmp_path, expression, entry
     turn = Hearing(temporal_engine=t).hear(
         temporal={f"{modality}_features": np.zeros(4)})
     assert turn.temporal["primary_result"]["expression"] == expression
-    # Decision moved to the being 2026-11-04 (ruling I): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (ruling I): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # The client's learned words were blanked; they are on the turn now.
     _assert_danger_read(turn, entry["message"])
 
@@ -1064,7 +1088,7 @@ def test_I_hand_up_is_help_paged_silently_and_never_spoken():
 
 
 def test_I_hand_up_from_the_clients_own_map_is_still_never_spoken(tmp_path):
-    # Decision moved to the being 2026-11-04 (ruling I): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (ruling I): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # A client's map that words Hand Up as "I need help." was never spoken:
     # help never reached _speaks. The words are on the turn now, read as
     # danger; whether they are voiced is the being's.
@@ -1081,7 +1105,7 @@ def test_I_hand_up_from_the_clients_own_map_is_still_never_spoken(tmp_path):
 def test_I_no_help_or_danger_meaning_reaches_speaks():
     from christman_voice_sdk.nonverbal import engine_temporal as et
 
-    # Decision moved to the being 2026-11-04 (ruling I): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (ruling I): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # _speaks refused help and danger whatever the map said. It is gone; the
     # reading it rested on is the category and the danger term.
     assert not hasattr(et.TemporalNonverbalEngine, "_speaks")
@@ -1103,24 +1127,39 @@ def test_I_the_device_that_sent_the_key_is_told_nothing():
 
     from christman_voice_sdk.audio import corti_receiver as cr
 
-    server, receiver, _ = cr.start_in_thread(port=0, hearing=Hearing())
-    try:
+    turns = []
+    server, receiver, _ = cr.start_in_thread(port=0, hearing=Hearing(), on_turn=turns.append)
+
+    def post(key):
         conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=10)
-        raw = json.dumps({"key": "grunt_distress"}).encode()
+        raw = json.dumps({"key": key}).encode()
         conn.request("POST", cr.ACOUSTIC_PATH, body=raw,
                      headers={"Content-Type": "application/json", "Content-Length": str(len(raw))})
         resp = conn.getresponse()
         body = json.loads(resp.read())
         conn.close()
-        # Decision moved to the being 2026-11-04 (ruling I): see WHAT_THE_BEING_DECIDES.md
-        # The reply to the device was cut to {"received": true}. Every key now
-        # gets the full turn; what the device shows is the being's.
-        assert resp.status == 200
-        assert body == json.loads(json.dumps(receiver.state.ring[0].to_dict()))
-        assert body["reading"]["safety"]["status"] == "hard_block"   # was: the human was reached
-        assert body["reading"]["safety"]["danger"] is True
-        assert receiver.state.ring[0].reading.safety.danger is True  # was: silent_alarm True
+        return resp.status, body
+
+    try:
+        # Decision moved to the being 2026-11-04 (ruling I): see AlphaVox's
+        # WHAT_THE_BEING_DECIDES.md. The reply to the device was cut to
+        # {"received": true} only under the silent alarm, so the reply's
+        # shape told the device a danger reading happened. Fix round,
+        # 2026-11-04: every key gets one fixed receipt, decided from nothing
+        # in the reading; the full turn goes to the being through on_turn.
+        status, body = post("grunt_distress")
+        assert status == 200
+        assert body == {"received": True, "key": "grunt_distress"}
+        assert "reading" not in body and "danger" not in json.dumps(body)
+        assert turns[0].reading.safety.status == "hard_block"   # was: the human was reached
+        assert turns[0].reading.safety.danger is True           # was: silent_alarm True
+        assert receiver.state.ring[0] is turns[0]
         assert receiver.state.keys_received == 1
+        # A key with no distress reading gets the same receipt.
+        status, quiet = post("grunt_acknowledge")
+        assert status == 200 and quiet == {"received": True, "key": "grunt_acknowledge"}
+        assert set(quiet) == set(body)
+        assert turns[1].reading is None
     finally:
         server.shutdown()
         server.server_close()
@@ -1132,7 +1171,7 @@ def test_I_the_being_does_not_announce_help_under_the_alarm(reply):
     from christman_voice_sdk.synthesis.reply_guard import (
         ANNOUNCEMENT_LINES, check_being_reply, forbidden_lines)
 
-    # Decision moved to the being 2026-11-04 (ruling I): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (ruling I): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # check_being_reply and speech_response.speak refused these under the
     # silent alarm. The reading: with a danger reading in hand, the
     # announcement is named on the being's reply.
@@ -1165,7 +1204,7 @@ DANGER_SENTENCE_SAID = {
 def test_K_default_silent_and_paged(text):
     turn = _hear(text)
     d = turn.reading
-    # Decision moved to the being 2026-11-04 (ruling K): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (ruling K): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # Was: one page, the silent alarm, not voiced (speakable False). The
     # reading: hard_block, danger, the danger sentence exactly as said, and
     # no ask to say it aloud.
@@ -1198,7 +1237,7 @@ def test_K_asked_aloud_on_the_next_turn_releases_the_exact_words():
     assert first.reading.input_text == "I'm scared for my safety"
     assert first.reading.safety.danger_sentences == ["scared for my safety"]
     second = hearing.hear(text="please say that out loud")
-    # Decision moved to the being 2026-11-04 (ruling K): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (ruling K): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # The package held the first turn's words for one turn and released them
     # here (voice_held), once. Holding them is the being's now: the ask is
     # read, and nothing from the first turn is carried into the second.
@@ -1209,7 +1248,7 @@ def test_K_asked_aloud_on_the_next_turn_releases_the_exact_words():
     assert third.reading.safety.asked_aloud == "say that out loud"   # each turn on its own
 
 
-# Decision moved to the being 2026-11-04 (ruling K): see WHAT_THE_BEING_DECIDES.md
+# Decision moved to the being 2026-11-04 (ruling K): see AlphaVox's WHAT_THE_BEING_DECIDES.md
 # public_setting decided whether a danger sentence was voiced. The gate no
 # longer reads it; the reading is the same in every setting.
 @pytest.mark.parametrize("public", [True, None, "yes", False])
@@ -1224,7 +1263,7 @@ def test_K_a_public_setting_from_the_beings_perception(public):
     assert d.input_text == "I'm scared for my safety"
 
 
-# Decision moved to the being 2026-11-04 (ruling K): see WHAT_THE_BEING_DECIDES.md
+# Decision moved to the being 2026-11-04 (ruling K): see AlphaVox's WHAT_THE_BEING_DECIDES.md
 # Hearing.hear took public_setting and carried it into the gate, which
 # voiced a danger sentence when it was True and otherwise held the words for
 # one turn (held_words). hear() no longer takes it: a caller still passing
@@ -1308,7 +1347,7 @@ def test_L_a_speaks_flag_in_a_map_decides_nothing(tmp_path):
     assert spoken.person_message == "I'm thirsty."      # "speaks": false does not silence it
     danger = Hearing(nonverbal_engine=engine).hear(
         nonverbal={"eye_data": {"region": "top_right"}})
-    # Decision moved to the being 2026-11-04 (ruling L): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (ruling L): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # The danger meaning's words were blanked (person_message None) under the
     # silent alarm. They are on the turn now, and "speaks": true still
     # decides nothing: the reading is danger, and the being decides.
@@ -1353,7 +1392,7 @@ def test_L_an_old_style_temporal_map_works_as_before_except_help_and_danger(tmp_
     path = tmp_path / "old_map.json"
     path.write_text(json.dumps(old), encoding="utf-8")
     t = TemporalNonverbalEngine(sequence_length=10, language_map_path=str(path))
-    # Decision moved to the being 2026-11-04 (rulings I and L): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (rulings I and L): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # _speaks decided, entry by entry, whether the client's words were
     # returned. It is gone; the reading is the words and the category.
     assert not hasattr(t, "_speaks")
@@ -1389,7 +1428,7 @@ PAGING_INPUTS = [
 
 @pytest.mark.parametrize("kwargs", PAGING_INPUTS)
 def test_M_the_human_is_reached_before_and_without_the_reply(kwargs):
-    # Decision moved to the being 2026-11-04 (ruling M): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (ruling M): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # The package paged before the being's reply existed and recorded
     # delivered_to_human and page_sent_first. Reaching a human first is the
     # being's: the reading it acts on is complete when hear() returns, and
@@ -1426,7 +1465,7 @@ def test_M_no_confirm_before_acting_or_please_confirm_left_in_the_package():
     assert found == []
     from christman_voice_sdk.tone.tonescore_analyzer import ToneScoreCalculator
     from christman_voice_sdk.tone.tonescore_engine import ToneScoreEngine
-    # Decision moved to the being 2026-11-04 (ruling M): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (ruling M): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # The response modes these returned (and checked for confirm_before_acting)
     # were the package choosing the being's posture. They are gone.
     assert not hasattr(ToneScoreEngine, "adaptive_response_mode")
@@ -1447,7 +1486,7 @@ def test_M_nothing_after_the_gate_can_hold_the_page(text, monkeypatch):
         gate.append(result)
         return result
 
-    # Decision moved to the being 2026-11-04 (ruling M): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (ruling M): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # There is no page to hold. The reading it rested on: the gate reads the
     # words before anything after it runs, and a break after the gate fails
     # loud instead of returning a reading without it.
@@ -1522,7 +1561,7 @@ def test_O_the_question_is_what_about_so_a_bare_no_does_not_page():
     # fear with no context from whether the client is safe to what the fear
     # is about. A bare "no" does not answer that; danger in the answer still
     # reads (test_O_the_next_turn_continues_the_thought).
-    # Decision moved to the being 2026-11-04 (ruling O): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (ruling O): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # The package carried its own question to the next turn. The being passes
     # the question it asked; a bare "no" is read as a short answer.
     hearing = Hearing()

@@ -167,7 +167,7 @@ def test_ruled_call():
 
 
 def test_ruled_ask_if_safe():
-    # Decision moved to the being 2026-11-04 (ruling H): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (ruling H): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # The ask_if_safe mark is gone; the reading it rested on stays: a report
     # of past harm to the client, soft_redirect, about the harm as said.
     from christman_voice_sdk.audio import hearing as H
@@ -208,7 +208,7 @@ def test_third_party_at_risk_reads_soft_redirect_and_hard_block_only_when_asked(
     assert asked.status == "hard_block", asked
     assert "asked_for_help:can you get someone" in asked.flags
     assert asked.asked_for_help == "can you get someone"
-    # Decision moved to the being 2026-11-04 (ruling F): see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04 (ruling F): see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # Between two beings the words read exactly as for a client (this was
     # soft_redirect); the context is echoed and flagged.
     b = harm_frame_safety("she wants to die, can you get someone", {"between_beings": True})

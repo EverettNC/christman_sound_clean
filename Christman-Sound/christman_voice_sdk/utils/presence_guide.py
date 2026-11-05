@@ -76,6 +76,14 @@ WHAT CHANGED AND WHY (2026-11-04)
    `check_response_quality` stays: it reads a candidate reply's text for
    listed phrases and reports what it found. It blocks nothing and rewrites
    nothing.
+
+7. NO WORDS CHOSEN FOR THE BEING (2026-11-04, the same ruling). The
+   guidance table gave every state a canned `primary_response`, a
+   `secondary` line and an `offer` ("I'm so sorry.", "I'm right here.",
+   "What do you need in this moment?"): words chosen for the being to say.
+   They are removed. The state reading (`assess`) is unchanged, and
+   `get_presence_response` still returns the tone, whether silence is
+   allowed and the principles, as a lookup the being calls by name.
 """
 
 from __future__ import annotations
@@ -392,65 +400,51 @@ class PresenceGuide:
 
     # -- Guidance -------------------------------------------------------------
 
+    #: Guidance per state, for the being to look up: a tone, whether silence
+    #: is allowed, and the principles (PresencePrinciples) that apply. Until
+    #: 2026-11-04 each state also carried a canned `primary_response`,
+    #: `secondary` line and `offer` ("I'm so sorry.", "I'm right here.",
+    #: "Would it help to focus on just one thing right now?"): words chosen
+    #: for the being. They are removed (item 7, module docstring); what the
+    #: being says is the being's.
     _RESPONSES: Dict[HumanState, Dict[str, Any]] = {
         HumanState.GRIEVING: {
             "tone": "soft, steady, unhurried",
-            "primary_response": "I'm so sorry.",
-            "secondary": "There's nothing that makes this okay.",
-            "offer": None, "allow_silence": True,
+            "allow_silence": True,
             "principles": ["steady", "witness", "no_fix"],
         },
         HumanState.OVERWHELMED: {
             "tone": "calm, grounding, slow",
-            "primary_response": "That's a lot to carry.",
-            "secondary": "You don't have to handle it all at once.",
-            "offer": "Would it help to focus on just one thing right now?",
             "allow_silence": True,
             "principles": ["steady", "no_rush", "permission"],
         },
         HumanState.BREAKING: {
             "tone": "gentle, anchored, present",
-            "primary_response": "I'm right here.",
-            "secondary": "You don't have to hold it together right now.",
-            "offer": "What do you need in this moment?",
             "allow_silence": True,
             "principles": ["steady", "witness", "permission"],
         },
         HumanState.AFRAID: {
             "tone": "steady, calm, reassuring",
-            "primary_response": "I hear that you're scared.",
-            "secondary": "Fear is hard. You're not alone in this.",
-            "offer": "Would grounding help, or do you just need to talk?",
             "allow_silence": False,
             "principles": ["steady", "witness", "gentle_options"],
         },
         HumanState.NUMB: {
             "tone": "gentle, patient, accepting",
-            "primary_response": "Numbness makes sense sometimes.",
-            "secondary": "You don't have to feel anything right now.",
-            "offer": None, "allow_silence": True,
+            "allow_silence": True,
             "principles": ["permission", "no_rush", "witness"],
         },
         HumanState.HOLDING_ON: {
             "tone": "acknowledging, steady, validating",
-            "primary_response": "You're doing what you can.",
-            "secondary": "That's enough.",
-            "offer": "Is there anything that would make holding on a little easier?",
             "allow_silence": True,
             "principles": ["witness", "permission", "gentle_options"],
         },
         HumanState.WITNESSING_PAIN: {
             "tone": "compassionate, understanding, gentle",
-            "primary_response": "Watching someone you love suffer is one of the hardest things.",
-            "secondary": "You can't fix their pain, but you can be there. And that matters.",
-            "offer": None, "allow_silence": True,
+            "allow_silence": True,
             "principles": ["witness", "no_fix", "steady"],
         },
         HumanState.CONFUSED: {
             "tone": "calm, clear, unhurried",
-            "primary_response": "It's okay not to know where you are right now.",
-            "secondary": "You don't have to figure it out all at once.",
-            "offer": "Is there one thing that feels clearest right now?",
             "allow_silence": True,
             "principles": ["steady", "no_rush", "permission"],
         },
@@ -460,7 +454,9 @@ class PresenceGuide:
         self, human_state: HumanState, client_said_what: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Guidance for a detected state.
+        Guidance for a state: tone, allow_silence and principles. A lookup
+        the being may call by name; nothing in this package calls it, and it
+        carries no words for the being to say.
 
         Raises:
             KeyError: for a state with no entry. The predecessor had a `.get`

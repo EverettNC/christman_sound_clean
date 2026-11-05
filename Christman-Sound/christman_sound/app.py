@@ -237,6 +237,40 @@ def _json_resp(payload: Any, status_code: int = 200) -> AppResponse:
     )
 
 
+#: Request keys /api/hear and /api/synthesize no longer read (2026-11-04,
+#: Everett: the package reads, the being decides), and what replaced each.
+#: A request still sending one is refused with 400 naming it: Rule 6, a key
+#: the caller thinks is doing something is never quietly ignored.
+REMOVED_REQUEST_KEYS: Dict[str, str] = {
+    "public_setting": ("removed 2026-11-04: the studio no longer chooses whether danger "
+                       "is voiced; the reading carries `danger` and `asked_aloud`, and "
+                       "what is said aloud is the being's decision"),
+    "auto_route_grunt": ("removed 2026-11-04: `grunt_route` is returned as a reading "
+                         "only; a being that wants a key read sends `acoustic_key` "
+                         "itself"),
+    "silent_alarm": ("removed 2026-11-04: pass `danger` (the being's own "
+                     "SafetyResult.danger) with `being_reply`; `forbidden_lines` comes "
+                     "back beside the audio and nothing is refused"),
+    "answering_follow_up": ("removed 2026-11-04: pass `answering`, the question the "
+                            "being actually asked, in its own words"),
+}
+
+
+def _refuse_removed_keys(data: Any) -> Optional[AppResponse]:
+    """400 naming every removed key in the request and what replaced it, or None."""
+    if not isinstance(data, dict):
+        return None
+    sent = [k for k in REMOVED_REQUEST_KEYS if k in data]
+    if not sent:
+        return None
+    return _json_resp({
+        "status": "refused",
+        "kind": "RemovedRequestKey",
+        "removed": [{"key": k, "replaced_by": REMOVED_REQUEST_KEYS[k]} for k in sent],
+        "reason": "; ".join(f"{k!r}: {REMOVED_REQUEST_KEYS[k]}" for k in sent),
+    }, 400)
+
+
 class ChristmanSoundApp:
     """Pure-stdlib application router with an in-memory test client and HTTP server."""
 
@@ -462,6 +496,9 @@ class ChristmanSoundApp:
             return _json_resp({"status": "error", "reason": str(exc)}, 500)
 
     def _handle_synthesize(self, data: Dict[str, Any]) -> AppResponse:
+        refused = _refuse_removed_keys(data)
+        if refused is not None:
+            return refused
         text = data.get("text")
         phones_raw = data.get("phones")
         voice_arg = data.get("voice")
@@ -681,6 +718,9 @@ class ChristmanSoundApp:
         from christman_voice_sdk.tone.emotion_quantifier import EmotionAnalysisService
         from christman_voice_sdk.utils.presence_guide import PresenceGuide
 
+        refused = _refuse_removed_keys(data)
+        if refused is not None:
+            return refused
         text = data.get("text")
         previous_turn = data.get("previous_turn") or None
         between_beings = bool(data.get("between_beings", False))

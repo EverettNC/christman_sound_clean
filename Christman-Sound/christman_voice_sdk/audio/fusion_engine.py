@@ -134,7 +134,7 @@ from .structural_affect import (
     ProsodyFeatures,
     StructuralAffectAnalyzer,
 )
-from .prosody import ProsodyReading, Reconciliation, reconcile
+from .prosody import Agreement, ProsodyReading, Reconciliation, reconcile
 
 try:
     from ..timbre.logger import get_logger
@@ -460,8 +460,10 @@ class Reading:
     `resolved` is False when the reading could not be resolved, and
     `unresolved_reason` names what produced that. `provenance` says where
     each part came from: `affect_reading` (the analyzer's certainty),
-    `live_state_rejected`, `safety_degraded`, and `response_mode_source`
-    ("live") when the being supplied its own response mode in live_state.
+    `live_state_rejected`, `safety_degraded`, `channels` (the words against
+    the voice: agree, conflict, text_only, prosody_only, unknown),
+    `channels_disagree`, and `response_mode_source` ("live") when the being
+    supplied its own response mode in live_state.
 
     WHAT CHANGED AND WHY (2026-11-04): renamed from `Decision`. It no longer
     carries a mode, a delivery, `speakable` or `reply_held` (see the module
@@ -588,6 +590,9 @@ class FusionEngine:
             "affect_reading": affect.certainty.value,
             "live_state_rejected": list(constraints.get("live_state_rejected", [])),
             "safety_degraded": bool(safety.degraded),
+            # Words against voice, as measured (prosody.reconcile).
+            "channels": rec.agreement.value,
+            "channels_disagree": rec.channels_disagree,
         }
         if live_state.get("response_mode") is not None:
             provenance["response_mode_source"] = "live"
@@ -617,7 +622,8 @@ class FusionEngine:
 
           - the safety gate is degraded (the reading came from the floor);
           - there was no utterance;
-          - the words and the voice disagree;
+          - the words and the voice disagree, or the voice is elevated
+            with no resolved reading of the words (prosody.reconcile);
           - the words leave something unclear (inability, person, fragment,
             thanks), then an ambiguous affect structure, then a fear with no
             context or a feeling whose owner cannot be told.
@@ -628,7 +634,13 @@ class FusionEngine:
         if not (user_input or "").strip():
             return False, "no utterance — nothing was said"
 
-        if rec.defer_to_human:
+        # The words and the voice disagree, or the voice is elevated with no
+        # resolved reading of the words: the reading is not resolved, and
+        # the reconciliation says why. (Until 2026-11-04 this read the
+        # reconciliation's `defer_to_human` instruction; it now reads the
+        # measurements that flag rested on, with the same result.)
+        if rec.channels_disagree or (rec.agreement is Agreement.PROSODY_ONLY
+                                     and rec.voice_elevated):
             return False, rec.reason
 
         def _unclear(said: str) -> str:

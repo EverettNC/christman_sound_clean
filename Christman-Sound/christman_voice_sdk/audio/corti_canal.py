@@ -11,6 +11,20 @@ everettnc/thewholehouse src/lib/audio/* & src/lib/sound/*).
 
 Pure Python standard library + christman_dsp.so only. No numpy, no scipy.
 An unmeasured value stays None; nothing here fills in a missing measurement.
+
+WHAT CHANGED AND WHY (2026-11-04)
+---------------------------------
+Everett's ruling, in his words: "we can have this knowledge in the sound
+package, but it can't be making those decisions. It's up to the being to make
+those decisions, not something that just creates a voice."
+
+Two places in the grunt router told the being what to do. The vocal-stimming
+route's intent read "(do not interrupt or treat as distress)", an
+instruction inside a label; it now says what was measured: a steady cadence
+of pitch and duration across the recent vocalizations. `GruntPhysicsRoute.
+urgent` was True exactly when the key was grunt_distress: it measured
+nothing the key and the measurements beside it (attack_ms, peak_rms, f0_hz,
+physics_note) do not already carry, and it named an action, so it is removed.
 """
 
 from __future__ import annotations
@@ -505,10 +519,13 @@ class Corpus:
 
 @dataclass(frozen=True)
 class GruntPhysicsRoute:
+    """What the router read from a vocalization's measured envelope. A
+    reading: `key` and `intent` name what the physics matched, the
+    measurements are beside them, and nothing here acts on it."""
+
     key: str
     intent: Optional[str]
     regulatory: bool
-    urgent: bool
     confidence: Optional[float]
     physics_note: str
     duration_ms: Optional[float] = None
@@ -521,7 +538,6 @@ class GruntPhysicsRoute:
             "key": self.key,
             "intent": self.intent,
             "regulatory": self.regulatory,
-            "urgent": self.urgent,
             "confidence": None if self.confidence is None else round(self.confidence, 4),
             "duration_ms": None if self.duration_ms is None else round(self.duration_ms, 2),
             "attack_ms": None if self.attack_ms is None else round(self.attack_ms, 2),
@@ -624,9 +640,9 @@ def analyze_grunt_physics(
         if stim_ok and stim_conf is not None and f0_cv is not None and dur_cv is not None:
             return GruntPhysicsRoute(
                 key="vocal_stimming",
-                intent="Self-regulation / rhythmic vocal stimming (do not interrupt or treat as distress)",
+                intent=("Rhythmic vocal stimming (self-regulation): a steady cadence of "
+                        "pitch and duration across the recent vocalizations"),
                 regulatory=True,
-                urgent=False,
                 confidence=stim_conf,
                 physics_note=f"measured rhythmic cadence across {len(list(recent_events)[-4:])} vocalizations (F0 CV {f0_cv:.4f} <= {STIMMING_MAX_F0_CV}, duration CV {dur_cv:.4f} <= {STIMMING_MAX_DURATION_CV})",
             )
@@ -636,7 +652,6 @@ def analyze_grunt_physics(
             key="unknown",
             intent=None,
             regulatory=False,
-            urgent=False,
             confidence=None,
             physics_note="could not measure: no vocal event provided",
         )
@@ -664,7 +679,6 @@ def analyze_grunt_physics(
             key="unknown",
             intent=None,
             regulatory=False,
-            urgent=False,
             confidence=None,
             duration_ms=dur_ms,
             attack_ms=attack_ms,
@@ -705,7 +719,6 @@ def analyze_grunt_physics(
             key="grunt_distress",
             intent="Immediate discomfort, pain, or acute distress",
             regulatory=False,
-            urgent=True,
             confidence=measured_conf,
             duration_ms=dur_ms,
             attack_ms=attack_ms,
@@ -722,7 +735,6 @@ def analyze_grunt_physics(
             key="grunt_frustration",
             intent="Effortful groan / frustration / need for assistance",
             regulatory=False,
-            urgent=False,
             confidence=measured_conf,
             duration_ms=dur_ms,
             attack_ms=attack_ms,
@@ -736,7 +748,6 @@ def analyze_grunt_physics(
             key="unknown",
             intent=None,
             regulatory=False,
-            urgent=False,
             confidence=None,
             duration_ms=dur_ms,
             attack_ms=attack_ms,
@@ -754,7 +765,6 @@ def analyze_grunt_physics(
         key="grunt_acknowledge",
         intent="Calm vocal check-in / acknowledgment / presence",
         regulatory=False,
-        urgent=False,
         confidence=measured_conf,
         duration_ms=dur_ms,
         attack_ms=attack_ms,

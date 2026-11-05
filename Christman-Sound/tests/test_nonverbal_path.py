@@ -84,7 +84,7 @@ def test_distress_reads_hard_block_and_the_persons_words_stay(kwargs, says, dang
     {"nonverbal": {"gesture": "wave"}},
 ])
 def test_no_page_without_distress(kwargs):
-    # Decision moved to the being 2026-11-04: see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04: see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # Nothing pages anyone now; the reading this rested on is that no gate
     # reading is made and no distress is listed.
     turn = Hearing().hear(**kwargs)
@@ -100,7 +100,7 @@ def test_stimming_is_self_regulation_and_unknown_is_silence():
 
 
 def test_distress_with_no_human_reachable_raises():
-    # Decision moved to the being 2026-11-04: see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04: see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # The package reaches no one, so there is no "no human reachable" and
     # nothing raises into the turn. The reading the raise rested on stands.
     turn = Hearing().hear(nonverbal={"symbol": "pain"})
@@ -163,7 +163,7 @@ def _nv():
 
 
 def test_distress_is_not_outvoted():
-    # Decision moved to the being 2026-11-04: see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04: see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # The distress override of the vote is gone. A nod and a distress grunt
     # at equal confidence are a tie, reported as a tie, and the distress is
     # reported beside it: not outvoted, and not chosen for the being.
@@ -245,26 +245,57 @@ def _post(port, path, body):
 
 
 def test_receiver_takes_the_clients_acoustic_key():
-    # 2026-11-04: one reply shape for every key, the full turn with 200.
-    # Until then a distress key answered {"received": true} (the silent
-    # alarm) with a pager, and 503 crisis_not_delivered without one; what
-    # the sending device shows is now the being's decision.
+    # 2026-11-04: until then a distress key answered {"received": true} (the
+    # silent alarm) with a pager, and 503 crisis_not_delivered without one.
+    # Fix round, 2026-11-04: the full turn goes to the being through on_turn
+    # only; the device gets one fixed receipt for every key, whatever it
+    # was read as.
     from christman_voice_sdk.audio import corti_receiver as cr
-    server, receiver, _ = cr.start_in_thread(port=0, hearing=Hearing())
+    turns = []
+    server, receiver, _ = cr.start_in_thread(port=0, hearing=Hearing(), on_turn=turns.append)
     try:
         port = server.server_address[1]
         code, body = _post(port, cr.ACOUSTIC_PATH, {"key": "grunt_distress"})
         assert code == 200, body
-        safety = body["reading"]["safety"]
-        assert safety["status"] == "hard_block" and safety["reason"] == "nonverbal_distress"
-        assert safety["danger"] is True
-        assert body["acoustic"]["input"] == "grunt_distress"
-        assert receiver.state.ring[0].reading.safety.status == "hard_block"
+        assert body == {"received": True, "key": "grunt_distress"}
+        # The being got the full turn, the safety reading included.
+        safety = turns[0].reading.safety
+        assert safety.status == "hard_block" and safety.reason == "nonverbal_distress"
+        assert safety.danger is True
+        assert turns[0].acoustic.input_data == "grunt_distress"
+        assert receiver.state.ring[0] is turns[0]
         assert receiver.state.keys_received == 1
         code, body = _post(port, cr.ACOUSTIC_PATH, {"key": "grunt_acknowledge"})
-        assert code == 200 and body["reading"] is None   # the same shape, no distress
+        assert code == 200 and body == {"received": True, "key": "grunt_acknowledge"}
+        assert turns[1].reading is None                   # no distress; same receipt
         code, _ = _post(port, cr.ACOUSTIC_PATH, {"nokey": 1})
         assert code == 400
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.mark.parametrize("key", ["grunt_distress", "grunt_acknowledge", "vocal_stimming",
+                                 "not_a_live_key"])
+def test_receiver_with_no_being_attached_refuses_every_key_loudly(key):
+    # Fix round, 2026-11-04 (Rule 6): with no on_turn handler (AlphaVox
+    # starts the receiver that way) the turn would ring with nobody to read
+    # it and the client's key would vanish without a sound. Every key is
+    # refused alike, before it is heard: 503, counted in keys_rejected.
+    from christman_voice_sdk.audio import corti_receiver as cr
+    server, receiver, _ = cr.start_in_thread(port=0, hearing=Hearing())
+    try:
+        port = server.server_address[1]
+        code, body = _post(port, cr.ACOUSTIC_PATH, {"key": key})
+        assert code == 503
+        assert body == {"error": "no being is attached to receive turns"}
+        assert receiver.state.keys_rejected == 1
+        assert receiver.state.keys_received == 0 and len(receiver.state.ring) == 0
+        health = receiver.health()
+        assert health["keys_rejected"] == 1 and health["being_attached"] is False
+        with pytest.raises(cr.NoBeingAttached):
+            receiver.take_key(key)
+        assert receiver.state.keys_rejected == 2
     finally:
         server.shutdown()
         server.server_close()
@@ -354,7 +385,7 @@ def test_temporal_built_in_gesture_is_reported_with_no_wording(index, expression
 
 
 def test_temporal_hand_up_is_the_silent_alarm():
-    # Decision moved to the being 2026-11-04: see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04: see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # Ruling I: help is danger. The silent alarm (words held, a page sent)
     # was the package deciding; the reading it rested on is category
     # "danger" with the matched intent. The built-in map has no words.
@@ -380,7 +411,9 @@ def test_temporal_face_reading_is_observed_not_spoken():
     r = t.process_multimodal_sequence(emotion_features=np.zeros(4))
     assert r["primary_result"]["expression"] == "Neutral"
     assert r["message"] is None            # never "I'm fine."
-    assert "reported, not spoken" in r["primary_result"]["reason"]
+    # The reason says what is true: the built-in map holds no words for it.
+    # (Until the 2026-11-04 fix round it said "reported, not spoken".)
+    assert "built-in map holds no words" in r["primary_result"]["reason"]
 
 
 def test_temporal_low_confidence_does_not_speak():
@@ -442,6 +475,85 @@ def test_the_turn_keeps_the_clients_words_when_the_reading_is_under_the_bar(tmp_
     assert turn.person_message_below_threshold is True
 
 
+# -- the client's own urgent mark, "pages": true ------------------------------
+# 2026-11-04 fix round. A client's own map entry marked "pages": true (here
+# {"intent": "Call caregiver", "pages": true}) read as nonverbal distress at
+# 2ad3ac0, at 0.9 and at 0.4 confidence. The first pass of the read-only
+# change ignored the mark and Hearing got no safety reading at all. The mark
+# is the client's own knowledge, so it is read: category "danger", danger
+# True, danger_term the entry's intent, and Hearing reads status, reason,
+# flags and flagged_terms exactly as at 2ad3ac0.
+
+def _centred_on_wave_right(confidence):
+    """CentroidModel over the four gesture labels, Wave Right (index 2) at 0
+    and the other three at one distance chosen so the softmax gives Wave
+    Right `confidence` for an input of zeros."""
+    import math
+    flat = math.sqrt(10 * 4)                               # 10 frames x 4 features
+    distance = math.log(3 * confidence / (1 - confidence))
+    v = distance / flat
+    return CentroidModel([[_seq(v)], [_seq(v)], [_seq(0.0)], [_seq(v)]])
+
+
+@pytest.mark.parametrize("confidence,status", [(0.9, "ok"), (0.4, "below_threshold")])
+def test_the_clients_own_urgent_mark_reads_as_nonverbal_distress(tmp_path, confidence, status):
+    path = tmp_path / "language_map.json"
+    path.write_text(json.dumps({"Wave Right": {"intent": "Call caregiver", "pages": True}}),
+                    encoding="utf-8")
+    t = TemporalNonverbalEngine(sequence_length=10, language_map_path=str(path))
+    t.models["gesture"] = _centred_on_wave_right(confidence)
+    for frame in _seq(0.0)[:-1]:
+        t.add_gesture_features(frame)
+    turn = Hearing(temporal_engine=t).hear(temporal={"gesture_features": np.zeros(4)})
+    gesture = turn.temporal["all_results"]["gesture"]
+    assert gesture["expression"] == "Wave Right" and gesture["status"] == status
+    assert gesture["confidence"] == pytest.approx(confidence)
+    assert gesture["category"] == "danger"
+    assert gesture["danger"] is True and gesture["danger_term"] == "Call caregiver"
+    # Through Hearing: exactly the reading 2ad3ac0 gave (measured there).
+    assert turn.reading is not None
+    s = turn.reading.safety
+    assert (s.status, s.reason) == ("hard_block", "nonverbal_distress")
+    assert s.flags == ["nonverbal:temporal:gesture:Wave Right:Call caregiver",
+                       "words:clear:no_harm_frame"]
+    assert s.flagged_terms == ["Wave Right"]
+    assert s.danger is True
+
+
+@pytest.mark.parametrize("confidence,status", [(0.9, "ok"), (0.4, "below_threshold")])
+def test_the_clients_own_urgent_mark_reads_the_same_in_the_nonverbal_engine(
+        tmp_path, confidence, status):
+    # The same field in the client's own gesture map reads the same way.
+    # (This engine never read the field before 2026-11-04; it reads it now
+    # so one client's map means the same thing on every channel.)
+    (tmp_path / "gestures_model.json").write_text(json.dumps({"wave": {
+        "intent": "call_caregiver", "confidence": confidence, "expression": "urgent",
+        "emotion_tier": "moderate", "message": None, "pages": True}}), encoding="utf-8")
+    turn = Hearing(nonverbal_engine=NonverbalEngine(data_dir=str(tmp_path))).hear(
+        nonverbal={"gesture": "wave"})
+    [reading] = turn.nonverbal["all_results"]
+    assert reading["status"] == status
+    assert reading["category"] == "danger"
+    assert reading["danger"] is True and reading["danger_term"] == "call_caregiver"
+    assert reading["message"] is None
+    s = turn.reading.safety
+    assert (s.status, s.reason) == ("hard_block", "nonverbal_distress")
+    assert s.danger is True
+    assert "nonverbal:gesture:wave:call_caregiver" in s.flags
+
+
+def test_a_wordless_entry_in_the_clients_own_map_says_so(tmp_path):
+    # Item 7 of the fix round: NOT_LEARNED_REASON said "no meaning learned
+    # for this client" for a wordless entry in the client's own map too.
+    from christman_voice_sdk.nonverbal.nonverbal_engine import NO_WORDS_IN_CLIENT_MAP_REASON
+    (tmp_path / "gestures_model.json").write_text(json.dumps({"wave": {
+        "intent": "greet", "confidence": 0.9, "expression": "positive",
+        "emotion_tier": "mild", "message": None}}), encoding="utf-8")
+    r = NonverbalEngine(data_dir=str(tmp_path)).classify_gesture("wave")
+    assert r.message is None and r.reason == NO_WORDS_IN_CLIENT_MAP_REASON
+    assert NonverbalEngine(data_dir=None).classify_gesture("wave").reason == NOT_LEARNED_REASON
+
+
 def test_soul_mirror_vector_carries_whose_clause_it_is():
     turn = Hearing().hear(text="my moms in pain im scared")
     fv = turn.face_vector.to_dict()
@@ -458,7 +570,7 @@ def test_soul_mirror_vector_carries_whose_clause_it_is():
 # -- 2026-10-29: Everett: Hand Up ("Request attention") is a call for help.
 
 def test_hand_up_is_the_one_temporal_signal_that_pages():
-    # Decision moved to the being 2026-11-04: see WHAT_THE_BEING_DECIDES.md
+    # Decision moved to the being 2026-11-04: see AlphaVox's WHAT_THE_BEING_DECIDES.md
     # The `pages` field is gone; Hand Up is the one built-in label whose
     # intent is help, and it reads category "danger".
     from christman_voice_sdk.nonverbal.engine_temporal import DEFAULT_LANGUAGE_MAP
@@ -471,7 +583,7 @@ def test_hand_up_is_the_one_temporal_signal_that_pages():
 def test_a_hand_up_reading_reaches_a_human():
     """The gate, given the reading Hearing builds from a Hand Up result. The
     trained model that produces the reading is not on this machine.
-    Decision moved to the being 2026-11-04: see WHAT_THE_BEING_DECIDES.md.
+    Decision moved to the being 2026-11-04: see AlphaVox's WHAT_THE_BEING_DECIDES.md.
     The gate reads it hard_block with `danger`; nothing is held or paged."""
     from christman_voice_sdk.audio.hearing import harm_frame_safety
     hand_up = {"modality": "temporal:gesture", "input": "Hand Up",
@@ -482,3 +594,25 @@ def test_a_hand_up_reading_reaches_a_human():
     assert r.danger is True                                    # ruling I, as a reading
     assert "nonverbal:temporal:gesture:Hand Up:Request attention" in r.flags
 
+
+
+def test_the_temporal_buffers_carry_from_one_turn_to_the_next():
+    # Item 7 of the 2026-11-04 fix round (Rule 13): Hearing's docstring said
+    # nothing carried from one turn to the next. The temporal engine's
+    # sequence buffers do, by design: a turn's sequence reading is made over
+    # the last sequence_length frames, sent on this turn or earlier ones.
+    t = TemporalNonverbalEngine(sequence_length=3)
+    t.models["gesture"] = CentroidModel([[_seq(0.0, n=3)], [_seq(50.0, n=3)],
+                                         [_seq(100.0, n=3)], [_seq(150.0, n=3)]])
+    hearing = Hearing(temporal_engine=t)
+    first = hearing.hear(temporal={"gesture_features": np.zeros(4)})
+    assert first.temporal["all_results"] == {}            # 1 of 3 frames: not ready
+    hearing.hear(temporal={"gesture_features": np.zeros(4)})
+    third = hearing.hear(temporal={"gesture_features": np.zeros(4)})
+    # Ready on the third turn, over frames sent on all three.
+    assert third.temporal["all_results"]["gesture"]["expression"] == "Hand Up"
+    assert len(t.gesture_buffer) == 3
+    import inspect
+    doc = " ".join(inspect.getdoc(Hearing).split())
+    assert "nothing from one turn changes how the next is read" not in doc
+    assert "temporal engine's sequence buffers" in doc
