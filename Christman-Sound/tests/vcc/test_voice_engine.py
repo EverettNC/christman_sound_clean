@@ -227,9 +227,16 @@ def test_phoneme_labels_come_from_the_sdk(engine, tmp_path):
 FRAME_SAY = "I am here with you"
 
 
+#: Jitter and shimmer below the voice's own (0.5 is the voice as measured) ask
+#: for less roughness than its recorded frames carry, which the frame mouth
+#: refuses with that reason (measured on a being's voice, 2026-11-05: jitter
+#: 0.2 asked 0.0191 where the frames carry 0.0259). Above it they can be added.
+FRAME_VALUES = dict(REQUEST_VALUES, jitter=(0.6, 0.9), shimmer=(0.6, 0.9))
+
+
 @pytest.mark.parametrize("control", sorted(set(SYNTH_INPUT_FOR) - {"affect"}))
 def test_every_control_changes_a_frame_voices_sound(frame_engine, control):
-    a, b = REQUEST_VALUES[control]
+    a, b = FRAME_VALUES[control]
     assert frame_engine._synth_accepts(SYNTH_INPUT_FOR[control])
     ra = frame_engine.synthesize(FRAME_SAY, VoiceParameters(**{control: a}))
     rb = frame_engine.synthesize(FRAME_SAY, VoiceParameters(**{control: b}))
