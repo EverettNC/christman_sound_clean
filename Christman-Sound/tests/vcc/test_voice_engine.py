@@ -4,7 +4,14 @@ Tests for the voice engine: real renders through Christman-Sound.
 The VCC holds no being's voice, so these tests are handed one from outside:
 
     VCC_TEST_VOICE_PROFILE=<a measured voice profile JSON>
+    VCC_TEST_FRAME_VOICE=<a frame voice folder, built from a being's own
+                          recordings by scripts/build_voice_bank.py>
     CHRISTMAN_LEXICON_PATH=<Vosk align_lexicon.txt>
+
+The controls apply to a frame voice only (christman_sound.synth.FRAME_CONTROLS);
+with a measured profile every control is refused before any sound
+(2026-11-05: until then the engine passed them and the synthesizer refused
+every one, so the VCC made no voice with any control set).
 
 Without them the tests that render are NOT RUN, with that reason. Nothing
 here plays sound aloud: audio is rendered to memory or a temp file and
@@ -30,6 +37,7 @@ from voice_creation_center.engines.voice_engine import (
 )
 
 PROFILE = os.environ.get("VCC_TEST_VOICE_PROFILE")
+FRAME = os.environ.get("VCC_TEST_FRAME_VOICE")
 LEXICON = os.environ.get("CHRISTMAN_LEXICON_PATH")
 
 #: A value to request for each control, and a second, different one, so a
@@ -56,6 +64,18 @@ def engine():
         pytest.skip("NOT RUN: no lexicon; set CHRISTMAN_LEXICON_PATH to a Vosk align_lexicon.txt")
     e = VoiceEngine(PROFILE, lexicon_path=LEXICON)
     assert e.is_ready, f"a voice and lexicon were handed in but the engine is not ready: {e.not_ready_reason}"
+    return e
+
+
+@pytest.fixture(scope="module")
+def frame_engine():
+    if not FRAME:
+        pytest.skip("NOT RUN: no frame voice was handed in; set VCC_TEST_FRAME_VOICE to a frame voice folder")
+    if not LEXICON:
+        pytest.skip("NOT RUN: no lexicon; set CHRISTMAN_LEXICON_PATH to a Vosk align_lexicon.txt")
+    e = VoiceEngine(FRAME, lexicon_path=LEXICON)
+    assert e.is_ready, f"a frame voice and lexicon were handed in but the engine is not ready: {e.not_ready_reason}"
+    assert e.voice_kind == "frame_voice"
     return e
 
 
@@ -189,11 +209,62 @@ def test_word_not_in_lexicon_is_refused_not_spelled(engine):
 
 
 def test_phoneme_labels_come_from_the_sdk(engine, tmp_path):
+    """The SDK labeler's answer as it is: phonemes, or available False with the reason.
+    (Until 2026-11-05 this read the answer as a list, and the labeler had stopped
+    returning one.)"""
     out = tmp_path / "labels.wav"
     assert engine.synthesize("I love you", output_path=str(out)).success
-    labels = engine.label_phonemes(str(out), "I love you")
-    assert labels, "the SDK labeler returned no phonemes"
-    assert type(labels[0]).__module__ == "christman_voice_sdk.synthesis.phoneme_labeler"
+    labeling = engine.label_phonemes(str(out), "I love you")
+    assert type(labeling).__module__ == "christman_voice_sdk.synthesis.phoneme_labeler"
+    if labeling.available:
+        assert labeling.phonemes, "available, but no phonemes"
+    else:
+        assert labeling.reason and not labeling.phonemes, "no phonemes must come with the reason"
+
+
+# ── A frame voice: the controls reach the sound ─────────────────────────────
+
+FRAME_SAY = "I am here with you"
+
+
+@pytest.mark.parametrize("control", sorted(set(SYNTH_INPUT_FOR) - {"affect"}))
+def test_every_control_changes_a_frame_voices_sound(frame_engine, control):
+    a, b = REQUEST_VALUES[control]
+    assert frame_engine._synth_accepts(SYNTH_INPUT_FOR[control])
+    ra = frame_engine.synthesize(FRAME_SAY, VoiceParameters(**{control: a}))
+    rb = frame_engine.synthesize(FRAME_SAY, VoiceParameters(**{control: b}))
+    assert ra.success and rb.success, (ra.error, rb.error)
+    assert ra.voice == frame_engine.voice_name
+    rep = [c for c in ra.controls if c.control == control][0]
+    assert rep.applied, rep.reason
+    assert ra.audio_data != rb.audio_data, f"{control} reached the frame mouth but did not change the sound"
+
+
+def test_a_frame_voice_takes_affect_through_its_controls_not_by_name(frame_engine):
+    """The frame mouth has no affect input of its own (christman_sound.stitch): an
+    affect by name is refused; its preset's named controls are applied."""
+    r = frame_engine.synthesize(FRAME_SAY, VoiceParameters(affect=Affect.CALM))
+    assert not r.success and "affect" in r.error and "apply_affect_preset" in r.error
+    params = VoiceParameters(affect=Affect.CALM)
+    params.apply_affect_preset()
+    made = frame_engine.synthesize(FRAME_SAY, params, allow_unapplied=True)
+    assert made.success, made.error
+    reports = {c.control: c for c in made.controls}
+    assert reports["affect"].applied is False
+    for name in ("cadence", "intonation", "porosity", "prosody_strength", "resonance"):
+        assert reports[name].applied, (name, reports[name].reason)
+    plain = frame_engine.synthesize(FRAME_SAY)
+    assert plain.success and plain.audio_data != made.audio_data
+
+
+def test_a_frame_voice_speaks_at_its_banks_rate_only(frame_engine):
+    bank_sr = frame_engine._voice.bank.sr
+    other = 16000 if bank_sr != 16000 else 22050
+    r = frame_engine.synthesize(FRAME_SAY, VoiceParameters(sample_rate=other))
+    assert not r.success and str(bank_sr) in r.error
+    ok = frame_engine.synthesize(FRAME_SAY, VoiceParameters(sample_rate=bank_sr))
+    assert ok.success, ok.error
+    assert _wav(ok.audio_data)[1] == bank_sr
 
 
 def test_status_names_the_voice_and_every_control(engine):

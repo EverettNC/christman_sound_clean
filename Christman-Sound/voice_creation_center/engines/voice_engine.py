@@ -339,10 +339,23 @@ class VoiceEngine:
     """
     Master voice engine for the Christman Voice Creation Center.
 
-    One engine speaks in one voice: the measured voice profile its being
-    hands it. The VCC holds no being's voice.
+    One engine speaks in one voice: the voice its being hands it. The VCC
+    holds no being's voice.
+
+    WHAT CHANGED AND WHY (2026-11-05)
+    The engine took only a measured voice profile, which Christman-Sound
+    speaks with its clear mouth (christman_synth). Christman-Sound applies
+    the VCC's controls (breath, timbre, intonation, cadence, prosody,
+    articulation, resonance, affect, jitter, shimmer) only to a frame voice,
+    a being's own recordings built into a voice folder, and refuses them for
+    a profile. The engine still passed them, so every control request failed
+    inside the synthesizer, and the VCC made no voice with any control set.
+    Now the engine also takes a frame voice folder, where the controls are
+    applied; with a measured profile, a control is refused before any sound,
+    with that reason.
 
     Usage:
+        engine = VoiceEngine("/path/the/being/supplies/its_frame_voice_folder")
         engine = VoiceEngine("/path/the/being/supplies/voice_profile.json")
         params = VoiceParameters(affect=Affect.GROUNDING)
         params.apply_affect_preset()
@@ -359,9 +372,13 @@ class VoiceEngine:
     ):
         """
         Args:
-            voice_profile_path: The being's measured voice profile (JSON, the
-                      format christman_sound.voice_profile reads). Required:
-                      there is no default voice.
+            voice_profile_path: The being's voice. Either its frame voice
+                      folder (voice.json, bank.json, frames.bin, built from
+                      its own recordings by scripts/build_voice_bank.py; the
+                      controls apply), or its measured voice profile (JSON,
+                      the format christman_sound.voice_profile reads; spoken
+                      by the clear mouth, no controls). Required: there is
+                      no default voice.
             lexicon_path: The pronunciation lexicon (Vosk align_lexicon.txt).
                       None: $CHRISTMAN_LEXICON_PATH.
             language: The language of that lexicon. A request in another
@@ -374,6 +391,8 @@ class VoiceEngine:
         self.language = language
         self._synthesize = None
         self._voice = None
+        self._voice_kind: Optional[str] = None   # "frame_voice" or "measured_profile"
+        self._frame_controls: tuple = ()
         self._lexicon = None
         self._dsp = None
         self._synth_inputs: tuple = ()
@@ -392,16 +411,19 @@ class VoiceEngine:
         try:
             from christman_sound.dsp import get_dsp
             from christman_sound.lexicon import load_lexicon
-            from christman_sound.synth import synthesize
-            from christman_sound.voice_profile import load_voice_profile
+            from christman_sound.stitch import FrameVoice
+            from christman_sound.synth import FRAME_CONTROLS, resolve_voice, synthesize
         except ImportError as e:
-            self._fail(f"Christman-Sound is not importable: {e} (pip install -r requirements.txt)")
+            self._fail(f"Christman-Sound is not importable: {e} (pip install -e . in Christman-Sound)")
             return
         try:
-            self._voice = load_voice_profile(self.voice_profile_path)
+            # A folder is a frame voice, a file a measured profile (Christman-Sound decides, one rule).
+            self._voice = resolve_voice(self.voice_profile_path)
         except Exception as e:
-            self._fail(f"voice profile {self.voice_profile_path}: {e}")
+            self._fail(f"voice {self.voice_profile_path}: {type(e).__name__}: {e}")
             return
+        self._voice_kind = "frame_voice" if isinstance(self._voice, FrameVoice) else "measured_profile"
+        self._frame_controls = tuple(FRAME_CONTROLS)
         try:
             self._lexicon = load_lexicon(self.lexicon_path)
         except Exception as e:
@@ -420,8 +442,8 @@ class VoiceEngine:
         self._ready = True
         self._not_ready_reason = None
         logger.info(
-            "Christman Voice Engine ready: voice %r (%s), synthesizer inputs %s",
-            self._voice.name, self.voice_profile_path, ", ".join(self._synth_inputs),
+            "Christman Voice Engine ready: voice %r (%s, %s), synthesizer inputs %s",
+            self._voice.name, self._voice_kind, self.voice_profile_path, ", ".join(self._synth_inputs),
         )
 
     def _fail(self, reason: str) -> None:
@@ -441,13 +463,31 @@ class VoiceEngine:
     def voice_name(self) -> Optional[str]:
         return self._voice.name if self._voice is not None else None
 
+    @property
+    def voice_kind(self) -> Optional[str]:
+        """"frame_voice" (its own recordings; the controls apply) or "measured_profile" (no controls)."""
+        return self._voice_kind
+
     # -- controls ------------------------------------------------------------
 
     def _synth_accepts(self, keyword: str) -> bool:
         if self._synthesize is not None:
             # Read now, not at start-up only: the synthesizer's inputs are the truth.
             self._synth_inputs = tuple(inspect.signature(self._synthesize).parameters)
-        return keyword in self._synth_inputs
+        if keyword not in self._synth_inputs:
+            return False
+        if keyword in self._frame_controls:
+            # Christman-Sound applies these to a frame voice only (christman_sound.synth.FRAME_CONTROLS).
+            return self._voice_kind == "frame_voice"
+        return True
+
+    def _not_applied_reason(self, keyword: str) -> str:
+        if self._synthesize is None:
+            return "the synthesizer is not loaded"
+        if keyword in self._frame_controls and keyword in self._synth_inputs:
+            return (f"christman_sound.synth.synthesize applies {keyword!r} to a frame voice only; this voice "
+                    f"is a measured profile, which the clear mouth speaks with its own measured values")
+        return f"christman_sound.synth.synthesize has no {keyword!r} input"
 
     def plan_controls(self, params: VoiceParameters) -> tuple:
         """
@@ -463,14 +503,21 @@ class VoiceEngine:
             if name not in requested:
                 continue
             value = requested[name]
+            if keyword == "affect" and value != "neutral" and self._synth_accepts(keyword):
+                # The frame mouth takes affect "neutral" only: it has no affect input of its own and
+                # maps no emotion onto pitch or rate (christman_sound.stitch). The named controls an
+                # affect stands for are set by params.apply_affect_preset() and applied one by one.
+                reports.append(ControlReport(
+                    name, value, False,
+                    f"christman_sound.synth.synthesize takes affect 'neutral' only: the frame mouth has no "
+                    f"affect input of its own; params.apply_affect_preset() sets the controls {value!r} stands for",
+                ))
+                continue
             if self._synth_accepts(keyword):
                 kwargs[keyword] = value
                 reports.append(ControlReport(name, value, True, f"passed to christman_sound.synth.synthesize as {keyword}={value!r}"))
             else:
-                reason = f"christman_sound.synth.synthesize has no {keyword!r} input"
-                if name == "cadence":
-                    reason += "; its rate input is refused alongside a voice profile, which carries its own measured rate"
-                reports.append(ControlReport(name, value, False, reason))
+                reports.append(ControlReport(name, value, False, self._not_applied_reason(keyword)))
 
         if params.slow_mode:
             reports.append(ControlReport(
@@ -483,7 +530,14 @@ class VoiceEngine:
                 "no articulation ceiling is defined for it anywhere in the VCC or Christman-Sound, so nothing enforces it",
             ))
 
-        if self._synth_accepts("sample_rate"):
+        bank_sr = getattr(getattr(self._voice, "bank", None), "sr", None) if self._voice_kind == "frame_voice" else None
+        if bank_sr is not None and int(params.sample_rate) != int(bank_sr):
+            reports.append(ControlReport(
+                "sample_rate", params.sample_rate, False,
+                f"the frame voice {self.voice_name} speaks at its bank's rate, {bank_sr} Hz; Christman-Sound "
+                f"refuses another rate rather than resample its recordings",
+            ))
+        elif self._synth_accepts("sample_rate"):
             kwargs["sample_rate"] = params.sample_rate
             reports.append(ControlReport("sample_rate", params.sample_rate, True, "passed to synthesize as sample_rate"))
         else:
@@ -648,11 +702,13 @@ class VoiceEngine:
 
     # -- phonemes (the SDK's labeler, the one copy) ---------------------------
 
-    def label_phonemes(self, audio_path: str, transcript: Optional[str] = None) -> list:
+    def label_phonemes(self, audio_path: str, transcript: Optional[str] = None):
         """
         Phoneme timing for a recording, from Christman-Sound's labeler
         (christman_voice_sdk.synthesis.phoneme_labeler). Analysis only: it
-        makes no sound.
+        makes no sound. Returns the labeler's PhonemeLabeling as it is:
+        .available is False, with .reason, when it has no phonemes to give
+        (2026-11-05: it used to be read as a list of phonemes).
         """
         if self._phoneme_labeler is None:
             from christman_voice_sdk.synthesis.phoneme_labeler import PhonemeLabeler
@@ -671,15 +727,14 @@ class VoiceEngine:
             support[name] = (
                 {"applied": True, "synth_input": keyword}
                 if self._synthesize is not None and self._synth_accepts(keyword)
-                else {"applied": False, "synth_input": keyword,
-                      "reason": f"christman_sound.synth.synthesize has no {keyword!r} input"
-                      if self._synthesize is not None else "the synthesizer is not loaded"}
+                else {"applied": False, "synth_input": keyword, "reason": self._not_applied_reason(keyword)}
             )
         return {
             "ready": self._ready,
             "not_ready_reason": self._not_ready_reason,
             "voice_profile_path": self.voice_profile_path,
             "voice": self.voice_name,
+            "voice_kind": self._voice_kind,
             "lexicon": str(getattr(self._lexicon, "path", None)) if self._lexicon is not None else None,
             "language": self.language,
             "synthesizer": "christman_sound.synth.synthesize" if self._synthesize is not None else None,
