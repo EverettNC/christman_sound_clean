@@ -1,0 +1,104 @@
+# The word ruler's sentences (scripts/word_ruler.py). One sentence per line,
+# lower case, no punctuation. Lines starting with # are notes.
+# The first 24 are the voice tests' sentences (tests/test_voice_fidelity.py
+# SENTENCES_24), so the ruler and the tests agree on them. The rest are
+# everyday things a person might need to say, written for this ruler on
+# 2026-11-05. No one's name is in them.
+i want to go home
+please help me
+i am hungry
+can you open the door
+thank you very much
+where is my mother
+turn off the light
+i feel sick today
+good morning how are you
+the dog is sleeping on the bed
+my head hurts
+i would like some water please
+please call my sister
+it is cold outside
+i want to watch television
+can i have a blanket
+my back hurts
+when are we leaving
+i do not like this
+open the window please
+where are my glasses
+i am tired
+give me the book
+what time is it
+i need to lie down
+my stomach hurts
+can you turn the music down
+i want my brother
+please close the curtains
+i am too hot
+i am too cold
+can we go for a walk
+i want to sit outside
+please bring me a towel
+where is the remote
+i want a sandwich
+can i have some juice
+i do not want to eat
+my feet are sore
+i need a new shirt
+please brush my hair
+i want to take a bath
+the light is too bright
+it is too loud in here
+i cannot sleep
+i had a bad dream
+i want to call my friend
+when is dinner
+what are we doing today
+can you read to me
+i like that song
+please play it again
+i want to draw a picture
+where is my phone
+please charge my tablet
+i need my wheelchair
+can you help me stand up
+please hold my hand
+i want to be alone
+please stay with me
+i am scared of the dark
+i feel better now
+i am bored
+that is funny
+i am proud of you
+i miss my grandmother
+is my father coming
+can i see the doctor
+my tooth hurts
+i need a tissue
+my nose is running
+i want to wear my jacket
+let us go to the park
+i want to feed the cat
+the cat is hungry too
+can we bake cookies
+i want pizza for lunch
+please cut my food
+the soup is too hot
+i dropped my spoon
+can i have a straw
+i spilled my milk
+please wipe the table
+i want to go to the store
+can we visit the library
+the bus is late
+i want to ride in the car
+please buckle my seat
+my legs are tired
+i want to rest on the couch
+please fix my pillow
+the room is too dark
+can you open the blinds
+i hear a noise outside
+someone is at the door
+i want to say goodnight
+see you tomorrow
+i love my family
