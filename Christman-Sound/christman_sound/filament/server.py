@@ -371,12 +371,13 @@ def session_of(value: str | None) -> str:
 
 
 def _tape_job(model, pcm: bytes) -> dict:
-    """A whole tape for /stt: its own recognizer, 0.5 s of silence after it."""
-    ear = _fresh(model)
-    padded = pcm + SILENCE_TAIL
-    for i in range(0, len(padded), CHUNK):
-        ear.accept(padded[i : i + CHUNK])
-    return {"final": True, "tape": True, "payload": payload_of(ear.final())}
+    """A whole tape for /stt: its own recognizer, 0.5 s of silence after it.
+
+    2026-11-05: the loop that was here is Ear.hear_tape now (the same bites,
+    the same silence, one final), so the SDK's engine and the word-ear
+    receiver hear a tape exactly as this door does.
+    """
+    return {"final": True, "tape": True, "payload": payload_of(_fresh(model).hear_tape(pcm, bite=CHUNK))}
 
 
 def _run_tape(model, jid: int, sid: str, pcm: bytes, out_q) -> None:

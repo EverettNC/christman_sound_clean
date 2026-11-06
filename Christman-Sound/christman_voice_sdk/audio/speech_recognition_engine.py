@@ -70,6 +70,20 @@ WHAT CHANGED AND WHY
 6. `stop_listening()` never joined the thread, so a restart could run two
    listener loops against one microphone. It now joins with a timeout and
    reports honestly when the thread did not exit.
+
+7. THE MODEL WAS FOUND ONLY THROUGH VOSK_MODEL_PATH (2026-11-05).
+
+   With no `model_path` and no VOSK_MODEL_PATH the engine reported "No model
+   folder" and looked nowhere, while the Filament ear server and the studio
+   found the same model on their own (christman_sound.ear
+   discover_vosk_model: ~/Downloads/vosk-model-en-us-0.22, then ~/models).
+   On Everett's Mac, with the model in ~/Downloads and nothing set, this
+   engine and the word-ear receiver built on it said there was no model.
+   Now: `model_path` if passed; else VOSK_MODEL_PATH if set (a folder that is
+   not there is still an error, by name: a setting that points at nothing is
+   not passed over for another folder); else the folder
+   discover_vosk_model() finds. `model_found_by` says which of the three it
+   was. With none, the error names every place that was looked in.
 """
 
 from __future__ import annotations
@@ -96,8 +110,9 @@ DEBUG_DUMP_AUDIO = "DEBUG_DUMP_AUDIO"
 
 #: The model folder the ear reads (a Vosk-format model folder, such as
 #: vosk-model-en-us-0.22). The setting keeps its name so existing setups keep
-#: working. No default that silently points at nothing — if this is unset and
-#: no path is passed, construction fails loudly.
+#: working. With this unset and no path passed, the ear looks where the
+#: Filament and the studio look (christman_sound.ear discover_vosk_model);
+#: when no folder is found anywhere, construction fails loudly, naming them.
 VOSK_MODEL_PATH_ENV = "VOSK_MODEL_PATH"
 
 #: Capture rate for the microphone loop. Kept under its old name for callers.
@@ -179,8 +194,11 @@ class EarBackend:
     christman_sound/ear/csrc). That decoder is kept, not installed, in
     held/claude-ear-2026-10-28. The calls here did not change.
 
-    The model folder comes from `model_path` or VOSK_MODEL_PATH, the same
-    setting as before; the folder is the model, and the ear reads it.
+    The model folder is `model_path`, else VOSK_MODEL_PATH, else the folder
+    christman_sound.ear.discover_vosk_model() finds (the full
+    vosk-model-en-us-0.22 in ~/Downloads, then ~/models, then the lgraph one):
+    the same finder the Filament ear server and the studio use.
+    `model_found_by` is "model_path", "VOSK_MODEL_PATH" or "discover_vosk_model".
 
     The model is loaded once and shared. Loading takes seconds, so a lock
     guards it: two threads calling start_listening() must not each load a
@@ -194,19 +212,39 @@ class EarBackend:
     _lock = threading.Lock()
 
     def __init__(self, model_path: Optional[str] = None) -> None:
-        path = model_path or os.getenv(VOSK_MODEL_PATH_ENV)
-        if not path:
-            raise LocalRecognitionUnavailable(
-                f"No model folder. Pass model_path or set {VOSK_MODEL_PATH_ENV} "
-                "to a model folder on disk (for example "
-                "~/models/vosk-model-en-us-0.22). Refusing to construct a "
-                "recognizer that cannot recognize."
-            )
+        named = (os.getenv(VOSK_MODEL_PATH_ENV) or "").strip()
+        if model_path:
+            path, found_by = str(model_path), "model_path"
+        elif named:
+            path, found_by = named, VOSK_MODEL_PATH_ENV
+        else:
+            path, found_by = self._discovered(), "discover_vosk_model"
         path = os.path.expanduser(path)
         if not os.path.isdir(path):
-            raise LocalRecognitionUnavailable(f"Model folder not found: {path}")
+            raise LocalRecognitionUnavailable(f"Model folder not found: {path} (from {found_by})")
         self.model_path = path
+        self.model_found_by = found_by
         self._ensure_model()
+
+    @staticmethod
+    def _discovered() -> str:
+        """The model folder the package's own finder finds, when none was passed or set."""
+        try:
+            from christman_sound.ear import discover_vosk_model
+        except ImportError as exc:
+            raise LocalRecognitionUnavailable(
+                f"christman_sound.ear cannot be imported here ({exc}). "
+                "Install Christman-Sound whole (pip install -e .), which "
+                "brings the vosk library. There is no cloud fallback by design."
+            ) from exc
+        found = discover_vosk_model()
+        if found is None:
+            raise LocalRecognitionUnavailable(
+                f"No model folder. None was passed (model_path), {VOSK_MODEL_PATH_ENV} is not set, "
+                "and there is no vosk-model-en-us-0.22 or vosk-model-en-us-0.22-lgraph folder in "
+                "~/Downloads or ~/models. Refusing to construct a recognizer that cannot recognize."
+            )
+        return str(found)
 
     def _ensure_model(self) -> Any:
         cls = type(self)
@@ -242,8 +280,16 @@ class EarBackend:
         posterior in the lattice). When the ear returns no word list,
         confidence is None rather than a filled-in number.
 
-        The text is exactly the ear's words, utterance by utterance, joined
-        with one space. Nothing is cleaned, corrected or withheld.
+        The text is exactly the ear's words. Nothing is cleaned, corrected
+        or withheld.
+
+        2026-11-05: the audio is heard as one tape through Ear.hear_tape, the
+        way the Filament ear server's /stt hears one (one recognizer, nothing
+        closed at a pause, half a second of silence after). Before, it went
+        through Ear.hear, which closes the utterance at every pause, and the
+        same recording gave different words here than at the Filament: 13 of
+        about 685 on one 234-second recording. `heard_as` in the detail says
+        which way was used.
         """
         from christman_sound.ear import Ear
 
@@ -254,10 +300,10 @@ class EarBackend:
             pcm_bytes = _resample_pcm16(pcm_bytes, rate, EAR_SAMPLE_RATE)
             resampled_from = rate
         ear = Ear(model, sample_rate=EAR_SAMPLE_RATE, words=True)
-        heard = ear.hear(pcm_bytes)
+        heard = ear.hear_tape(pcm_bytes)
 
-        text = " ".join(h.text for h in heard if h.text)
-        words = [w for h in heard for w in h.words]
+        text = heard.text
+        words = list(heard.words)
         scores = [float(w.conf) for w in words]
         confidence: Optional[float] = None
         if scores:
@@ -270,6 +316,7 @@ class EarBackend:
                 "word_count": len(words),
                 "confidence_source": "ear_word_mean" if scores else "none",
                 "resampled_from": resampled_from,
+                "heard_as": "one tape (Ear.hear_tape), as the Filament's /stt",
             },
         )
 
@@ -324,8 +371,9 @@ class SpeechRecognitionEngine:
         Args:
             backend: A local ASR backend. When None, the ear backend
                 (christman_sound.ear) is built on the model folder at
-                VOSK_MODEL_PATH; if that fails the engine is constructed in an
-                unavailable state that reports itself rather than pretending.
+                VOSK_MODEL_PATH, else the one discover_vosk_model() finds; if
+                that fails the engine is constructed in an unavailable state
+                that reports itself rather than pretending.
             simulate: Canned-phrase mode. Requires CHRISTMAN_SOUND_SIMULATE_SPEECH=1.
 
         Raises:

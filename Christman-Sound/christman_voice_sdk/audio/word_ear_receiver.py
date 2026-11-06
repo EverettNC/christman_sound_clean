@@ -8,8 +8,19 @@
 Word-ear → Sound live wire. The receiving end for words.
 
 Corti is pitch. This file is words.
-Filament and Porch post one catch of 16-bit mono WAV here.
+A caller posts one catch of 16-bit mono WAV here.
 This seats it: SpeechRecognitionEngine.recognize_from_bytes(...).
+
+WHAT CHANGED AND WHY (2026-11-05)
+This said "Filament and Porch post one catch of 16-bit mono WAV here."
+Nothing in this package does: the Filament ear server
+(christman_sound.filament) hears the audio posted to its own door and sends
+none on, and the Porch layer (christman_sound.ear.porch) works on words, not
+audio. Whatever posts here is the caller's own front end. What the two ears
+do share, as of today, is the hearing: this receiver's engine and the
+Filament's /stt hear a tape through the same Ear.hear_tape on the same model
+folder (found the same way), so one recording gives the same words at
+either door. /health names the model folder and how it was found.
 
 What this is:
   - A localhost-only HTTP receiver. It binds 127.0.0.1 and nothing else.
@@ -211,6 +222,11 @@ class WordEarReceiver:
                 "path": EVENT_PATH,
                 "engine_available": self.engine.available,
                 "unavailable_reason": self.engine.unavailable_reason,
+                # 2026-11-05: which model folder the ear reads and how it was
+                # found (model_path, VOSK_MODEL_PATH or discover_vosk_model);
+                # None for a backend that reads no model folder.
+                "model": getattr(self.engine.backend, "model_path", None),
+                "model_found_by": getattr(self.engine.backend, "model_found_by", None),
                 "received": self.state.received,
                 "rejected": self.state.rejected,
                 "last_status": self.state.last_status,
