@@ -30,7 +30,9 @@ from pathlib import Path
 
 import os
 
-from voice_creation_center.studio.recorder import Recorder, RecorderState, RecordingStats, SAMPLE_RATE
+from voice_creation_center.studio.recorder import (
+    Recorder, RecorderState, RecorderUnavailable, RecordingStats, SAMPLE_RATE,
+)
 from voice_creation_center.studio.live_studio import LiveStudio, SessionState, ValidationStatus
 from signals_for_tests import write_voiced_wav
 
@@ -114,11 +116,113 @@ def test_recorder_initial_state():
 
 
 def test_recorder_list_devices_no_crash():
-    """list_input_devices() returns a list (may be empty) without crashing."""
+    """list_input_devices() returns the devices; where the audio library cannot
+    be used it raises RecorderUnavailable with the reason (2026-11-05: it used
+    to return an empty list, the same answer as a machine with no microphone)."""
     r = Recorder()
+    if not SOUNDDEVICE_AVAILABLE:
+        with pytest.raises(RecorderUnavailable, match="sounddevice cannot be used here"):
+            r.list_input_devices()
+        print("PASS  test_recorder_list_devices_no_crash  (no audio library here: said so, by name)")
+        return
     devices = r.list_input_devices()
     assert isinstance(devices, list), "Expected list from list_input_devices()"
     print(f"PASS  test_recorder_list_devices_no_crash  ({len(devices)} device(s) found)")
+
+
+class _FakeSoundDevice:
+    """Stands where sounddevice does, for the device questions only."""
+
+    def __init__(self, devices=(), default=None, fail_all=None, fail_default=None, fail_index=None):
+        self._devices, self._default = list(devices), default
+        self._fail_all, self._fail_default, self._fail_index = fail_all, fail_default, fail_index
+
+    def query_devices(self, device=None, kind=None):
+        if kind == "input":
+            if self._fail_default:
+                raise self._fail_default
+            return self._default
+        if device is not None:
+            if self._fail_index:
+                raise self._fail_index
+            return self._devices[device]
+        if self._fail_all:
+            raise self._fail_all
+        return list(self._devices)
+
+
+def _recorder_on(fake, device_index=None) -> Recorder:
+    r = Recorder(device_index=device_index)
+    r._sd, r.unavailable_reason, r._state = fake, None, RecorderState.IDLE
+    return r
+
+
+MIC = {"name": "Desk Microphone", "max_input_channels": 1, "default_samplerate": 48000.0}
+SPEAKERS = {"name": "Speakers", "max_input_channels": 0, "default_samplerate": 48000.0}
+
+
+def test_an_empty_device_list_means_the_system_has_no_input_device():
+    r = _recorder_on(_FakeSoundDevice(devices=[SPEAKERS], default=None))
+    assert r.list_input_devices() == []
+    r = _recorder_on(_FakeSoundDevice(devices=[SPEAKERS, MIC], default=MIC))
+    (mic,) = r.list_input_devices()
+    assert (mic.index, mic.name, mic.is_default) == (1, "Desk Microphone", True)
+
+
+def test_no_audio_library_is_said_by_name_not_returned_as_no_devices(capsys):
+    r = _recorder_on(None)
+    r.unavailable_reason = "sounddevice cannot be used here (OSError: PortAudio library not found)."
+    r._state = RecorderState.ERROR
+    with pytest.raises(RecorderUnavailable) as caught:
+        r.list_input_devices()
+    assert "PortAudio library not found" in str(caught.value)
+    r.print_devices()
+    printed = capsys.readouterr().out
+    assert "PortAudio library not found" in printed and "No input devices found" not in printed
+    assert r.set_device(0) is False
+
+
+def test_a_failed_device_query_is_said_by_name_not_returned_as_no_devices(capsys, caplog):
+    r = _recorder_on(_FakeSoundDevice(fail_all=RuntimeError("Error querying device -1")))
+    with pytest.raises(RecorderUnavailable) as caught:
+        r.list_input_devices()
+    assert "RuntimeError: Error querying device -1" in str(caught.value)
+    r.print_devices()
+    printed = capsys.readouterr().out
+    assert "Error querying device -1" in printed and "No input devices found" not in printed
+    with caplog.at_level("ERROR", logger="christman.recorder"):
+        assert r.set_device(1) is False
+    assert "Error querying device -1" in caplog.text
+
+
+def test_no_default_input_does_not_hide_the_devices_there_are(caplog):
+    fake = _FakeSoundDevice(devices=[MIC], fail_default=RuntimeError("no default input device"))
+    with caplog.at_level("WARNING", logger="christman.recorder"):
+        (mic,) = _recorder_on(fake).list_input_devices()
+    assert mic.name == "Desk Microphone" and mic.is_default is False
+    assert "no default input device" in caplog.text
+
+
+def test_a_device_name_that_cannot_be_read_says_so_and_why(caplog):
+    assert _recorder_on(_FakeSoundDevice(devices=[MIC], default=MIC))._get_device_name() == "Desk Microphone"
+    assert _recorder_on(_FakeSoundDevice(devices=[MIC]), device_index=0)._get_device_name() == "Desk Microphone"
+    with caplog.at_level("WARNING", logger="christman.recorder"):
+        name = _recorder_on(_FakeSoundDevice(fail_default=OSError("device unplugged")))._get_device_name()
+    assert name != "unknown" and name.startswith("name not read:")
+    assert "the default input device" in name and "OSError: device unplugged" in name
+    assert "device unplugged" in caplog.text
+    name = _recorder_on(_FakeSoundDevice(fail_index=ValueError("no device 7")), device_index=7)._get_device_name()
+    assert "device 7" in name and "ValueError: no device 7" in name
+    r = _recorder_on(None)
+    r.unavailable_reason = "sounddevice cannot be used here (ImportError: No module named 'sounddevice')."
+    assert r._get_device_name().startswith("name not read: sounddevice cannot be used here")
+
+
+def test_the_unread_name_reaches_the_take_stats(tmp_path):
+    r = _recorder_on(_FakeSoundDevice(fail_default=OSError("device unplugged")))
+    signal = (np.sin(np.linspace(0, 440 * 2 * np.pi, SAMPLE_RATE)) * 8000).astype("int16").reshape(-1, 1)
+    stats = r._write_wav(signal, tmp_path / "take.wav", r._get_device_name())
+    assert "device unplugged" in stats.device_name and stats.to_dict()["device_name"] == stats.device_name
 
 
 def test_recorder_stats_computation(tmp_path):
@@ -314,8 +418,13 @@ def test_live_studio_finish_capture_wrong_state(tmp_path):
 
 
 def test_live_studio_list_devices_no_crash(tmp_path):
-    """list_input_devices() returns without crashing."""
+    """list_input_devices() returns the devices, or says by name why it cannot."""
     studio  = LiveStudio(export_dir=tmp_path / "out", base_dir=tmp_path)
+    if not SOUNDDEVICE_AVAILABLE:
+        with pytest.raises(RecorderUnavailable, match="sounddevice cannot be used here"):
+            studio.list_input_devices()
+        print("PASS  test_live_studio_list_devices_no_crash  (no audio library here: said so, by name)")
+        return
     devices = studio.list_input_devices()
     assert isinstance(devices, list)
     print(f"PASS  test_live_studio_list_devices_no_crash  ({len(devices)} device(s))")

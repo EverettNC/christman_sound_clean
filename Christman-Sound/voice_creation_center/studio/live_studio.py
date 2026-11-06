@@ -171,7 +171,13 @@ class LiveStudio:
     # ── Device helpers ────────────────────────────────────────────────────────
 
     def list_input_devices(self):
-        """Print available input devices to help choose the microphone."""
+        """Print available input devices to help choose the microphone.
+
+        Returns the devices; an empty list means the system has no input
+        device. Raises recorder.RecorderUnavailable, with the reason, when the
+        system could not be asked (2026-11-05: that used to come back as an
+        empty list too).
+        """
         self._recorder.print_devices()
         return self._recorder.list_input_devices()
 
