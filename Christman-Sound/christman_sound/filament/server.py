@@ -83,6 +83,16 @@ the same. What is different, and why:
 - The words are dressed by the package's mouth, not THEFILAMENT's copy: the
   package's mouth holds no person's name (Everett's ruling, 2026-10-30) and
   no longer turns "son of a bitch" into "sumbitch" (2026-11-04).
+
+WHAT CHANGED AND WHY (2026-11-05, the owner's own words)
+With the names out of the package's mouth and nothing in their place, this
+server wrote its owner's name the way the ear mishears it. The owner's rows
+now come from $FILAMENT_HOME/mouth.json (christman_sound.ear.mouth
+load_own_mangles; the format is written there) and are handed to dress() on
+every tape and every live reply. /health carries "ownWords": how many rows
+were read, and "ownWordsError" when the file could not be read. If the file
+is broken the words heard are still returned, dressed by the package's rows
+alone, with "mouth_error" naming the failure in the reply and on stderr.
 """
 
 from __future__ import annotations
@@ -108,7 +118,7 @@ from urllib.parse import unquote, urlparse
 
 from christman_sound.ear.board import add_family, add_residual, snapshot
 from christman_sound.ear.hear import Ear, EarUnavailable, Heard, load_model
-from christman_sound.ear.mouth import CONF_FLOOR, dress, load_carbon, save_carbon, shape_words
+from christman_sound.ear.mouth import CONF_FLOOR, dress, load_carbon, load_own_mangles, save_carbon, shape_words
 from christman_sound.ear.recognizer import discover_vosk_model
 
 DOOR = int(os.environ.get("FILAMENT_EAR_PORT", "4850"))
@@ -216,17 +226,32 @@ SILENCE_TAIL = b"\x00" * (RATE * 2 // 2)  # 0.5s. Last word needs room to align.
 PILE_LOCK = threading.Lock()
 
 
+def _own_words() -> tuple[tuple, Optional[str]]:
+    """The owner's own rows from $FILAMENT_HOME/mouth.json, and why not when
+    the file is there and could not be read (then no rows)."""
+    try:
+        return load_own_mangles(), None
+    except (OSError, ValueError) as exc:
+        return (), f"The owner's own words were not applied: {exc}"
+
+
 def _dress(body: dict, payload: dict) -> dict:
     """The mouth map and the Carbon pile, through christman_sound.ear.mouth.
 
-    dress() fills `body` in place (text, words, mouth, unsure) before it sets
-    unsure words aside on the Carbon pile. If the pile or the residual board
-    cannot be read or written, the words that were heard are still returned,
-    and the failure is named in the reply and on stderr.
+    The owner's own rows ($FILAMENT_HOME/mouth.json) are handed to dress()
+    with the package's. dress() fills `body` in place (text, words, mouth,
+    unsure) before it sets unsure words aside on the Carbon pile. If the
+    owner's file, the pile or the residual board cannot be read or written,
+    the words that were heard are still returned, and the failure is named
+    in the reply and on stderr.
     """
+    own, own_error = _own_words()
+    if own_error:
+        print(f"Filament: {own_error}", file=sys.stderr, flush=True)
+        body["mouth_error"] = own_error
     try:
         with PILE_LOCK:
-            return dress(body, payload)
+            return dress(body, payload, extra_mangles=own)
     except (OSError, ValueError) as exc:
         why = f"The unsure words could not be set aside for Carbon: {exc}"
         print(f"Filament: {why}", file=sys.stderr, flush=True)
@@ -371,12 +396,13 @@ def session_of(value: str | None) -> str:
 
 
 def _tape_job(model, pcm: bytes) -> dict:
-    """A whole tape for /stt: its own recognizer, 0.5 s of silence after it."""
-    ear = _fresh(model)
-    padded = pcm + SILENCE_TAIL
-    for i in range(0, len(padded), CHUNK):
-        ear.accept(padded[i : i + CHUNK])
-    return {"final": True, "tape": True, "payload": payload_of(ear.final())}
+    """A whole tape for /stt: its own recognizer, 0.5 s of silence after it.
+
+    2026-11-05: the loop that was here is Ear.hear_tape now (the same bites,
+    the same silence, one final), so the SDK's engine and the word-ear
+    receiver hear a tape exactly as this door does.
+    """
+    return {"final": True, "tape": True, "payload": payload_of(_fresh(model).hear_tape(pcm, bite=CHUNK))}
 
 
 def _run_tape(model, jid: int, sid: str, pcm: bytes, out_q) -> None:
@@ -761,9 +787,12 @@ class Door(BaseHTTPRequestHandler):
             return
         if path in ("/health", "/stt", "/live"):
             seated = seat_model() is not None
+            own, own_error = _own_words()
             self._json(
                 200,
                 {
+                    "ownWords": len(own),
+                    **({"ownWordsError": own_error} if own_error else {}),
                     "ok": seated,
                     "seated": seated,
                     "engine": "vosk",

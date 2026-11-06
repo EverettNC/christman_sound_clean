@@ -119,7 +119,18 @@
 <script src="/dialect-map.js"></script>
 <script>
 (function(){
-  const EAR = location.port === '4850' ? '' : 'http://127.0.0.1:4850';
+  // The ear this page talks to. Served by a Filament door, on any port: that
+  // same door. (Was: the door on 4850 unless this page came from 4850, so a
+  // copy served from another port sent its sound to the ear on 4850.)
+  // Opened as a file: the ear on this machine at 4850. ?ear-port=N in the
+  // address names another port on this machine; no other machine can be named.
+  const EAR = (() => {
+    const named = new URLSearchParams(location.search).get('ear-port');
+    if (named !== null && /^[0-9]{1,5}$/.test(named) && +named >= 1 && +named <= 65535) {
+      return named === location.port ? '' : 'http://127.0.0.1:' + named;
+    }
+    return location.protocol === 'file:' ? 'http://127.0.0.1:4850' : '';
+  })();
   // One stream per open page: the door keeps this page's words apart from every other caller's.
   const SESSION = 'filament-door:' + (crypto && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + '-' + Math.floor(Math.random() * 2 ** 48).toString(36));
   const LQ = (q) => (q ? q + '&' : '?') + 'session=' + SESSION;

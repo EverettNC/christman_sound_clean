@@ -93,6 +93,7 @@ import time
 import threading
 import wave
 
+from ..utils.data_root import sdk_data_root
 from ..engines.synthesis_result import (
     SOVEREIGN_NOT_WIRED,  # noqa: F401  (re-exported; the other cut paths still give it)
     DegradedSynthesisError,  # noqa: F401  (re-exported for callers that caught it here)
@@ -185,7 +186,10 @@ def resolve_voice(voice):
     except NoVoice as exc:
         raise SynthesisUnavailable(str(exc), where=where) from exc
 
-DEFAULT_CACHE_DIR = Path(os.getenv("CHRISTMAN_VOICE_CACHE", str(Path.home() / ".christman_ai" / "voice_cache")))
+# $CHRISTMAN_VOICE_CACHE, else voice_cache/ in the SDK's data folder
+# ($CHRISTMAN_AI_HOME, else ~/.christman_ai). 2026-11-05: the default named
+# ~/.christman_ai itself and did not follow $CHRISTMAN_AI_HOME.
+DEFAULT_CACHE_DIR = Path(os.getenv("CHRISTMAN_VOICE_CACHE") or (sdk_data_root() / "voice_cache")).expanduser()
 
 def _playback_readiness() -> tuple:
     """(ready, reason). Ready only when the Christman engine is loaded and has a backend."""
@@ -408,7 +412,7 @@ class SpeechSynthesisEngine:
         return Path(tempfile.NamedTemporaryFile(suffix=".wav", dir=self.cache_dir, delete=False).name)
 
     def _render(self, text: str, emotion_params: Optional[Dict], language: str, voice=None,
-                controls: Optional[Dict] = None) -> SynthesisResult:
+                controls: Optional[Dict] = None, pronunciations: Optional[Dict] = None) -> SynthesisResult:
         """
         The one place audio is made from text: lexicon -> christman_sound.
         synth -> samples, in the caller's voice (`voice`, else the engine's).
@@ -442,16 +446,21 @@ class SpeechSynthesisEngine:
         self.last_emotion_unapplied = None
 
         v = resolve_voice(voice if voice is not None else self.voice)
+        # The caller's own words (2026-11-05): its names, word -> phones, to
+        # the mouth unchanged. Left out when none were handed in.
+        own_words = {"pronunciations": pronunciations} if pronunciations else {}
         started = time.perf_counter()
         try:
             if isinstance(v, FrameVoice):
-                made = christman_synthesize(text, voice=v, lexicon_path=self.lexicon_path, engine=get_dsp(), **controls)
+                made = christman_synthesize(text, voice=v, lexicon_path=self.lexicon_path, engine=get_dsp(),
+                                            **controls, **own_words)
             else:
                 if controls:
                     raise StitchRefused(
                         f"{', '.join(sorted(controls))}: the voice {v.name} is a measured formant profile, which has "
                         "no input for these controls; they need a frame voice", sorted(controls))
-                made = christman_synthesize(text, voice=v, lexicon_path=self.lexicon_path, engine=get_dsp())
+                made = christman_synthesize(text, voice=v, lexicon_path=self.lexicon_path, engine=get_dsp(),
+                                            **own_words)
         except _SURFACE_UNCHANGED:
             raise
         except (SynthUnavailable, DSPUnavailable) as exc:
@@ -477,12 +486,18 @@ class SpeechSynthesisEngine:
         play_audio: bool = True,
         output_path: Optional[str] = None,
         voice=None,
+        pronunciations: Optional[Dict] = None,
         **controls,
     ) -> Optional[str]:
         """
         Text -> WAV path (and playback when asked). Raises `NothingVoiced`
         with the real reason when no audio can be made. Returns None only
         for empty text.
+
+        `pronunciations` (2026-11-05): the caller's own words, word -> phones
+        in the lexicon's alphabet. This is how a being's names are said; the
+        mouth (christman_sound.synth) took them and this engine did not pass
+        them on, so a name was refused as not in the lexicon.
 
         The mouth speaks what it is given, the being's reply or the client's
         own words alike. It reads nothing into the text and refuses nothing
@@ -502,7 +517,8 @@ class SpeechSynthesisEngine:
             if bad:
                 raise StitchRefused(f"not controls of this mouth: {', '.join(sorted(bad))} "
                                     f"(it takes {', '.join(CONTROL_KEYWORDS)})", sorted(bad))
-            result = self._render(text, emotion_params, selected_language, voice=voice, controls=controls)
+            result = self._render(text, emotion_params, selected_language, voice=voice, controls=controls,
+                                  pronunciations=pronunciations)
             if result.degraded or result.audio is None or len(result.audio) == 0:
                 raise SynthesisUnavailable(
                     result.error_reason or "the renderer returned no audio",

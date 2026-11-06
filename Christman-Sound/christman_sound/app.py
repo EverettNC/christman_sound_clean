@@ -75,6 +75,7 @@ from .lexicon import (
     LexiconFormatError,
     LexiconUnavailable,
     PhoneNotMapped,
+    PronunciationNotInLexicon,
     WordNotInLexicon,
     discover_align_lexicon,
     load_lexicon,
@@ -192,8 +193,37 @@ def _safe_name(name: str) -> Optional[str]:
     return name if (_SAFE_FILENAME.match(name) and ".." not in name and not name.startswith(".")) else None
 
 
+def _sdk_data_root() -> Path:
+    """The SDK's data folder, by the SDK's own rule (christman_voice_sdk.utils.data_root)."""
+    from christman_voice_sdk.utils.data_root import sdk_data_root
+
+    return sdk_data_root()
+
+
+# WHAT CHANGED AND WHY (2026-11-05): a being's names reach the mouth through
+# the app. christman_sound.synth takes `pronunciations` (word -> phones in the
+# lexicon's alphabet), which is how a name the lexicon does not hold is said;
+# the app's two speaking doors (/api/synthesize, and "speak_vcc" on
+# /api/voice-creation-center) did not pass it on, so a name handed to the app
+# was refused as not in the lexicon. Both take "pronunciations" now, a JSON
+# object, and hand it to the mouth unchanged. Anything else in its place is
+# refused here, by name.
+def _pronunciations_of(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """The caller's own words from a request, or None when it handed in none.
+    Raises ValueError when "pronunciations" is there and is not an object."""
+    given = data.get("pronunciations")
+    if given is None or given == {} or given == "":
+        return None
+    if not isinstance(given, dict):
+        raise ValueError('pronunciations: a JSON object of word -> phones (for example {"hellobooth": '
+                         f'"h @ l oU b u T"}}), not {type(given).__name__}')
+    return given
+
+
 def _audio_cache_dir() -> Path:
-    base = Path(os.environ.get("CHRISTMAN_VOICE_CACHE") or (Path.home() / ".christman_ai" / "voice_cache")).expanduser()
+    # $CHRISTMAN_VOICE_CACHE, else the SDK's data folder ($CHRISTMAN_AI_HOME,
+    # else ~/.christman_ai). 2026-11-05: this named ~/.christman_ai itself.
+    base = Path(os.environ.get("CHRISTMAN_VOICE_CACHE") or (_sdk_data_root() / "voice_cache")).expanduser()
     base.mkdir(parents=True, mode=0o700, exist_ok=True)
     return base
 
@@ -557,8 +587,12 @@ class ChristmanSoundApp:
                 # A voice given by name is looked up among the saved profiles.
                 # If the profiles cannot be read, the client is told why
                 # instead of the name going on to fail somewhere less plain.
+                # (2026-11-05: this imported PROFILES_DIR, a name the capture
+                # client has never had, so the import failed every time and
+                # every voice given by name was answered "the saved profiles
+                # could not be read". The folder is the client's profile_dir().)
                 try:
-                    from christman_voice_sdk.integration.voice_capture_client import PROFILES_DIR
+                    from christman_voice_sdk.integration.voice_capture_client import profile_dir
                 except ImportError as exc:
                     return _json_resp({
                         "available": False,
@@ -567,7 +601,7 @@ class ChristmanSoundApp:
                         "reason": f"the voice {voice_arg!r} is not a file, and the saved profiles "
                                   f"could not be read to look it up: {exc}",
                     }, 503)
-                cand = PROFILES_DIR / f"{voice_arg}.json"
+                cand = profile_dir() / f"{voice_arg}.json"
                 if cand.is_file():
                     voice_arg = str(cand)
 
@@ -593,6 +627,11 @@ class ChristmanSoundApp:
             phones_seq = None
             if phones_raw is not None:
                 phones_seq = [(str(p[0]), float(p[1])) for p in phones_raw]
+
+            # The caller's own words (its names, with their pronunciations).
+            own_words = _pronunciations_of(data)
+            if own_words is not None:
+                kwargs["pronunciations"] = own_words
 
             if play_aloud:
                 res = speak(
@@ -641,7 +680,8 @@ class ChristmanSoundApp:
                 "kind": type(exc).__name__,
                 "reason": str(exc),
             }, 503)
-        except (WordNotInLexicon, PhoneNotMapped, NothingToSay, UnknownPhone, SynthRefused, StitchRefused, ValueError) as exc:
+        except (WordNotInLexicon, PronunciationNotInLexicon, PhoneNotMapped, NothingToSay, UnknownPhone, SynthRefused,
+                StitchRefused, ValueError) as exc:
             body_out: Dict[str, Any] = {
                 "available": False,
                 "status": "refused",
@@ -939,7 +979,7 @@ class ChristmanSoundApp:
         return _json_resp(payload, code)
 
     def _handle_vcc_get(self) -> AppResponse:
-        voices_dir = Path.home() / ".christman_ai" / "voices"
+        voices_dir = _sdk_data_root() / "voices"
         frame_voices = sorted(str(p) for p in voices_dir.glob("*") if (p / "voice.json").is_file()) if voices_dir.is_dir() else []
         return _json_resp({
             "status": "ok",
@@ -1043,7 +1083,12 @@ class ChristmanSoundApp:
                 text = str(data.get("text") or "").strip()
                 if not text:
                     return _json_resp({"error": "provide text to synthesize"}, 422)
-                res = synthesize(text, voice=voice_arg, lexicon=lex_obj, **controls)
+                # The caller's own words (its names), as on /api/synthesize.
+                try:
+                    own_words = _pronunciations_of(data)
+                except ValueError as exc:
+                    return _json_resp({"error": str(exc)}, 422)
+                res = synthesize(text, voice=voice_arg, lexicon=lex_obj, pronunciations=own_words, **controls)
                 fname = f"vcc_{int(datetime.now().timestamp() * 1000)}.wav"
                 res.write_wav(cache / fname)
                 return _json_resp({

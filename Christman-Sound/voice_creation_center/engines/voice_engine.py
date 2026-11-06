@@ -67,7 +67,7 @@ import wave
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Mapping, Optional
 
 logger = logging.getLogger("christman.voice_engine")
 
@@ -574,12 +574,24 @@ class VoiceEngine:
         params: Optional[VoiceParameters] = None,
         output_path: Optional[str] = None,
         allow_unapplied: bool = False,
+        pronunciations: Optional[Mapping[str, object]] = None,
     ) -> SynthesisResult:
         """
         Synthesize speech from text in this engine's voice.
 
+        WHAT CHANGED AND WHY (2026-11-05): `pronunciations` is new. It is the
+        being's own words, each with its pronunciation in the lexicon's
+        phones, and it is how a name the lexicon does not hold is said:
+        christman_sound.synth has taken it since 2026-11-05, and this engine
+        did not pass it on, so a name handed to the Center was refused as not
+        in the lexicon. It goes to the synthesizer unchanged. The Center
+        holds no name of its own.
+
         Args:
             text:        The text to synthesize.
+            pronunciations: word -> phones ("h @ l oU b u T" or a list), the
+                         being's names and any word it wants said its way.
+                         None: every word is said from the lexicon.
             params:      VoiceParameters. None: no control requested, the
                          being's measured voice as it is.
             output_path: Optional path to write the WAV file to.
@@ -627,6 +639,15 @@ class VoiceEngine:
                 error=f"Refused, nothing rendered: requested controls cannot be applied ({detail}). "
                       f"Pass allow_unapplied=True to render without them.",
             )
+
+        if pronunciations:
+            if not self._synth_accepts("pronunciations"):
+                return SynthesisResult(
+                    success=False, controls=reports,
+                    error="Refused, nothing rendered: pronunciations were handed in and "
+                          + self._not_applied_reason("pronunciations"),
+                )
+            kwargs["pronunciations"] = pronunciations
 
         try:
             made = self._synthesize(

@@ -19,6 +19,21 @@ failed for an unsure word was passed over with `except Exception: pass`; now
 it raises. The Filament ear server (christman_sound/filament) runs through
 this file and still returns the words heard when the pile fails, with the
 failure named in its reply.
+
+WHAT CHANGED AND WHY (2026-11-05, the owner's own words)
+On 2026-10-30 the rows that recovered a person's name from the ways the ear
+writes it came out of MANGLES, under the ruling that the package names no
+one. Nothing was put in their place, so a Filament run from the package wrote
+its owner's name the way the ear mishears it. The rows now have a home that is
+not the package: a file the owner keeps beside the Carbon pile,
+$FILAMENT_HOME/mouth.json (~/.filament/mouth.json by default), a JSON list of
+rows, each {"heard": "what the ear writes", "keep": "what was said"}. "heard"
+is plain words, not a pattern: it is matched whole, in any letter case, with
+any run of spaces between its words. load_own_mangles() reads the file and
+the Filament ear server hands the rows to dress(). No file is no rows (the
+owner has taught none); a file that cannot be read, or holds anything but
+such rows, raises, naming the file and the row, and is left as it is.
+MANGLES itself is unchanged and still holds no name.
 """
 
 from __future__ import annotations
@@ -37,6 +52,8 @@ __all__ = [
     "CARBON_MAX",
     "MANGLES",
     "carbon_path",
+    "own_words_path",
+    "load_own_mangles",
     "recover",
     "word_conf",
     "shape_words",
@@ -70,6 +87,57 @@ MANGLES: Tuple[Tuple[re.Pattern[str], str], ...] = (
 def carbon_path() -> Path:
     root = Path(os.environ.get("FILAMENT_HOME") or (Path.home() / ".filament")).expanduser()
     return root / "carbon.json"
+
+
+def own_words_path() -> Path:
+    """The owner's own words: mouth.json, beside the Carbon pile."""
+    return carbon_path().parent / "mouth.json"
+
+
+#: One read of the owner's file per change to it: the path, the file's
+#: modification time and size, and the rows compiled from it. A live stream
+#: posts several times a second and the file changes when its owner edits it.
+_OWN_READ: Optional[Tuple[str, int, int, Tuple[Tuple[re.Pattern[str], str], ...]]] = None
+
+
+def load_own_mangles(path: Optional[Path] = None) -> Tuple[Tuple[re.Pattern[str], str], ...]:
+    """The owner's own rows, compiled as MANGLES is, for recover()'s extra_mangles.
+
+    No file is no rows. A file that is not readable JSON, is not a list, or
+    has a row that is not {"heard": words, "keep": words} raises ValueError
+    naming the file (and the row); the file is left as it is.
+    """
+    global _OWN_READ
+    target = path or own_words_path()
+    try:
+        stat = target.stat()
+    except FileNotFoundError:
+        return ()
+    key = (str(target), stat.st_mtime_ns, stat.st_size)
+    if _OWN_READ is not None and _OWN_READ[:3] == key:
+        return _OWN_READ[3]
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"The owner's words at {target} are not readable JSON ({exc}); the file was left as it is.") from exc
+    if not isinstance(data, list):
+        raise ValueError(f"The owner's words at {target} hold {type(data).__name__}, not a list of rows; "
+                         "the file was left as it is.")
+    rows: List[Tuple[re.Pattern[str], str]] = []
+    for n, row in enumerate(data, 1):
+        heard = row.get("heard") if isinstance(row, dict) else None
+        keep = row.get("keep") if isinstance(row, dict) else None
+        if not (isinstance(heard, str) and heard.split() and isinstance(keep, str) and keep.strip()):
+            raise ValueError(f"Row {n} of the owner's words at {target} is {row!r}; a row is "
+                             '{"heard": "what the ear writes", "keep": "what was said"}. The file was left as it is.')
+        # Whole words only, any case, any run of spaces between them. The
+        # look-arounds stand where \b would, and also hold for a word that
+        # ends in an apostrophe (fixin'), where \b does not.
+        words = r"\s+".join(re.escape(w) for w in heard.split())
+        rows.append((re.compile(rf"(?<!\w){words}(?!\w)", re.I), keep.strip()))
+    compiled = tuple(rows)
+    _OWN_READ = (*key, compiled)
+    return compiled
 
 
 def recover(

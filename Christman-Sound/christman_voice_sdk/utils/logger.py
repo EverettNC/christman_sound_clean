@@ -54,6 +54,30 @@ WHAT CHANGED AND WHY
 5. `propagate` was left True while a handler was attached, so records reached
    both this handler and the root logger's — every message twice if the app
    configured root logging.
+
+6. THE LOG FOLDER IGNORED THE SDK'S FOLDER SETTING (2026-11-05).
+
+       DEFAULT_LOG_DIR = Path(os.getenv("CHRISTMAN_LOG_DIR",
+                                        Path.home() / ".christman_ai" / "logs"))
+
+   Read once, at import, and it never looked at $CHRISTMAN_AI_HOME, the
+   setting that moves everything else the SDK writes. A run that named
+   another folder still wrote its logs into ~/.christman_ai/logs: on
+   Everett's Mac, test runs added lines to his own log files. The folder is
+   now default_log_dir(): $CHRISTMAN_LOG_DIR, else <the SDK's data folder>/logs
+   (utils/data_root.py), read when a logger is built. DEFAULT_LOG_DIR is gone;
+   nothing read it.
+
+7. BUILDING A LOGGER MADE THE FOLDER AND OPENED THE FILE (2026-11-05).
+
+   Item 3 made the package's own `logger` lazy, but every module does
+   `logger = get_logger(__name__)` at import, and that built a
+   RotatingFileHandler on the spot: the log folder was created and a file
+   opened for each module imported, before anything was logged. Importing
+   the SDK wrote into the person's folder. The file handler now makes its
+   folder and opens its file at the first record it is given. A folder that
+   cannot be written is reported once, on the console, when that first
+   record arrives; the console handler carries on.
 """
 
 from __future__ import annotations
@@ -64,6 +88,8 @@ import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any, Optional
+
+from .data_root import sdk_data_root
 
 try:
     from rich.console import Console
@@ -76,9 +102,16 @@ except ImportError:
 #: Marker attribute so handlers are attached exactly once per named logger.
 _CONFIGURED = "_christman_configured"
 
-DEFAULT_LOG_DIR = Path(
-    os.getenv("CHRISTMAN_LOG_DIR", Path.home() / ".christman_ai" / "logs")
-)
+#: The setting that names the log folder alone, ahead of the SDK's data folder.
+LOG_DIR_ENV = "CHRISTMAN_LOG_DIR"
+
+
+def default_log_dir() -> Path:
+    """$CHRISTMAN_LOG_DIR, else logs/ in the SDK's data folder ($CHRISTMAN_AI_HOME, else ~/.christman_ai)."""
+    raw = os.environ.get(LOG_DIR_ENV)
+    return Path(raw).expanduser() if raw else sdk_data_root() / "logs"
+
+
 MAX_BYTES = 10 * 1024 * 1024
 BACKUP_COUNT = 5
 FILE_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -102,6 +135,37 @@ def _resolve_level(level: Any) -> int:
         "DEBUG, INFO, WARNING, ERROR, CRITICAL.", level,
     )
     return logging.INFO
+
+
+class _FileAtFirstRecord(RotatingFileHandler):
+    """
+    A rotating log file whose folder is made and whose file is opened when the
+    first record arrives, not when the handler is built (item 7 above).
+    """
+
+    def __init__(self, path: Path) -> None:
+        super().__init__(path, maxBytes=MAX_BYTES, backupCount=BACKUP_COUNT, encoding="utf-8", delay=True)
+        self.failed: Optional[OSError] = None
+
+    def _open(self):  # noqa: ANN202 - the stdlib's own signature
+        Path(self.baseFilename).parent.mkdir(parents=True, exist_ok=True)
+        return super()._open()
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if self.failed is not None:
+            return
+        if self.stream is None:
+            try:
+                self.stream = self._open()
+            except OSError as exc:
+                # Losing file logs must not take the process down, but the
+                # console must say it happened. Said once.
+                self.failed = exc
+                logging.getLogger(__name__).error(
+                    "File logging disabled — cannot write %s: %s", self.baseFilename, exc
+                )
+                return
+        super().emit(record)
 
 
 class Logger:
@@ -142,10 +206,8 @@ class Logger:
         self.logger.addHandler(self._console_handler())
 
         if file_logging:
-            handler = self._file_handler(Path(log_dir) if log_dir else DEFAULT_LOG_DIR)
-            if handler is not None:
-                self.logger.addHandler(handler)
-                self.file_logging_active = True
+            self.logger.addHandler(self._file_handler(Path(log_dir) if log_dir else default_log_dir()))
+            self.file_logging_active = True
 
         setattr(self.logger, _CONFIGURED, True)
 
@@ -164,27 +226,16 @@ class Logger:
         handler.setLevel(logging.DEBUG)
         return handler
 
-    def _file_handler(self, log_dir: Path) -> Optional[logging.Handler]:
+    def _file_handler(self, log_dir: Path) -> logging.Handler:
         """
-        Rotating file handler, or None when the directory is unwritable.
-
-        Returns None rather than raising: losing file logs must not take the
-        process down, but the console must say it happened.
+        The rotating log file for this logger. Nothing is made on disk here:
+        the folder and the file come with the first record (_FileAtFirstRecord),
+        and a folder that cannot be written is reported then, on the console.
         """
-        try:
-            log_dir.mkdir(parents=True, exist_ok=True)
-            handler = RotatingFileHandler(
-                log_dir / f"{self.name}.log",
-                maxBytes=MAX_BYTES, backupCount=BACKUP_COUNT, encoding="utf-8",
-            )
-            handler.setLevel(logging.DEBUG)
-            handler.setFormatter(logging.Formatter(FILE_FORMAT, "%Y-%m-%d %H:%M:%S"))
-            return handler
-        except OSError as exc:
-            logging.getLogger(__name__).error(
-                "File logging disabled — cannot write %s: %s", log_dir, exc
-            )
-            return None
+        handler = _FileAtFirstRecord(log_dir / f"{self.name}.log")
+        handler.setLevel(logging.DEBUG)
+        handler.setFormatter(logging.Formatter(FILE_FORMAT, "%Y-%m-%d %H:%M:%S"))
+        return handler
 
     # -- Forwarding. *args restored; stacklevel points at the caller. ---------
 
@@ -251,9 +302,7 @@ class _LazyLogger:
 
     def _get(self) -> Logger:
         if self._real is None:
-            self._real = get_logger(
-                self._name, log_dir=DEFAULT_LOG_DIR, level="INFO", file_logging=True
-            )
+            self._real = get_logger(self._name, level="INFO", file_logging=True)
         return self._real
 
     def __getattr__(self, item: str) -> Any:
@@ -268,4 +317,4 @@ class _LazyLogger:
 
 logger = _LazyLogger("christman_voice_sdk")
 
-__all__ = ["logger", "get_logger", "Logger", "DEFAULT_LOG_DIR"]
+__all__ = ["logger", "get_logger", "Logger", "default_log_dir", "LOG_DIR_ENV"]

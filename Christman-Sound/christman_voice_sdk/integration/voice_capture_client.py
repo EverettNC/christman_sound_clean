@@ -65,11 +65,23 @@ except (ImportError, OSError) as _exc:   # OSError: "PortAudio library not found
 from christman_sound.formants import AudioTooShortError, measure_formants
 
 from ..tone.voice_measure import pitch_contour, read_wav
+from ..utils.data_root import sdk_data_root
 from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-PROFILE_DIR = Path.home() / ".christman_ai" / "voice_profiles"
+
+def profile_dir() -> Path:
+    """Where voice profiles are kept: voice_profiles/ in the SDK's data folder.
+
+    2026-11-05: this was PROFILE_DIR = ~/.christman_ai/voice_profiles, fixed
+    at import, whatever $CHRISTMAN_AI_HOME said. It is the SDK's data folder
+    now (utils/data_root.py), read each time a profile is saved, loaded or
+    listed.
+    """
+    return sdk_data_root() / "voice_profiles"
+
+
 #: The rate capture_audio records at. Never assumed for any other audio.
 CAPTURE_SAMPLE_RATE = 44100
 CAPTURE_DURATION = 8
@@ -221,8 +233,9 @@ def _unmeasured_signature(sample_rate: int) -> Dict[str, Any]:
 
 def save_profile(name: str, signature: Dict) -> Path:
     """Save voice profile. Creates the profile directory on first use (0700)."""
-    PROFILE_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
-    profile_path = PROFILE_DIR / f"{name}.json"
+    folder = profile_dir()
+    folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+    profile_path = folder / f"{name}.json"
     data = {
         "name": name,
         "captured": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -236,7 +249,7 @@ def save_profile(name: str, signature: Dict) -> Path:
 
 def load_profile(name: str) -> Dict:
     """Load voice profile."""
-    profile_path = PROFILE_DIR / f"{name}.json"
+    profile_path = profile_dir() / f"{name}.json"
     if not profile_path.exists():
         raise FileNotFoundError(f"Profile '{name}' not found. Run --capture first.")
     with open(profile_path, encoding="utf-8") as f:
@@ -247,9 +260,10 @@ def load_profile(name: str) -> Dict:
 
 def list_profiles() -> list[str]:
     """List saved profiles."""
-    if not PROFILE_DIR.exists():
+    folder = profile_dir()
+    if not folder.exists():
         return []
-    return [p.stem for p in PROFILE_DIR.glob("*.json")]
+    return [p.stem for p in folder.glob("*.json")]
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -29,6 +29,20 @@ christman_voice_sdk/audio/hearing.py); this is the word ear under it.
 Everything here is a thin reading of Vosk's own JSON answers, so what Ear says
 is exactly what Vosk says. Without the vosk library, load_model raises
 EarUnavailable with the reason; nothing hears in its place.
+
+WHAT CHANGED AND WHY (2026-11-05, one way to hear a tape)
+The package heard a whole recording two ways and they did not agree. The
+Filament ear server's /stt gave every bite to one recognizer, closed nothing
+at an endpoint, added half a second of silence and took one final answer.
+The SDK's engine (and the word-ear receiver on it) used Ear.hear, which
+closes the utterance at every endpoint and adds no silence. On one 234-second
+recording, same model, the two differed on 13 words of about 685 (the
+Filament's way heard a surname the other way heard as a different word, and
+"bottleneck" where the other heard "bottle neck"). Ear.hear_tape is the
+Filament's way, written once here; the Filament's /stt and the SDK's engine
+both call it, so the same recording gives the same words through either.
+Ear.hear is unchanged, for callers that want each utterance on its own (the
+voice bank builder, the studio's check of a take).
 """
 
 from __future__ import annotations
@@ -40,6 +54,9 @@ from typing import Any
 
 #: Bytes per AcceptWaveform call in Ear.hear: 2000 samples, an eighth of a second.
 HEAR_BITE = 4000
+#: Seconds of silence heard after a whole tape in Ear.hear_tape: the last word
+#: needs room to align. The Filament's /stt has always added this much.
+TAPE_TAIL_S = 0.5
 
 
 class EarUnavailable(RuntimeError):
@@ -111,6 +128,7 @@ class Ear:
         self.model = load_model(model, graph_dir) if isinstance(model, (str, Path)) else model
         if not isinstance(self.model, vosk.Model):
             raise TypeError(f"model must be a model folder or a model from load_model(), not {type(model).__name__}")
+        self.sample_rate = int(sample_rate)
         self._rec = vosk.KaldiRecognizer(self.model, float(sample_rate))
         self._rec.SetWords(words)
 
@@ -139,3 +157,18 @@ class Ear:
                 out.append(self.result())
         out.append(self.final())
         return out
+
+    def hear_tape(self, pcm: Any, bite: int = HEAR_BITE) -> Heard:
+        """One whole recording heard as one piece, the way the Filament's /stt hears a tape.
+
+        Every bite goes to this one recognizer and no utterance is closed at
+        an endpoint, so the words either side of a pause are heard together;
+        TAPE_TAIL_S of silence follows the tape, and there is one final
+        answer. The Filament ear server and the SDK's speech recognition
+        engine both hear a tape through this, so they give the same words.
+        Use a fresh Ear for each tape.
+        """
+        pcm = _pcm_bytes(pcm) + b"\x00\x00" * int(self.sample_rate * TAPE_TAIL_S)
+        for i in range(0, len(pcm), bite):
+            self.accept(pcm[i : i + bite])
+        return self.final()

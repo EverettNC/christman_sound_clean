@@ -37,6 +37,21 @@ CARDINAL RULE 13: No fake recording. No phantom files.
 CARDINAL RULE 6: Fail loud.
     Device errors, clipping, buffer overruns — all logged with context.
     The caller always knows what happened.
+
+WHAT CHANGED AND WHY (2026-11-05): two failures no longer hide.
+    1. list_input_devices() returned [] when the audio library was missing
+       and when asking the system for its devices failed, the same answer as
+       a machine with no microphone. The reason went to the log only, and
+       print_devices() then printed "No input devices found." Now [] means
+       one thing: the system was asked and has no input device. When it
+       could not be asked, list_input_devices() raises RecorderUnavailable
+       with the reason; print_devices() prints that reason, and set_device()
+       logs it and returns False as before.
+    2. A device name that could not be read was written into the take's
+       stats as "unknown", with nothing logged. Now the stats say that the
+       name was not read and why, and the reason is logged.
+    The reason the audio library could not be loaded is kept on the
+    recorder (unavailable_reason) so every later message can give it.
 ================================================================================
 """
 
@@ -65,6 +80,10 @@ DTYPE         = "int16"
 # Safety thresholds
 CLIPPING_THRESHOLD = 0.98    # Ratio of max int16 — flag at 98%
 NOISE_FLOOR_DB     = -60.0   # dB — silence below this is noise floor
+
+
+class RecorderUnavailable(RuntimeError):
+    """The system's input devices could not be asked for. The reason is in the message."""
 
 
 # ── Recorder state ────────────────────────────────────────────────────────────
@@ -169,6 +188,8 @@ class Recorder:
         self._thread:  Optional[threading.Thread] = None
         self._stats:   Optional[RecordingStats] = None
         self._sd       = None   # sounddevice — loaded lazily
+        #: Why the audio library cannot be used here, or None when it can.
+        self.unavailable_reason: Optional[str] = None
 
         self._load_sounddevice()
 
@@ -184,11 +205,12 @@ class Recorder:
         # library raises OSError on import, not ImportError, and that crashed
         # every Recorder() on such a machine. Both are reported the same way.
         except (ImportError, OSError) as exc:
-            logger.error(
-                f"sounddevice cannot be used here ({type(exc).__name__}: {exc}).\n"
-                "Install it with:  pip install sounddevice\n"
-                "On Mac you may also need:  brew install portaudio"
+            self.unavailable_reason = (
+                f"sounddevice cannot be used here ({type(exc).__name__}: {exc}). "
+                "Install it with: pip install sounddevice. "
+                "On Mac you may also need: brew install portaudio"
             )
+            logger.error(self.unavailable_reason)
             self._state = RecorderState.ERROR
             return False
 
@@ -196,14 +218,36 @@ class Recorder:
         """
         Return all available audio input devices.
         Useful for choosing the microphone before recording.
+
+        An empty list means the system was asked and has no input device.
+
+        Raises:
+            RecorderUnavailable: the system could not be asked (the audio
+                library is not usable here, or its device query failed).
+                The reason is in the message. Never an empty list for this.
         """
         if self._sd is None:
-            logger.error("sounddevice not available — cannot list devices.")
-            return []
+            raise RecorderUnavailable(
+                f"The input devices cannot be listed: {self.unavailable_reason or 'sounddevice is not loaded'}"
+            )
 
         try:
             devices = self._sd.query_devices()
+        except Exception as e:  # noqa: BLE001 - PortAudio raises its own types; every one is named to the caller
+            raise RecorderUnavailable(
+                f"The input devices cannot be listed: asking the system for them failed "
+                f"({type(e).__name__}: {e})"
+            ) from e
+        try:
+            # With no default input, sounddevice raises here. That is not a
+            # failure to list: the devices above are still the devices, and
+            # none of them is marked as the default.
             default_input = self._sd.query_devices(kind="input")
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"The system names no default input device ({type(e).__name__}: {e}).")
+            default_input = None
+
+        try:
             default_name  = default_input.get("name", "") if default_input else ""
 
             result = []
@@ -222,13 +266,19 @@ class Recorder:
 
             return result
 
-        except Exception as e:
-            logger.error(f"Failed to list input devices: {e}")
-            return []
+        except Exception as e:  # noqa: BLE001 - a device entry that could not be read
+            raise RecorderUnavailable(
+                f"The input devices cannot be listed: a device the system returned could not be read "
+                f"({type(e).__name__}: {e})"
+            ) from e
 
     def print_devices(self) -> None:
-        """Print a human-readable device list."""
-        devices = self.list_input_devices()
+        """Print a human-readable device list, or why there is none to print."""
+        try:
+            devices = self.list_input_devices()
+        except RecorderUnavailable as exc:
+            print(f"  {exc}")
+            return
         if not devices:
             print("  No input devices found.")
             return
@@ -243,7 +293,11 @@ class Recorder:
         Switch to a specific input device.
         Returns True if the device exists and supports input.
         """
-        devices = self.list_input_devices()
+        try:
+            devices = self.list_input_devices()
+        except RecorderUnavailable as exc:
+            logger.error(f"Device index {device_index} was not set. {exc}")
+            return False
         match = next((d for d in devices if d.index == device_index), None)
         if match is None:
             logger.error(
@@ -552,9 +606,11 @@ class Recorder:
         return stats
 
     def _get_device_name(self) -> str:
-        """Get the name of the current input device."""
+        """The name of the current input device, or, where the name could not
+        be read, a line saying so and why (it is written into the take's stats)."""
         if self._sd is None:
-            return "unknown"
+            return f"name not read: {self.unavailable_reason or 'sounddevice is not loaded'}"
+        which = f"device {self._device_index}" if self._device_index is not None else "the default input device"
         try:
             if self._device_index is not None:
                 dev = self._sd.query_devices(self._device_index)
@@ -562,8 +618,10 @@ class Recorder:
             else:
                 dev = self._sd.query_devices(kind="input")
                 return dev.get("name", "default") if dev else "default"
-        except Exception:
-            return "unknown"
+        except Exception as e:  # noqa: BLE001 - the take is still recorded; its stats say the name was not read
+            why = f"name not read: asking the system about {which} failed ({type(e).__name__}: {e})"
+            logger.warning(f"The input device's {why}")
+            return why
 
     def _assert_ready(self, caller: str) -> bool:
         """Assert recorder is in a state that allows recording."""
