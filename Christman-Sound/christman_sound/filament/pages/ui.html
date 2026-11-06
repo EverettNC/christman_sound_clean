@@ -80,7 +80,7 @@
   </head>
   <body>
     <div class="wrap">
-      <p class="kicker">THEFILAMENT · Vosk · 4850</p>
+      <p class="kicker">THEFILAMENT · Vosk · <span id="door-port">4850</span></p>
       <h1>Live ear.</h1>
       <p class="lead">Backend is this door. Talk. Dialect stays. Empty ear stays empty. Whisper is not in this body.</p>
       <div class="row">
@@ -153,9 +153,11 @@
         return queue;
       }
 
+      // The door's own port, as the door reports it (the heading said 4850 whatever door served the page).
       fetch("/health")
         .then((r) => r.json())
         .then((h) => {
+          if (h.door) document.getElementById("door-port").textContent = h.door;
           if (h.seated) {
             status.textContent = "seated · vosk · live";
             status.classList.add("on");
@@ -217,7 +219,7 @@
 
       btn.addEventListener("click", () => {
         if (listening) stop().catch((e) => showErr(e.message));
-        else start().catch((e) => showErr("Mic denied. Allow microphone for 127.0.0.1:4850."));
+        else start().catch((e) => showErr("Mic denied. Allow microphone for " + (location.host || "127.0.0.1:4850") + "."));
       });
     </script>
   </body>
