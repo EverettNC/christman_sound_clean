@@ -105,6 +105,13 @@ christman-sound-install = "christman_sound.app:main_install"
 christman-tts = "christman_voice_sdk.synthesis.tts_service:main"
 christman-corti = "christman_voice_sdk.audio.corti_receiver:main"
 christman-word-ear = "christman_voice_sdk.audio.word_ear_receiver:main"
+# WHAT CHANGED AND WHY (2026-11-05): the Filament ear server moved into the
+# package (christman_sound/filament, from THEFILAMENT ear/vosk_ear.py).
+# (This line and the pages line under package-data were on the Filament's
+# branch and were lost when that branch was joined with main in 11169a2: an
+# installed copy had no christman-filament command and none of its pages.
+# Put back the same day.)
+christman-filament = "christman_sound.filament.server:main"
 # 2026-11-05: was voice_capture_client:_cli, a function that does not exist,
 # so christman-capture failed with an ImportError on every install. Its
 # command line is main().
@@ -133,6 +140,8 @@ christman_voice_sdk = ["py.typed"]
 # into the wheel itself (scripts/pip_build.py); a library left over in a
 # checkout from an earlier build must not ride into the wheel beside it.
 christman_sound = ["*.json", "static/*", "static/icons/*"]
+# The Filament's pages and its dialect map, with FROZEN.md (2026-11-05).
+"christman_sound.filament" = ["pages/*"]
 # The VCC's express index (empty until phrases are registered) and its notes.
 voice_creation_center = ["express/express_index.json", "*.md"]
 
