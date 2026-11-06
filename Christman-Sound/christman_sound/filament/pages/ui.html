@@ -119,8 +119,12 @@
           (partial ? '<li class="partial">' + escapeHtml(partial) + "</li>" : "") +
           "</ul>";
       }
+      // The five entities are written out. This line had four of them already
+      // turned back into the characters themselves ("&": "&" ... '"': """), which
+      // is not JavaScript: the script stopped at the first load and this page
+      // never left "probing". It came that way from THEFILAMENT ear/ui.html.
       function escapeHtml(s) {
-        return s.replace(/[&<>"']/g, (c) => ({ "&": "&", "<": "<", ">": ">", '"': """, "'": "&#39;" }[c]));
+        return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
       }
       function downsample(input, inRate) {
         const outRate = 16000;

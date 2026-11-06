@@ -120,3 +120,39 @@ def test_the_simple_page_shows_the_door_it_was_served_from():
     assert 'if (h.door) document.getElementById("door-port").textContent = h.door;' in text
     assert 'Allow microphone for " + (location.host || "127.0.0.1:4850")' in text
     assert "Allow microphone for 127.0.0.1:4850" not in text
+
+
+# ------------------------------------------------------ every page's script runs
+#
+# 2026-11-05. ui.html's escapeHtml held '"': """ (its entities had been turned
+# back into the characters), a syntax error: the browser threw the whole script
+# away, and the simple page sat at "probing" with its button off. It came that
+# way from THEFILAMENT. No test parsed the pages' scripts; these do, with node.
+
+ALL_PAGES = ["filament-door.html", "filament-housing.html", "filament-live.html", "filament.html", "ui.html"]
+
+
+def _inline_scripts(page: str) -> list[str]:
+    text = (PAGES_DIR / page).read_text(encoding="utf-8")
+    return re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", text, re.S)
+
+
+@needs_node
+@pytest.mark.parametrize("page", ALL_PAGES + ["dialect-map.js"])
+def test_every_script_the_package_ships_is_javascript_a_browser_will_run(page, tmp_path):
+    scripts = [(PAGES_DIR / page).read_text(encoding="utf-8")] if page.endswith(".js") else _inline_scripts(page)
+    assert scripts, f"{page} holds no script"
+    for n, script in enumerate(scripts):
+        target = tmp_path / f"{n}.js"
+        target.write_text(script, encoding="utf-8")
+        proc = subprocess.run(["node", "--check", str(target)], capture_output=True, text=True)
+        assert proc.returncode == 0, f"{page}, script {n + 1}: {proc.stderr.strip().splitlines()[-3:]}"
+
+
+@needs_node
+def test_the_simple_page_escapes_what_it_writes():
+    (script,) = _inline_scripts("ui.html")
+    start = script.index("function escapeHtml(s) {")
+    fn = script[start: script.index("\n      }", start) + len("\n      }")]
+    got = run_lines([fn], "escapeHtml(`<b onclick=\"x('y')\">Tom & Jerry</b>`)")
+    assert got == "&lt;b onclick=&quot;x(&#39;y&#39;)&quot;&gt;Tom &amp; Jerry&lt;/b&gt;"
