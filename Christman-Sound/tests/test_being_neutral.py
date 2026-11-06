@@ -114,7 +114,8 @@ def test_audio_cache_writes_under_christman_ai_by_default(tmp_path, monkeypatch)
     path = Path(rec._cache_audio(b"\x00\x01\x02\x03"))
     assert path.parent == tmp_path / "home" / ".christman_ai" / "audio_cache"
     assert path.read_bytes() == b"\x00\x01\x02\x03"
-    assert oct(path.stat().st_mode & 0o777) == oct(0o600)
+    if sys.platform != "win32":  # Windows has no POSIX mode bits; the file is under the user's own profile
+        assert oct(path.stat().st_mode & 0o777) == oct(0o600)
 
 
 def test_audio_cache_folder_comes_from_the_caller(tmp_path, monkeypatch):
