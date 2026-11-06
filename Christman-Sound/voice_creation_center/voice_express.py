@@ -241,6 +241,9 @@ class PriorityRequest:
     priority: Priority
     params: Optional[object] = None      # voice_engine.VoiceParameters; None = the voice as it is
     allow_unapplied: bool = False        # passed to VoiceEngine.synthesize
+    # The being's own words, word -> phones, passed to VoiceEngine.synthesize
+    # (2026-11-05): how a name the lexicon does not hold is said. None = none.
+    pronunciations: Optional[Mapping[str, object]] = None
     submitted_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
@@ -590,10 +593,16 @@ class VoiceExpress:
         priority: Priority = Priority.HIGH,
         params: Optional[object] = None,
         allow_unapplied: bool = False,
+        pronunciations: Optional[Mapping[str, object]] = None,
     ) -> PriorityRequest:
         """
         Submit a request to the priority synthesis queue.
         Jumps to the front of the queue based on priority level.
+
+        `pronunciations` (2026-11-05) is the being's own words, word ->
+        phones in the lexicon's alphabet: its names. A request that hands
+        any in is rendered with them and is not answered from the phrase
+        cache, which does not record how a cached phrase's words were said.
 
         CRITICAL priority → processed immediately before anything else.
         HIGH priority     → next in queue after CRITICAL.
@@ -621,6 +630,7 @@ class VoiceExpress:
             priority=priority,
             params=params,
             allow_unapplied=allow_unapplied,
+            pronunciations=dict(pronunciations) if pronunciations else None,
         )
 
         # Insert after every request of the same or a more urgent level:
@@ -674,7 +684,7 @@ class VoiceExpress:
             if engine is None:
                 raise LookupError(f"no voice engine was handed in for {req.being_name!r}")
             cached = self.get_phrase(req.text, req.being_name, req.language)
-            if cached is not None and req.params is None:
+            if cached is not None and req.params is None and req.pronunciations is None:
                 req.phrase_id, req.audio_path = cached.phrase_id, cached.audio_path
             else:
                 phrase_id = make_phrase_id(req.text, req.being_name, req.language)
@@ -682,7 +692,8 @@ class VoiceExpress:
                 final = folder / f"{phrase_id}.wav"
                 partial = folder / f"{phrase_id}.rendering.wav"
                 result = engine.synthesize(
-                    req.text, req.params, output_path=str(partial), allow_unapplied=req.allow_unapplied
+                    req.text, req.params, output_path=str(partial), allow_unapplied=req.allow_unapplied,
+                    **({"pronunciations": req.pronunciations} if req.pronunciations else {}),
                 )
                 req.controls = [c.to_dict() for c in result.controls]
                 if not result.success:
