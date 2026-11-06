@@ -93,6 +93,7 @@ import time
 import threading
 import wave
 
+from ..utils.data_root import sdk_data_root
 from ..engines.synthesis_result import (
     SOVEREIGN_NOT_WIRED,  # noqa: F401  (re-exported; the other cut paths still give it)
     DegradedSynthesisError,  # noqa: F401  (re-exported for callers that caught it here)
@@ -185,7 +186,10 @@ def resolve_voice(voice):
     except NoVoice as exc:
         raise SynthesisUnavailable(str(exc), where=where) from exc
 
-DEFAULT_CACHE_DIR = Path(os.getenv("CHRISTMAN_VOICE_CACHE", str(Path.home() / ".christman_ai" / "voice_cache")))
+# $CHRISTMAN_VOICE_CACHE, else voice_cache/ in the SDK's data folder
+# ($CHRISTMAN_AI_HOME, else ~/.christman_ai). 2026-11-05: the default named
+# ~/.christman_ai itself and did not follow $CHRISTMAN_AI_HOME.
+DEFAULT_CACHE_DIR = Path(os.getenv("CHRISTMAN_VOICE_CACHE") or (sdk_data_root() / "voice_cache")).expanduser()
 
 def _playback_readiness() -> tuple:
     """(ready, reason). Ready only when the Christman engine is loaded and has a backend."""

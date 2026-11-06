@@ -26,18 +26,16 @@ id is what from_pretrained downloads. Everett's rule is offline, no downloads,
 so it is gone; a model is loaded from a local directory its caller gives.
 """
 
-import os
 from pathlib import Path
 from typing import Dict, Any, Optional
 from enum import Enum
 from dataclasses import dataclass
 import yaml
 
-
-def sdk_data_root() -> Path:
-    """The SDK's data folder: $CHRISTMAN_AI_HOME, else ~/.christman_ai."""
-    raw = os.environ.get("CHRISTMAN_AI_HOME")
-    return Path(raw).expanduser() if raw else Path.home() / ".christman_ai"
+# The one copy of the rule ($CHRISTMAN_AI_HOME, else ~/.christman_ai) is in
+# utils/data_root.py since 2026-11-05, so the logger can follow it without
+# importing this module. It is offered here under the name callers know.
+from ..utils.data_root import sdk_data_root
 
 
 class Tier(Enum):

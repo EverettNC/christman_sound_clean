@@ -88,7 +88,10 @@ def _recognition(tmp_path, monkeypatch):
     from christman_voice_sdk.audio import enhanced_speech_recognition as esr
 
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    for name in ("CHRISTMAN_SOUND_CACHE_AUDIO", "CHRISTMAN_SOUND_AUDIO_CACHE_DIR",
+    # CHRISTMAN_AI_HOME too (2026-11-05): the audio cache follows the SDK's
+    # data folder now, and conftest names one for the run; "by default" below
+    # is with no folder setting at all.
+    for name in ("CHRISTMAN_SOUND_CACHE_AUDIO", "CHRISTMAN_SOUND_AUDIO_CACHE_DIR", "CHRISTMAN_AI_HOME",
                  "ALPHA" + "VOX_CACHE_AUDIO", "ALPHA" + "VOX_AUDIO_CACHE_DIR"):
         monkeypatch.delenv(name, raising=False)
     return esr, esr.EnhancedSpeechRecognition()

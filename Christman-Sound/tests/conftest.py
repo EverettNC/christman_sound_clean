@@ -32,14 +32,49 @@ renders or measures through the compiled christman_dsp library carries
 `@pytest.mark.needs_dsp`; where the library is not built it is NOT RUN with
 the loader's own reason, instead of failing (test_formants already did this
 for its whole module).
+
+A TEST RUN WRITES NOTHING INTO THE PERSON'S OWN FOLDERS (2026-11-05)
+--------------------------------------------------------------------
+Test runs on Everett's Mac added lines to the log files in his own
+~/.christman_ai/logs: the SDK's logger did not follow $CHRISTMAN_AI_HOME, and
+no test run named a folder for it anyway. Both are closed. Before any test
+module is imported, this file points the SDK's data folder
+($CHRISTMAN_AI_HOME) and the Filament's folder ($FILAMENT_HOME) at a folder
+made for this run, and takes away the three settings that would send one
+kind of file somewhere else ($CHRISTMAN_LOG_DIR, $CHRISTMAN_VOICE_CACHE,
+$CHRISTMAN_SOUND_AUDIO_CACHE_DIR). This is done whatever those settings were:
+a test never writes where a person keeps their voice, profiles, logs or
+boards. A test that reads a person's recordings or voice is handed their
+path by name (FILAMENT_TEST_AUDIO, CHRISTMAN_VOICE_DIR and the like), never
+by default. The folder is removed when the run ends.
+tests/test_data_folder.py holds the checks.
 """
 
 from __future__ import annotations
 
 import ctypes
 import os
+import shutil
+import sys
+import tempfile
 
 import pytest
+
+#: The folder this run writes in. Set before any test module is imported, so
+#: a module that reads a folder setting at import reads this one.
+RUN_FOLDER = tempfile.mkdtemp(prefix="christman-sound-tests-")
+os.environ["CHRISTMAN_AI_HOME"] = os.path.join(RUN_FOLDER, "christman_ai")
+os.environ["FILAMENT_HOME"] = os.path.join(RUN_FOLDER, "filament")
+for _setting in ("CHRISTMAN_LOG_DIR", "CHRISTMAN_VOICE_CACHE", "CHRISTMAN_SOUND_AUDIO_CACHE_DIR"):
+    os.environ.pop(_setting, None)
+
+
+def pytest_unconfigure(config):  # noqa: ARG001
+    try:
+        shutil.rmtree(RUN_FOLDER)
+    except OSError as exc:
+        print(f"The test run's folder {RUN_FOLDER} could not be removed ({exc}); it was left there.", file=sys.stderr)
+
 
 NOT_RUN_PREFIX = "not run:"
 PLAY_ALOUD_ENV = "CHRISTMAN_SOUND_PLAY_ALOUD"

@@ -192,8 +192,17 @@ def _safe_name(name: str) -> Optional[str]:
     return name if (_SAFE_FILENAME.match(name) and ".." not in name and not name.startswith(".")) else None
 
 
+def _sdk_data_root() -> Path:
+    """The SDK's data folder, by the SDK's own rule (christman_voice_sdk.utils.data_root)."""
+    from christman_voice_sdk.utils.data_root import sdk_data_root
+
+    return sdk_data_root()
+
+
 def _audio_cache_dir() -> Path:
-    base = Path(os.environ.get("CHRISTMAN_VOICE_CACHE") or (Path.home() / ".christman_ai" / "voice_cache")).expanduser()
+    # $CHRISTMAN_VOICE_CACHE, else the SDK's data folder ($CHRISTMAN_AI_HOME,
+    # else ~/.christman_ai). 2026-11-05: this named ~/.christman_ai itself.
+    base = Path(os.environ.get("CHRISTMAN_VOICE_CACHE") or (_sdk_data_root() / "voice_cache")).expanduser()
     base.mkdir(parents=True, mode=0o700, exist_ok=True)
     return base
 
@@ -939,7 +948,7 @@ class ChristmanSoundApp:
         return _json_resp(payload, code)
 
     def _handle_vcc_get(self) -> AppResponse:
-        voices_dir = Path.home() / ".christman_ai" / "voices"
+        voices_dir = _sdk_data_root() / "voices"
         frame_voices = sorted(str(p) for p in voices_dir.glob("*") if (p / "voice.json").is_file()) if voices_dir.is_dir() else []
         return _json_resp({
             "status": "ok",

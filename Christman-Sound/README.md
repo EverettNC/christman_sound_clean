@@ -128,6 +128,7 @@ Do not wire the card source as a `SoundDetectorBackend`.
 - `presence_guide.py` — Reads text for states that need presence, not solutions, and checks a reply for toxic positivity
 - `voice_diagnostics.py` — Runs a local synthesis backend over voice profiles and reports byte-identical outputs
 - `logger.py` — Logging
+- `data_root.py` — The one rule for where the SDK keeps what it writes for one person: `$CHRISTMAN_AI_HOME`, else `~/.christman_ai`. The logs, voice profiles, voice cache, audio cache, voicepacks and music memory all follow it
 
 ### christman_sound — the voice
 
