@@ -38,7 +38,6 @@ from __future__ import annotations
 import ctypes
 import json
 import os
-import resource
 import signal
 import subprocess
 import sys
@@ -244,6 +243,10 @@ def _run_child(built_lib, lexicon_file, tmp_path, alsa_conf: str, file_size_limi
 
     def limit():
         if file_size_limit:
+            # resource is POSIX-only; imported here so this file still loads on
+            # Windows, where these ALSA runs report NOT RUN (2026-11-06).
+            import resource
+
             signal.signal(signal.SIGXFSZ, signal.SIG_IGN)  # EFBIG from write(), not a kill
             resource.setrlimit(resource.RLIMIT_FSIZE, (file_size_limit, file_size_limit))
 

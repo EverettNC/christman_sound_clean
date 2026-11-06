@@ -18,7 +18,7 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-latest,  name: Linux }
-          - { os: macos-14,       name: Mac with an Apple chip }
+          - { os: macos-latest,   name: Mac with an Apple chip }
           - { os: macos-13,       name: Mac with an Intel chip }
           - { os: windows-latest, name: Windows }
     name: ${{ matrix.name }}
@@ -41,8 +41,14 @@ jobs:
         run: |
           if [ "$RUNNER_OS" = "Windows" ]; then gcc --version | head -1; else cc --version | head -1; fi
 
+      # Editable, the way the README's second line installs it: the tests import
+      # the package from this checkout, so the library must be built into it.
+      # pip's build/ folder is removed so the tests that read the source tree
+      # see the source only.
       - name: Install Christman Sound (pip compiles the C library)
-        run: python -m pip install ./Christman-Sound pytest
+        run: |
+          python -m pip install -e ./Christman-Sound pytest
+          rm -rf Christman-Sound/build
 
       - name: The C library loads whole and names its audio system
         working-directory: ${{ runner.temp }}
