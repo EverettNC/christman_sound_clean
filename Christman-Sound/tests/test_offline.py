@@ -123,7 +123,7 @@ def _downloads(path: Path) -> list[tuple[int, str]]:
 def _all_findings() -> dict[tuple[str, int], str]:
     findings = {}
     for path in _scanned_files():
-        rel = str(path.relative_to(ROOT))
+        rel = path.relative_to(ROOT).as_posix()
         if rel in LOOPBACK_ONLY:
             continue
         for line, what in _downloads(path):

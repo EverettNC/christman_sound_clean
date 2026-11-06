@@ -148,10 +148,10 @@ def test_failure_after_the_old_150_ms_window_raises(mouth, dsp, tmp_path):
     dsp._lib.christman_play = _PLAY_PROTO(fails_partway)
     out = tmp_path / "hello.wav"
 
-    started = time.monotonic()
+    started = time.perf_counter()
     with pytest.raises(vs.PlaybackFailed) as info:
         mouth.generate_speech_audio("hello", play_audio=True, output_path=str(out))
-    elapsed = time.monotonic() - started
+    elapsed = time.perf_counter() - started
 
     message = str(info.value)
     assert "code 6" in message and "mid-stream" in message
@@ -172,9 +172,9 @@ def test_play_audio_file_is_false_until_the_engine_says_otherwise(mouth, dsp, tm
         return 6
 
     dsp._lib.christman_play = _PLAY_PROTO(fails_late)
-    started = time.monotonic()
+    started = time.perf_counter()
     assert mouth.play_audio_file(str(out)) is False
-    assert time.monotonic() - started >= 0.3
+    assert time.perf_counter() - started >= 0.3
     assert "code 6" in mouth.last_playback_error
 
 

@@ -725,6 +725,7 @@ def test_voice_creation_center_controls_presets_frames_and_bank(tmp_path, monkey
 
     # Refuses when word alignments are missing (never guesses equal-width word boundaries)
     monkeypatch.setenv("HOME", str(tmp_path / "empty_home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "empty_home"))  # Windows: Path.home() reads this
     monkeypatch.delenv("VOSK_MODEL_PATH", raising=False)
     with pytest.raises(ValueError, match="refusing to guess word"):
         measure_and_prove_voice_profile("TestVoice", [wav1], tmp_path / "prof.json", lexicon=lex)

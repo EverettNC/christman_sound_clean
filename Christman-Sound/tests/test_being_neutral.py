@@ -88,6 +88,7 @@ def _recognition(tmp_path, monkeypatch):
     from christman_voice_sdk.audio import enhanced_speech_recognition as esr
 
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))  # Windows: Path.home() reads this
     # CHRISTMAN_AI_HOME too (2026-11-05): the audio cache follows the SDK's
     # data folder now, and conftest names one for the run; "by default" below
     # is with no folder setting at all.

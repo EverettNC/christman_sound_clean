@@ -38,6 +38,7 @@ def home(tmp_path, monkeypatch):
     folder = tmp_path / "home"
     folder.mkdir()
     monkeypatch.setenv("HOME", str(folder))
+    monkeypatch.setenv("USERPROFILE", str(folder))  # Windows: Path.home() reads this
     monkeypatch.delenv(sre.VOSK_MODEL_PATH_ENV, raising=False)
     assert Path.home() == folder
     loaded = []

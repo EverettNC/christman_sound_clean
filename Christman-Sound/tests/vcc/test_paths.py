@@ -68,6 +68,7 @@ def test_an_installed_copy_writes_to_the_per_user_folder_not_site_packages(monke
 
     monkeypatch.delenv(vcc_paths.AI_HOME_ENV)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))  # Windows: Path.home() reads this
     assert vcc_paths.default_base(package) == tmp_path / "home" / ".christman_ai" / "voice_creation_center"
     assert tmp_path / "site-packages" not in vcc_paths.default_base(package).parents
 

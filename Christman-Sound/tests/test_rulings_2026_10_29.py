@@ -762,7 +762,7 @@ def test_8_the_old_recognizers_name_appears_only_where_vosk_is_called():
         except (UnicodeDecodeError, OSError):
             continue
         if name in text.lower():
-            rel = str(path.relative_to(ROOT))
+            rel = path.relative_to(ROOT).as_posix()
             lines = [ln for ln in text.splitlines() if name in ln.lower()]
             if rel not in allowed or any("vosk." not in ln for ln in lines):
                 hits.append(rel)

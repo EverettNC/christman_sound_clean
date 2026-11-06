@@ -37,7 +37,7 @@ ONE_KIND = ("CHRISTMAN_LOG_DIR", "CHRISTMAN_VOICE_CACHE", "CHRISTMAN_SOUND_AUDIO
 def _child(code: str, tmp_path: Path, **settings: str) -> dict:
     """Run `code` in a fresh interpreter whose home is tmp_path/home; its last line is JSON."""
     env = {k: v for k, v in os.environ.items() if k not in ONE_KIND and k != "CHRISTMAN_AI_HOME"}
-    env.update(HOME=str(tmp_path / "home"), PYTHONPATH=str(ROOT), **settings)
+    env.update(HOME=str(tmp_path / "home"), USERPROFILE=str(tmp_path / "home"), PYTHONPATH=str(ROOT), **settings)
     (tmp_path / "home").mkdir(exist_ok=True)
     proc = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, timeout=120)
     assert proc.returncode == 0, proc.stderr[-2000:]
@@ -54,7 +54,7 @@ print(json.dumps({"dir": str(default_log_dir())}))
 
 
 def _files(folder: Path) -> list[str]:
-    return sorted(str(p.relative_to(folder)) for p in folder.rglob("*") if p.is_file())
+    return sorted(p.relative_to(folder).as_posix() for p in folder.rglob("*") if p.is_file())
 
 
 def test_logs_follow_the_sdk_folder(tmp_path):
@@ -106,7 +106,7 @@ print(json.dumps({"reached": True}))
 """
     env_dir = str(blocker / "logs")
     env = {k: v for k, v in os.environ.items() if k not in ONE_KIND and k != "CHRISTMAN_AI_HOME"}
-    env.update(HOME=str(tmp_path / "home"), PYTHONPATH=str(ROOT), CHRISTMAN_LOG_DIR=env_dir)
+    env.update(HOME=str(tmp_path / "home"), USERPROFILE=str(tmp_path / "home"), PYTHONPATH=str(ROOT), CHRISTMAN_LOG_DIR=env_dir)
     proc = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, timeout=120)
     assert proc.returncode == 0 and json.loads(proc.stdout.strip().splitlines()[-1]) == {"reached": True}
     assert proc.stderr.count("File logging disabled") == 1, proc.stderr

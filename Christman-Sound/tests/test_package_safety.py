@@ -76,7 +76,9 @@ def test_hostile_voicepack_is_refused_and_nothing_is_written(label, tmp_path):
     builder = vp.VoicepackBuilder(output_dir=packs)
     with pytest.raises(vp.UnsafeVoicepack) as info:
         builder.load(archive)
-    assert repr(member) in str(info.value)
+    # On Windows, zipfile stores a "\\" in a member name as "/"; the name is checked as stored.
+    stored = member.replace("\\", "/") if sys.platform == "win32" else member
+    assert repr(stored) in str(info.value)
 
     cache = packs.parent / "cache" / archive.stem
     assert list(cache.iterdir()) == [], "a member was extracted before the archive was refused"
@@ -146,7 +148,8 @@ def test_config_creates_no_folder(tmp_path, monkeypatch):
     made_dir = conf.ensure_dir(conf.models_dir)
     assert made_dir.is_dir() and made and made[0] == conf.models_dir
     assert all(d == conf.models_dir or d in conf.models_dir.parents for d in made)
-    assert stat.S_IMODE(made_dir.stat().st_mode) == 0o700
+    if sys.platform != "win32":  # Windows has no POSIX mode bits; the folder is under the user's own profile
+        assert stat.S_IMODE(made_dir.stat().st_mode) == 0o700
 
 
 def test_importing_the_capture_client_writes_nothing_into_the_package(tmp_path):

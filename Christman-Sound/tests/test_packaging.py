@@ -32,6 +32,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+#: The library's file name on this system, as scripts/build_dsp.py names it.
+LIB_NAME = "christman_dsp.dll" if sys.platform == "win32" else "christman_dsp.so"
+
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -266,9 +269,9 @@ def test_a_wheel_pip_builds_carries_the_library_and_it_loads(tmp_path):
         # <name>.data/purelib/; pip installs that into site-packages as usual.
         # What matters is that the library sits beside dsp.py, which loads it.
         installed = {re.sub(r"^christman_sound-[^/]+\.data/(pure|plat)lib/", "", n): n for n in names}
-        assert "christman_sound/christman_dsp.so" in installed, sorted(installed)[:20]
+        assert f"christman_sound/{LIB_NAME}" in installed, sorted(installed)[:20]
         assert "christman_sound/dsp.py" in installed
-        library, loader = installed["christman_sound/christman_dsp.so"], installed["christman_sound/dsp.py"]
+        library, loader = installed[f"christman_sound/{LIB_NAME}"], installed["christman_sound/dsp.py"]
         assert library.rsplit("/", 1)[0] == loader.rsplit("/", 1)[0], (library, loader)
         assert not [n for n in installed if n.startswith(("held/", "scripts/", "tests/"))]
         for package in ("christman_sound/", "christman_voice_sdk/", "voice_creation_center/"):
