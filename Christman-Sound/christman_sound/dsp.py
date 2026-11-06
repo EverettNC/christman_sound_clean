@@ -165,7 +165,7 @@ _VOCODER_REASONS = {
 _PLAY_REASONS = {
     1: "bad arguments (empty buffer, bad rate, or channels not 1 or 2)",
     2: "no audio system on this platform",
-    3: "the operating system audio library is absent (libasound.so.2 on Linux)",
+    3: "the operating system audio library is absent (libasound.so.2 on Linux, winmm.dll on Windows)",
     4: "the audio device could not be opened",
     5: "the audio device rejected the format",
     6: "the write to the device failed mid-stream",
@@ -182,12 +182,13 @@ def candidate_paths() -> List[Path]:
         found.append(Path(env))
     for directory in (_PACKAGE_DIR, _REPO_ROOT, _REPO_ROOT / "christman_voice_sdk"):
         # setuptools names extensions christman_dsp.cpython-313-x86_64-linux-gnu.so;
-        # the build script names it christman_dsp.so; macOS may produce .dylib.
-        for exact in ("christman_dsp.so", "christman_dsp.dylib"):
+        # the build script names it christman_dsp.so (christman_dsp.dll on
+        # Windows); macOS may produce .dylib.
+        for exact in ("christman_dsp.so", "christman_dsp.dylib", "christman_dsp.dll"):
             cand = directory / exact
             if cand.is_file() and cand not in found:
                 found.append(cand)
-        for pattern in ("christman_dsp*.so", "christman_dsp*.dylib"):
+        for pattern in ("christman_dsp*.so", "christman_dsp*.dylib", "christman_dsp*.dll"):
             for p_str in sorted(glob.glob(str(directory / pattern))):
                 p_obj = Path(p_str)
                 if p_obj not in found:

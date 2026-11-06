@@ -8,12 +8,20 @@ Build the Christman Bare-Metal Audio Engine (christman_dsp.c, and the
 sovereign synthesizer christman_synth.c) into the one shared library that
 christman_sound.dsp loads.
 
-    python3 scripts/build_dsp.py              # -> christman_sound/christman_dsp.so
+    python3 scripts/build_dsp.py              # -> christman_sound/christman_dsp.so (.dll on Windows)
     python3 scripts/build_dsp.py --check      # build, then run the smoke test
     python3 scripts/build_dsp.py --check-only # smoke-test the library already built
 
 No shell string is ever constructed; the compiler is invoked with an argument
 list. The compiler comes from $CC, else `cc`.
+
+WHAT CHANGED AND WHY (2026-11-06)
+Everett: "It shouldn't matter what machine it's on. Period. Our shit needs to
+run." The library now builds on Windows as well: with gcc or clang (MinGW-w64
+on Windows), into christman_sound/christman_dsp.dll; on macOS and Linux it is
+christman_dsp.so as before. LIB_NAME is the one place the name is chosen.
+Windows playback (christman_dsp.c) loads winmm.dll at run time, the way Linux
+loads libasound, so nothing extra is linked on any system.
 
 WHAT CHANGED AND WHY (2026-11-05)
 Everett: "I want the sound package to be an installable package. I want
@@ -54,35 +62,45 @@ ROOT = Path(__file__).resolve().parent.parent
 SOURCE = ROOT / "christman_dsp.c"
 SYNTH_SOURCE = ROOT / "christman_synth.c"
 VOCODER_SOURCE = ROOT / "christman_vocoder.c"
-OUTPUT = ROOT / "christman_sound" / "christman_dsp.so"
+#: The library's file name on this system. Windows loads a .dll; macOS and Linux a .so.
+LIB_NAME = "christman_dsp.dll" if sys.platform == "win32" else "christman_dsp.so"
+OUTPUT = ROOT / "christman_sound" / LIB_NAME
 
 
 def build(output: Path = OUTPUT) -> Path:
-    compiler = os.environ.get("CC") or shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
+    windows = sys.platform == "win32"
+    if windows:
+        compiler = os.environ.get("CC") or shutil.which("gcc") or shutil.which("clang") or shutil.which("cc")
+    else:
+        compiler = os.environ.get("CC") or shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
     if not compiler:
-        sys.exit("No C compiler found. Install Xcode Command Line Tools (macOS) or gcc/clang.")
+        sys.exit("No C compiler found. Install Xcode Command Line Tools (macOS), gcc/clang (Linux), "
+                 "or MinGW-w64 gcc or LLVM clang (Windows).")
+    # -fPIC is for .so files; a Windows DLL has no such option.
+    pic = [] if windows else ["-fPIC"]
     for src in (SOURCE, SYNTH_SOURCE, VOCODER_SOURCE):
         if not src.is_file():
             sys.exit(f"Source not found: {src}")
     with tempfile.TemporaryDirectory() as tmp:
         synth_obj = Path(tmp) / "christman_synth.o"
-        compile_synth = [compiler, "-c", "-fPIC", "-O2", "-Wall", "-ffp-contract=off",
+        compile_synth = [compiler, "-c", *pic, "-O2", "-Wall", "-ffp-contract=off",
                          "-o", str(synth_obj), str(SYNTH_SOURCE)]
         print("+", " ".join(compile_synth))
         subprocess.run(compile_synth, check=True)
         # (2026-10-28) The frame mouth, compiled the same way: it is tested
         # sample for sample against Codec War's vocoder.ts.
         vocoder_obj = Path(tmp) / "christman_vocoder.o"
-        compile_vocoder = [compiler, "-c", "-fPIC", "-O2", "-Wall", "-ffp-contract=off",
+        compile_vocoder = [compiler, "-c", *pic, "-O2", "-Wall", "-ffp-contract=off",
                            "-o", str(vocoder_obj), str(VOCODER_SOURCE)]
         print("+", " ".join(compile_vocoder))
         subprocess.run(compile_vocoder, check=True)
-        cmd = [compiler, "-shared", "-fPIC", "-O2", "-Wall", "-o", str(output), str(SOURCE),
+        cmd = [compiler, "-shared", *pic, "-O2", "-Wall", "-o", str(output), str(SOURCE),
                str(synth_obj), str(vocoder_obj), "-lm"]
         if sys.platform == "darwin":
             cmd += ["-framework", "AudioToolbox", "-framework", "CoreFoundation"]
         elif sys.platform.startswith("linux"):
             cmd += ["-ldl"]  # libasound is dlopen'd at run time; no link-time dependency
+        # Windows: winmm.dll is loaded at run time (LoadLibrary); nothing to link.
         print("+", " ".join(cmd))
         subprocess.run(cmd, check=True)
     print(f"built {output} ({output.stat().st_size} bytes)")

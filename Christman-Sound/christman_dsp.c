@@ -216,8 +216,8 @@ int christman_lpc(const float* audio, size_t length, int order, float* out_a) {
 // its own, before this code asked it to, still set `finished` and returned
 // 0, and a failed AudioQueueEnqueueBuffer was counted as frames handed
 // over. Both now return 6.
-// `christman_play_backend` names the backend ("alsa", "coreaudio", or
-// "none") so a caller can report what it is about to use, not guess.
+// `christman_play_backend` names the backend ("alsa", "coreaudio", "winmm"
+// on Windows since 2026-11-06, or "none") so a caller can report what it is about to use, not guess.
 // =============================================================================
 #include <string.h>
 
@@ -399,6 +399,83 @@ int christman_play(const float* audio, size_t length, int sample_rate, int chann
     p_close(pcm);
     free(buf);
     dlclose(lib);
+    return status;
+}
+
+#elif defined(_WIN32)
+/* Windows (2026-11-06): the system's own waveOut, from winmm.dll, which every
+ * Windows has. It is loaded at run time with LoadLibrary, the way Linux loads
+ * libasound, so nothing extra is linked and the library still loads on a
+ * Windows without it (christman_play then returns 3). The float samples are
+ * handed over in one buffer as WAVE_FORMAT_IEEE_FLOAT; the call returns when
+ * waveOut marks that buffer done, i.e. when the clip has been played out. */
+#include <windows.h>
+#include <mmsystem.h>
+
+typedef MMRESULT (WINAPI *cm_waveOutOpen_t)(LPHWAVEOUT, UINT, LPCWAVEFORMATEX, DWORD_PTR, DWORD_PTR, DWORD);
+typedef MMRESULT (WINAPI *cm_waveOutHdr_t)(HWAVEOUT, LPWAVEHDR, UINT);
+typedef MMRESULT (WINAPI *cm_waveOutClose_t)(HWAVEOUT);
+typedef MMRESULT (WINAPI *cm_waveOutReset_t)(HWAVEOUT);
+
+#ifndef WAVE_FORMAT_IEEE_FLOAT
+#define WAVE_FORMAT_IEEE_FLOAT 0x0003
+#endif
+
+const char* christman_play_backend(void) { return "winmm"; }
+
+int christman_play(const float* audio, size_t length, int sample_rate, int channels) {
+    if (!audio || length == 0 || sample_rate <= 0 || channels < 1 || channels > 2 || length % channels) return 1;
+    if (length > (size_t)(MAXDWORD / sizeof(float))) return 1;   /* one waveOut buffer holds at most 4 GB */
+
+    HMODULE lib = LoadLibraryA("winmm.dll");
+    if (!lib) return 3;
+    cm_waveOutOpen_t  wo_open    = (cm_waveOutOpen_t)(void*)GetProcAddress(lib, "waveOutOpen");
+    cm_waveOutHdr_t   wo_prepare = (cm_waveOutHdr_t)(void*)GetProcAddress(lib, "waveOutPrepareHeader");
+    cm_waveOutHdr_t   wo_write   = (cm_waveOutHdr_t)(void*)GetProcAddress(lib, "waveOutWrite");
+    cm_waveOutHdr_t   wo_unprep  = (cm_waveOutHdr_t)(void*)GetProcAddress(lib, "waveOutUnprepareHeader");
+    cm_waveOutReset_t wo_reset   = (cm_waveOutReset_t)(void*)GetProcAddress(lib, "waveOutReset");
+    cm_waveOutClose_t wo_close   = (cm_waveOutClose_t)(void*)GetProcAddress(lib, "waveOutClose");
+    if (!wo_open || !wo_prepare || !wo_write || !wo_unprep || !wo_reset || !wo_close) { FreeLibrary(lib); return 3; }
+
+    WAVEFORMATEX fmt;
+    memset(&fmt, 0, sizeof fmt);
+    fmt.wFormatTag      = WAVE_FORMAT_IEEE_FLOAT;
+    fmt.nChannels       = (WORD)channels;
+    fmt.nSamplesPerSec  = (DWORD)sample_rate;
+    fmt.wBitsPerSample  = 32;
+    fmt.nBlockAlign     = (WORD)(channels * sizeof(float));
+    fmt.nAvgBytesPerSec = fmt.nSamplesPerSec * fmt.nBlockAlign;
+    fmt.cbSize          = 0;
+
+    HANDLE done = CreateEventA(NULL, FALSE, FALSE, NULL);
+    if (!done) { FreeLibrary(lib); return 7; }
+
+    HWAVEOUT out = NULL;
+    MMRESULT r = wo_open(&out, WAVE_MAPPER, &fmt, (DWORD_PTR)done, 0, CALLBACK_EVENT);
+    if (r != MMSYSERR_NOERROR) {
+        CloseHandle(done); FreeLibrary(lib);
+        return r == WAVERR_BADFORMAT ? 5 : 4;
+    }
+
+    WAVEHDR hdr;
+    memset(&hdr, 0, sizeof hdr);
+    hdr.lpData = (LPSTR)(void*)audio;   /* waveOut only reads the samples */
+    hdr.dwBufferLength = (DWORD)(length * sizeof(float));
+    int status = 0;
+    if (wo_prepare(out, &hdr, sizeof hdr) != MMSYSERR_NOERROR) {
+        status = 6;
+    } else {
+        if (wo_write(out, &hdr, sizeof hdr) != MMSYSERR_NOERROR) {
+            status = 6;
+        } else {
+            while (!(hdr.dwFlags & WHDR_DONE)) WaitForSingleObject(done, 1000);
+        }
+        if (status) wo_reset(out);
+        wo_unprep(out, &hdr, sizeof hdr);
+    }
+    wo_close(out);
+    CloseHandle(done);
+    FreeLibrary(lib);
     return status;
 }
 

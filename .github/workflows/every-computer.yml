@@ -1,0 +1,66 @@
+# Christman Sound on every computer (2026-11-06).
+# Everett: "It shouldn't matter what machine it's on. Period. Our shit needs to run."
+# Each machine below installs the package from this checkout with one pip
+# install (pip compiles the C library), proves the library loads whole and
+# names its audio system, then runs the package's own tests. A test that
+# cannot run on a machine says NOT RUN with its reason; nothing passes by default.
+name: every computer
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  sound:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,  name: Linux }
+          - { os: macos-14,       name: Mac with an Apple chip }
+          - { os: macos-13,       name: Mac with an Intel chip }
+          - { os: windows-latest, name: Windows }
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Linux audio library (the engine loads it at run time)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -q && sudo apt-get install -y -q libasound2t64 || sudo apt-get install -y -q libasound2
+
+      - name: C compiler on this machine
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then gcc --version | head -1; else cc --version | head -1; fi
+
+      - name: Install Christman Sound (pip compiles the C library)
+        run: python -m pip install ./Christman-Sound pytest
+
+      - name: The C library loads whole and names its audio system
+        working-directory: ${{ runner.temp }}
+        run: |
+          python - <<'PY'
+          import sys
+          from christman_sound.dsp import ChristmanDSP
+          d = ChristmanDSP()
+          print("library:", d.path)
+          print("available:", d.available, d.error or "")
+          print("synth:", d.synth_available, d.synth_error or "")
+          print("vocoder:", d.vocoder_available, d.vocoder_error or "")
+          backend = d.play_backend()
+          print("audio system:", backend)
+          expected = {"win32": "winmm", "darwin": "coreaudio"}.get(sys.platform, "alsa")
+          assert d.available and d.synth_available and d.vocoder_available, "the library did not load whole"
+          assert backend == expected, f"audio system {backend!r}, expected {expected!r}"
+          PY
+
+      - name: The package's own tests
+        run: python -m pytest Christman-Sound/tests -q -rs -p no:cacheprovider

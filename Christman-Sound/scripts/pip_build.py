@@ -34,6 +34,7 @@ This file is build tooling. It is not installed.
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 from typing import Dict, List
 
@@ -43,7 +44,8 @@ from setuptools.command.build import build as _build
 
 _SCRIPTS = Path(__file__).resolve().parent
 #: The library's path inside the installed package, as dsp.py looks for it.
-_RELATIVE_OUTPUT = Path("christman_sound") / "christman_dsp.so"
+# The same name scripts/build_dsp.py chooses (LIB_NAME): .dll on Windows, .so elsewhere.
+_RELATIVE_OUTPUT = Path("christman_sound") / ("christman_dsp.dll" if sys.platform == "win32" else "christman_dsp.so")
 
 
 def _build_dsp():
