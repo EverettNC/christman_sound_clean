@@ -191,7 +191,7 @@ print(reading.safety.unclear, reading.resolved)             # cause False
 
 ### Speech Recognition
 
-Recognition is local. `christman_sound.ear` runs Vosk's recognizer (2026-11-05, Everett: Vosk is the ear, and Corti sits on top), and the SDK's `speech_recognition_engine.py` hears through it. Point it at a model folder with `VOSK_MODEL_PATH` (or pass `model_path`); it looks nowhere else. (2026-11-05: this said `~/models` and `~/Downloads` were found on their own. That is true of `christman_sound.ear.discover_vosk_model()`, which the studio uses, not of this engine: on Everett's Mac, with the model in `~/Downloads` and no `VOSK_MODEL_PATH`, it reported no model folder.) Audio at a rate other than 16 kHz is resampled to 16 kHz first, and the result says so.
+Recognition is local. `christman_sound.ear` runs Vosk's recognizer (2026-11-05, Everett: Vosk is the ear, and Corti sits on top), and the SDK's `speech_recognition_engine.py` hears through it. The model folder is `model_path` when one is passed, else `VOSK_MODEL_PATH` when it is set, else the folder `christman_sound.ear.discover_vosk_model()` finds (`~/Downloads/vosk-model-en-us-0.22`, then `~/models/vosk-model-en-us-0.22`, then the `-lgraph` one): the same finder the Filament ear server and the studio use. A `VOSK_MODEL_PATH` that points at no folder is an error naming it, not passed over. (2026-11-05, earlier the same day: the engine read `VOSK_MODEL_PATH` and nothing else, and on Everett's Mac, with the model in `~/Downloads` and nothing set, it reported no model folder. It finds it now; `engine.backend.model_found_by` says how.) A whole recording is heard as one tape through `Ear.hear_tape`, the way the Filament's `/stt` hears one, so the same recording gives the same words through this engine, the word-ear receiver and the Filament. Audio at a rate other than 16 kHz is resampled to 16 kHz first, and the result says so.
 
 ```python
 from christman_voice_sdk.audio.speech_recognition_engine import get_speech_recognition_engine
@@ -200,6 +200,21 @@ engine = get_speech_recognition_engine()                    # unavailable, with 
 result = engine.recognize_from_bytes(pcm16_mono, sample_rate=16000)
 print(result.status, result.text)                           # text is "" on every non-OK status
 ```
+
+#### The Filament ear server, and its owner's own words
+
+`christman-filament` (or `python3 -m christman_sound.filament`) is the Filament's ear: Vosk behind one door on `127.0.0.1`, port `$FILAMENT_EAR_PORT`, 4850 by default. Its pages call the door that served them, on whatever port that is (2026-11-05: three of them called 4850 from any other port, so a test copy sent its sound to the ear on 4850). `?ear-port=N` in a page's address names another port on the same machine; no other machine can be named.
+
+The package's mouth map names no one. A name the ear mishears is turned back by rows its owner keeps in a file beside the Carbon pile, `$FILAMENT_HOME/mouth.json` (`~/.filament/mouth.json` by default):
+
+```json
+[
+  {"heard": "quill father", "keep": "Quillfeather"},
+  {"heard": "quillfether",  "keep": "Quillfeather"}
+]
+```
+
+`heard` is plain words, matched whole, in any letter case; `keep` is what was said. The server reads the file on every tape and every live reply, so an edit takes effect at once. `/health` reports `ownWords` (how many rows were read). A file that cannot be read is named in `ownWordsError` and in each reply's `mouth_error`; the words heard are still returned.
 
 ### Voice Synthesis
 
@@ -380,7 +395,7 @@ python3 -c "from christman_sound.dsp import get_dsp; d = get_dsp(); print(d.avai
 
 ### Not in the package: download these yourself
 
-- **The Vosk model folder `vosk-model-en-us-0.22`**, which the ear hears through. It is a folder, not a Python package, so pip does not fetch it. Set `VOSK_MODEL_PATH` to it: the SDK's speech recognition engine and the word-ear receiver (`christman-word-ear`) read that and nothing else. `christman_sound.ear.discover_vosk_model()` and the studio (`christman-sound`) also look in `~/Downloads/vosk-model-en-us-0.22`, then `~/models/vosk-model-en-us-0.22`. The voice's lexicon is inside it, at `graph/phones/align_lexicon.txt` (`$CHRISTMAN_LEXICON_PATH` points elsewhere). Without it the ear reports unavailable with the reason.
+- **The Vosk model folder `vosk-model-en-us-0.22`**, which the ear hears through. It is a folder, not a Python package, so pip does not fetch it. Put it in `~/Downloads/vosk-model-en-us-0.22` or `~/models/vosk-model-en-us-0.22`, or set `VOSK_MODEL_PATH` to it. Every part finds it the same way (`christman_sound.ear.discover_vosk_model()`): the Filament ear server (`christman-filament`), the studio (`christman-sound`), the SDK's speech recognition engine and the word-ear receiver (`christman-word-ear`). The voice's lexicon is inside it, at `graph/phones/align_lexicon.txt` (`$CHRISTMAN_LEXICON_PATH` points elsewhere). Without it the ear reports unavailable with the reason.
 - **ffmpeg**, only for the Voice Creation Center's ingestor when the audio is not already `.wav`.
 
 ### Where an installed copy writes
@@ -391,7 +406,7 @@ librosa is not a dependency: nothing imports it, and its numba and llvmlite chai
 
 ## Logging
 
-Modules log through Python's `logging`; most add a `NullHandler` and print nothing until the application configures logging. `christman_voice_sdk.utils.logger` adds rich console output and rotating files under `~/.christman_ai/logs` (`CHRISTMAN_LOG_DIR`). Enable debug output:
+Modules log through Python's `logging`; most add a `NullHandler` and print nothing until the application configures logging. `christman_voice_sdk.utils.logger` adds rich console output and rotating files under `$CHRISTMAN_LOG_DIR`, else `logs/` in the SDK's data folder (`$CHRISTMAN_AI_HOME`, else `~/.christman_ai`). The folder and each file are made when the first line is logged, not when a module is imported (2026-11-05: importing the SDK used to create them, in `~/.christman_ai/logs` whatever `CHRISTMAN_AI_HOME` said). Enable debug output:
 
 ```python
 import logging
