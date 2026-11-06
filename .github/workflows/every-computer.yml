@@ -19,7 +19,7 @@ jobs:
         include:
           - { os: ubuntu-latest,  name: Linux }
           - { os: macos-latest,   name: Mac with an Apple chip }
-          - { os: macos-13,       name: Mac with an Intel chip }
+          - { os: macos-15-intel, name: Mac with an Intel chip }
           - { os: windows-latest, name: Windows }
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
