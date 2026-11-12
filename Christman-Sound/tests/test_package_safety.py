@@ -291,7 +291,7 @@ LANE6_FILES = [
     ROOT / "christman_voice_sdk" / "timbre" / "shorty_emotion.py",
     ROOT / "christman_voice_sdk" / "timbre" / "voicepack.py",
     ROOT / "christman_voice_sdk" / "audio" / "config.py",
-    ROOT / "christman_sound" / "__init__.py",
+    ROOT / "christman_voice_sdk" / "__init__.py",
     ROOT / "christman_ocr_shared.py",
 ]
 
@@ -322,9 +322,12 @@ def test_the_people_served_are_clients_in_the_whole_package():
     """
     pattern = re.compile(r"(?<![\w/])users?(?!\w)", re.I)
     files = [ROOT / "christman_ocr_shared.py"]
-    for pkg in ("christman_voice_sdk", "christman_sound", "scripts"):
+    for pkg in ("christman_voice_sdk", "scripts"):
         files.extend(sorted((ROOT / pkg).rglob("*.py")))
-    core = ROOT / "christman_sound" / "core.py"
+    # The Center's booth and its app were in the folder Everett deleted on
+    # 2026-11-12 and were scanned there; they are scanned where they live now.
+    files.extend([ROOT / "voice_creation_center" / "booth.py", ROOT / "voice_creation_center" / "app.py"])
+    core = ROOT / "christman_voice_sdk" / "core.py"
     hits = []
     for path in files:
         if path == core:

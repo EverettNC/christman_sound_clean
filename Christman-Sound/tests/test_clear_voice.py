@@ -20,7 +20,7 @@ text as "the": 4 of 53 words on twelve sentences. These tests hold:
   * AY glides from the voice's measured onset to its measured offset;
   * a measured voice is rendered by the clear renderer, and says so;
   * words: with the model folder on the machine, twelve sentences are
-    synthesized in the test voice and heard by christman_sound.ear (Vosk's
+    synthesized in the test voice and heard by christman_voice_sdk.audio.ear (Vosk's
     recognizer on the full model, Everett 2026-11-05); the clear renderer
     must be heard far better than christman_synth_voiced. Without the model
     folder or its lexicon, NOT RUN.
@@ -45,9 +45,9 @@ import ear_judge  # noqa: E402
 from vosk_models import require_full_model  # noqa: E402
 sys.path.insert(0, str(ROOT))
 
-from christman_sound import synth as cs_synth  # noqa: E402
-from christman_sound.dsp import ChristmanDSP, SynthRefused  # noqa: E402
-from christman_sound.formants import measure_formants  # noqa: E402
+from christman_voice_sdk.synthesis import synth as cs_synth  # noqa: E402
+from christman_voice_sdk.engines.dsp import ChristmanDSP, SynthRefused  # noqa: E402
+from christman_voice_sdk.tone.formants import measure_formants  # noqa: E402
 from voice_fixture import TEST_VOICE_NAME, load_test_voice  # noqa: E402
 
 
@@ -235,7 +235,7 @@ def _word_errors(ref: str, hyp: str):
 
 def test_free_text_is_heard_word_for_word_far_more_often(dsp, tmp_path, voice):
     """
-    Twelve sentences in the test voice, heard by christman_sound.ear on
+    Twelve sentences in the test voice, heard by christman_voice_sdk.audio.ear on
     vosk-model-en-us-0.22 (tests/ear_judge.py). The floors were set from the
     old recognizer, measured on his Mac on 2026-10-28: christman_synth_voiced
     3 of 53 words (5.7%); christman_synth_clear 25 of 53 (47.2%). Held here:
@@ -246,7 +246,7 @@ def test_free_text_is_heard_word_for_word_far_more_often(dsp, tmp_path, voice):
     53 (5.7%, the same as the old recognizer); christman_synth_clear 18 of 53
     (34.0%), under the 40% floor. The floor is NOT lowered: it is Everett's
     to keep or change. The ear reads no rescoring step (the full model's
-    rescore/ folder is not used by christman_sound.ear), which may be why it
+    rescore/ folder is not used by christman_voice_sdk.audio.ear), which may be why it
     hears these renderings less well; that is not yet proven.
 
     Measured on Vosk again on his Mac, 2026-11-05 (the ear is Vosk's

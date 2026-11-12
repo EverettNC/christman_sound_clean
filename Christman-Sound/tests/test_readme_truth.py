@@ -6,7 +6,7 @@
 The README's file lists match the files that exist (Lane 6, 2026-10-28).
 
 For every package section ("#### Audio (`audio/`)" and the rest) and for
-christman_sound, each module listed exists, and each module that exists is
+the Voice Creation Center, each module listed exists, and each module that exists is
 listed. The README never shows a person's name as a voice profile, and it
 does not say speech is unavailable while the mouth is wired.
 """
@@ -55,10 +55,13 @@ def test_each_section_lists_exactly_the_modules_that_exist():
             f"present but unlisted {sorted(_modules(SDK / folder) - set(listed))}")
 
 
-def test_christman_sound_section_matches():
-    body = README.split("### christman_sound — the voice", 1)[1].split("\n### ", 1)[0]
+def test_voice_creation_center_section_matches():
+    """2026-11-12: the christman_sound folder is gone (Everett deleted it);
+    the README lists the Center's own modules where that section stood."""
+    assert "### christman_sound" not in README and not (ROOT / "christman_sound").exists()
+    body = README.split("### voice_creation_center — the Voice Creation Center", 1)[1].split("\n### ", 1)[0]
     listed = set(re.findall(r"^- `(\w+\.py)`", body, flags=re.M))
-    assert listed == _modules(ROOT / "christman_sound")
+    assert listed == _modules(ROOT / "voice_creation_center")
 
 
 def test_c_sources_listed_are_the_ones_that_exist():

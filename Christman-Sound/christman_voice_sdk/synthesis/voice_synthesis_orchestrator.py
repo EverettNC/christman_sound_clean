@@ -2,7 +2,7 @@
 Voice synthesis orchestrator — voicepack, timbre, emotion, lipsync.
 
 Speaking goes through the package's own mouth (voice_synthesis, which renders
-through christman_sound.synth) in the caller's voice. `synthesize` takes the
+through christman_voice_sdk.synthesis.synth) in the caller's voice. `synthesize` takes the
 voice as a required argument: a voice profile file, a frame voice folder, or
 a loaded VoiceProfile or FrameVoice. With none, SynthesisUnavailable says so;
 there is no default voice and no fallback. No outside speech engine is

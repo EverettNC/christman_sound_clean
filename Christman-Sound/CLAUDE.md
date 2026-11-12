@@ -45,7 +45,7 @@ Read `tests/test_harm_frame_gate.py` first when touching the crisis gate: it is 
 MUST NOT CALL table, and the gate is written to it.
 
 Standing rulings from Everett that bind every session:
-- `christman_sound/core.py` is **not used by anything and is not to be touched** (2026-10-11).
+- `christman_voice_sdk/core.py` is **not used by anything and is not to be touched** (2026-10-11).
 - A subjectless utterance ("scared", "hurts") is the speaker's own. An AAC board does not need an "I".
 - The seven "Everett's call, do not decide these" items recorded in the August 2026 handoff (in git
   history) stay his.

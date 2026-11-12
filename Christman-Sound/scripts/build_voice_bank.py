@@ -5,7 +5,7 @@
 # ==============================================================================
 """
 Build a frame voice from a voice's own recordings: the bank the frame mouth
-(christman_sound.stitch) speaks from, and the voice's measured profile.
+(christman_voice_sdk.synthesis.stitch) speaks from, and the voice's measured profile.
 
     python3 scripts/build_voice_bank.py --name <voice name> --out ~/.christman_ai/voices/<voice> \\
         --recordings <folder or WAV> [<folder or WAV> ...] \\
@@ -19,10 +19,10 @@ on a Mac: afconvert -f WAVE -d LEI16@22050 -c 1 in.mp3 out.wav). Only the
 voice's own recordings go in: never another being's, never a person's.
 
 What it does, in order:
-  1. Words and their times: Vosk's recognizer through christman_sound.ear, on
+  1. Words and their times: Vosk's recognizer through christman_voice_sdk.audio.ear, on
      the --vosk-model folder (the full model), on every recording resampled
      to 16 kHz, with each word's confidence.
-  2. Phones of each word: christman_sound.lexicon (the --lexicon), as Booth ids.
+  2. Phones of each word: christman_voice_sdk.synthesis.lexicon (the --lexicon), as Booth ids.
   3. Frames and units: Codec War's own frames.ts, align.ts, bank.ts and
      stitch.ts, run under node by scripts/voice_bank_driver.mjs (--codecwar).
      Writes bank.json and frames.bin. Recordings longer than 60 s are each
@@ -96,14 +96,14 @@ def _sha256(p: Path) -> str:
     return h.hexdigest()
 
 
-#: The rate christman_sound.ear hears; its Recognizer refuses any other.
+#: The rate christman_voice_sdk.audio.ear hears; its Recognizer refuses any other.
 EAR_SR = 16000
 
 
 def _words(model_dir: str, p: Path) -> List[dict]:
     """
     Words, their times (seconds from the start of the file) and confidences,
-    heard by Vosk's recognizer through christman_sound.ear, on the model folder
+    heard by Vosk's recognizer through christman_voice_sdk.audio.ear, on the model folder
     at `model_dir`.
 
     2026-11-05 (Everett): Vosk is the ear again; from 2026-10-29 this ran a
@@ -118,7 +118,7 @@ def _words(model_dir: str, p: Path) -> List[dict]:
     import numpy as np
     from scipy.signal import resample_poly
 
-    from christman_sound.ear import Ear, load_model
+    from christman_voice_sdk.audio.ear import Ear, load_model
 
     if getattr(_words, "_model_dir", None) != model_dir:
         _words._model = load_model(model_dir)  # type: ignore[attr-defined]
@@ -205,9 +205,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     help="keep the bank already in --out (bank.json, frames.bin) and measure the profile again")
     args = ap.parse_args(argv)
 
-    from christman_sound.lexicon import load_lexicon, normalize_word
-    from christman_sound.dsp import get_dsp
-    from christman_sound.stitch import FrameBank
+    from christman_voice_sdk.synthesis.lexicon import load_lexicon, normalize_word
+    from christman_voice_sdk.engines.dsp import get_dsp
+    from christman_voice_sdk.synthesis.stitch import FrameBank
 
     out = Path(args.out).expanduser()
     out.mkdir(parents=True, exist_ok=True)
@@ -254,7 +254,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     sys.exit(f"Codec War's bank builder failed:\n{proc.stdout}\n{proc.stderr}")
                 print(proc.stdout.strip(), flush=True)
         else:
-            from christman_sound.frames import write_voice_bank
+            from christman_voice_sdk.synthesis.frames import write_voice_bank
             print(json.dumps(write_voice_bank(out, recordings, tokens, min_conf=args.min_conf)), flush=True)
 
     bank = FrameBank(out)
@@ -298,7 +298,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     speech = sum(u.end - u.start for u in bank.units if u.rec in prof_idx)
 
     # Praat on the recordings.
-    from christman_sound.synth import write_wav
+    from christman_voice_sdk.synthesis.synth import write_wav
 
     quality = {"jitter": [], "shimmer": [], "hnr_db": [], "cpp_db": []}
     for ri in prof_idx:
@@ -377,12 +377,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     # the recordings (the first voice built, 2026-10-28: jitter 3.56%, shimmer 13.3%, HNR
     # 7.5 dB, CPPS 7.3 dB). So the same calibration is run on stitched speech:
     # for each aperiodicity in STITCHED_APERIODICITIES the CALIBRATION_SENTENCES
-    # are spoken by the mouth itself (christman_sound.synth.synthesize) with no
+    # are spoken by the mouth itself (christman_voice_sdk.synthesis.synth.synthesize) with no
     # jitter or shimmer added (what stitched frames carry), then with the
     # difference added, and measured by the same Praat path; the one whose
     # jitter, shimmer, HNR and CPPS come closest to the recordings' is kept.
-    from christman_sound.stitch import FrameVoice, StitchRefused
-    from christman_sound.synth import synthesize
+    from christman_voice_sdk.synthesis.stitch import FrameVoice, StitchRefused
+    from christman_voice_sdk.synthesis.synth import synthesize
 
     def speak_all(tmp: Path, ap: float, jc: float, sc: float, tag: str) -> dict:
         m = {**measures, "stitched_aperiodicity": ap, "stitched_jitter_carried": jc, "stitched_shimmer_carried": sc}
@@ -424,7 +424,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             sys.exit("--measure-only: the voice.json in --out does not say what built its bank")
         bank_built_by = {**prev_cw, "bank_built": (prev.get("provenance") or {}).get("built", "unknown")}
     else:
-        cw = Path(args.codecwar).expanduser() if args.codecwar else Path("christman_sound.frames")
+        cw = Path(args.codecwar).expanduser() if args.codecwar else Path("christman_voice_sdk.synthesis.frames")
         cw_commit = subprocess.run(["git", "-C", str(cw), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip() if args.codecwar else "native"
         bank_built_by = {"path": str(cw), "commit": cw_commit or "unknown"}
     doc = {

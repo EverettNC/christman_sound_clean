@@ -11,7 +11,7 @@ profile, and prove it with numbers.
 WHAT THIS IS
 ------------
 A being's recorded phrases are its voice. This script measures them and
-writes a voice profile file, which christman_sound.voice_profile feeds into
+writes a voice profile file, which christman_voice_sdk.synthesis.voice_profile feeds into
 the sovereign synthesizer (christman_synth.c) when the being passes it as its
 voice. Every value in that file sits beside the measurements it came from.
 The profile belongs to the being and lives with it, not in this package.
@@ -23,7 +23,7 @@ text comes from each file name, after an optional --prefix:
 
 How each value is measured:
 
-  Alignment. Each recording is decoded with Vosk's recognizer through christman_sound.ear,
+  Alignment. Each recording is decoded with Vosk's recognizer through christman_voice_sdk.audio.ear,
   on vosk-model-en-us-0.22 (word times on). A recording
   whose decoded words are not exactly its file-name words is left out and
   named in the report; nothing is forced onto it. (2026-10-29: the old
@@ -31,7 +31,7 @@ How each value is measured:
   up to one 30 ms frame from run to run, measured 2026-10-28; the ear's run
   to run is not yet measured on these recordings.)
 
-  Formants. christman_sound.formants measures every recording frame by frame
+  Formants. christman_voice_sdk.tone.formants measures every recording frame by frame
   (25 ms frames, 10 ms hop, LPC on Everett's own C engine; see that file for
   every setting). Frames it could not measure carry None and are not used.
 
@@ -108,18 +108,18 @@ from typing import Dict, List, Optional, Tuple
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-sys.path.insert(0, str(Path(__file__).resolve().parent))  # build_voice_bank (_words: christman_sound.ear)
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # build_voice_bank (_words: christman_voice_sdk.audio.ear)
 
-from christman_sound.dsp import get_dsp  # noqa: E402
-from christman_sound.formants import (  # noqa: E402
+from christman_voice_sdk.engines.dsp import get_dsp  # noqa: E402
+from christman_voice_sdk.tone.formants import (  # noqa: E402
     HOP_SECONDS,
     FRAME_SECONDS,
     measure_formants,
     read_wav_mono,
 )
-from christman_sound.lexicon import load_lexicon, normalize_word  # noqa: E402
-from christman_sound.synth import render_codecwar_table, synthesize, text_to_phones  # noqa: E402
-from christman_sound.voice_profile import load_voice_profile  # noqa: E402
+from christman_voice_sdk.synthesis.lexicon import load_lexicon, normalize_word  # noqa: E402
+from christman_voice_sdk.synthesis.synth import render_codecwar_table, synthesize, text_to_phones  # noqa: E402
+from christman_voice_sdk.synthesis.voice_profile import load_voice_profile  # noqa: E402
 
 #: A vowel frame is at least this fraction of the word's loudest voiced frame
 #: (RMS, i.e. within 6 dB). Chosen starting value; reason in the docstring.
@@ -275,7 +275,7 @@ class Phrase:
 
 def align(phrases: List[Phrase], model_dir: str) -> dict:
     """
-    Word times from Vosk's recognizer through christman_sound.ear. The call is
+    Word times from Vosk's recognizer through christman_voice_sdk.audio.ear. The call is
     the one scripts/build_voice_bank.py runs (_words): each recording is
     handed to it as 16-bit PCM at the recording's own rate, the same samples
     the measurement reads, and _words resamples to the ear's 16 kHz. Times
@@ -307,7 +307,7 @@ def align(phrases: List[Phrase], model_dir: str) -> dict:
                 for w in heard
             ]
     return {
-        "engine": "christman_sound.ear (Vosk's recognizer), word times on, audio at 16 kHz",
+        "engine": "christman_voice_sdk.audio.ear (Vosk's recognizer), word times on, audio at 16 kHz",
         "christman_sound_version": _pip_version("christman-sound"),
         "model": Path(model_dir).name,
         "phrase_text": "from the file name; a phrase whose decoded words differ is left out",
@@ -336,7 +336,7 @@ def vowel_ambiguity(lex, word: str, vowels: set) -> Optional[str]:
     vowels; else why the word is left out of vowel measurement. Word times
     cannot tell which pronunciation was said ("read" r E d / r i d).
     """
-    from christman_sound.lexicon import PhoneNotMapped, map_phone
+    from christman_voice_sdk.synthesis.lexicon import PhoneNotMapped, map_phone
 
     seqs = set()
     for pron in lex.pronunciations(normalize_word(word)):
@@ -465,7 +465,7 @@ def build_profile(phrases: List[Phrase], lex, dsp, table, vowels: set) -> dict:
         "f0": {
             "median_hz": r1(statistics.median(f0s)),
             "n_voiced_frames": len(f0s),
-            "source": "median F0 of every voiced frame (christman_yin inside christman_sound.formants) "
+            "source": "median F0 of every voiced frame (christman_yin inside christman_voice_sdk.tone.formants) "
                       "over all aligned recordings",
         },
         "pitch_contour": {
@@ -666,13 +666,13 @@ def main(argv=None) -> int:
         "schema": 1,
         "what_this_is": (
             f"{args.name}'s voice, measured from its own {len(phrases)} recorded phrases, for christman_synth "
-            f"(christman_sound.voice_profile applies it). The recordings are {args.name}'s voice and no one "
+            f"(christman_voice_sdk.synthesis.voice_profile applies it). The recordings are {args.name}'s voice and no one "
             "else's. Every value sits beside the measurements it came from."
         ),
         "applied": (
             "F0 median and pitch contour -> per-phone pitch; rate -> christman_synth's rate; each measured "
             "vowel's F1, F2, F3 -> that vowel's formant targets. Not applied, and why: the measured "
-            "bandwidths (christman_sound.formants says LPC bandwidths read far too narrow when F1 sits on "
+            "bandwidths (christman_voice_sdk.tone.formants says LPC bandwidths read far too narrow when F1 sits on "
             "a harmonic, and a too-narrow bandwidth would make the synthesizer ring), consonants (their "
             "places inside a word cannot be told apart from word times alone), and vowels in "
             "not_measured. Those keep Codec War's table values."
@@ -694,7 +694,7 @@ def main(argv=None) -> int:
             "aligner": aligner,
             "lexicon": {"file": "vosk-model-en-us-0.22/graph/phones/align_lexicon.txt",
                         "sha256": sha256(Path(args.lexicon).expanduser()), "pronunciation": "first in file order"},
-            "formant_reader": {"module": "christman_sound.formants", "frame_s": FRAME_SECONDS,
+            "formant_reader": {"module": "christman_voice_sdk.tone.formants", "frame_s": FRAME_SECONDS,
                                "hop_s": HOP_SECONDS, "vowel_rms_ratio": VOWEL_RMS_RATIO},
             "script": "scripts/measure_voice.py",
         },

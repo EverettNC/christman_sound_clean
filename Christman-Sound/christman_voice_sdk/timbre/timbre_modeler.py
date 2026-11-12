@@ -17,7 +17,7 @@ have broken it with no test to say so. Now:
   jitter, shimmer, HNR
                voice_measure.voice_quality (Praat, standard voice-report
                settings), under its own keys and units
-  formants     christman_sound.formants.measure_formants
+  formants     christman_voice_sdk.tone.formants.measure_formants
   breath       Praat's CPPS (measure_cpp, below; no other module measures it)
 
 measure_voice_quality returns jitter_local_pct, shimmer_local_pct, hnr_db and
@@ -32,7 +32,7 @@ module returned fake numbers on every recording:
 1. It loaded the C library from christman_voice_sdk/ or the repository root,
    but scripts/build_dsp.py writes it into christman_sound/. With the
    standard build every F0 and every formant came back 0.0. It now reaches
-   the library through christman_sound.dsp.get_dsp(), the one loader, and a
+   the library through christman_voice_sdk.engines.dsp.get_dsp(), the one loader, and a
    missing library raises DSPUnavailable instead of returning empty arrays.
 2. `_extract_voice_quality` imported "tone.tonescore_engine", a path that
    does not exist, so jitter, shimmer and HNR raised on every recording and
@@ -71,7 +71,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from christman_sound.formants import AudioTooShortError, measure_formants
+from christman_voice_sdk.tone.formants import AudioTooShortError, measure_formants
 
 from .logger import get_logger
 from ..audio.audio_processor import AudioSegment

@@ -4,7 +4,7 @@
 # ==============================================================================
 """
 christman_voice_sdk.tone.voice_measure: the one pitch tracker (christman_yin
-through christman_sound.dsp) and the one jitter, shimmer and HNR (Praat).
+through christman_voice_sdk.engines.dsp) and the one jitter, shimmer and HNR (Praat).
 
 Every measurement is checked against a signal whose answer is known before it
 is measured, and against 26 verified recorded phrases (a being's voice, 24 kHz;
@@ -28,7 +28,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from christman_sound.dsp import ChristmanDSP  # noqa: E402
+from christman_voice_sdk.engines.dsp import ChristmanDSP  # noqa: E402
 from christman_voice_sdk.tone import voice_measure as vm  # noqa: E402
 
 # 2026-10-30: these measure through Praat; without it they are NOT RUN, not failed.
@@ -230,7 +230,7 @@ LANE2_MEASURING_FILES = [
 
 
 def test_no_measuring_file_loads_the_c_library_itself():
-    """christman_sound.dsp.get_dsp() is the one loader."""
+    """christman_voice_sdk.engines.dsp.get_dsp() is the one loader."""
     for path in LANE2_MEASURING_FILES:
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
@@ -257,6 +257,8 @@ def test_tone_analyzer_is_gone_and_each_class_name_is_defined_once():
     assert not (ROOT / "christman_voice_sdk" / "tone" / "tone_analyzer.py").exists()
     seen = {}
     for path in sorted((ROOT / "christman_voice_sdk").rglob("*.py")):
+        if path == ROOT / "christman_voice_sdk" / "core.py":
+            continue  # kept for the record, never touched, never wired
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.ClassDef) and node.name in {
@@ -290,7 +292,7 @@ def _phrases():
 def test_verified_phrases_pitch_matches_the_measured_profile(dsp):
     """
     The profile's F0 median, 149.3 Hz over 932 frames, was measured
-    with christman_yin through christman_sound.formants (10 kHz, loud voiced
+    with christman_yin through christman_voice_sdk.tone.formants (10 kHz, loud voiced
     frames inside Vosk's words). Read here at the files' own 24 kHz over every
     voiced frame, the median lands within 1 Hz of it: 149.1 Hz over 940.
     """

@@ -12,7 +12,7 @@ own recordings) and hold:
   * christman_synth_voiced with Codec War's own rows is christman_synth,
     sample for sample: the new input changes nothing unless it is used;
   * the measured vowels reach the output: the synthesized vowel, measured
-    with christman_sound.formants, sits at the voice's measured F1-F3 and
+    with christman_voice_sdk.tone.formants, sits at the voice's measured F1-F3 and
     not at Codec War's;
   * no voice, no sound: synthesize and speak refuse without the caller's
     voice, and the package ships no profile of its own;
@@ -20,7 +20,7 @@ own recordings) and hold:
   * the refusals: bad formant rows (code 9), a voice plus f0/rate, a
     profile missing a value;
   * the measurement itself (scripts/measure_voice.py), run on a being's
-    recordings with christman_sound.ear, writes every value as the median of the
+    recordings with christman_voice_sdk.audio.ear, writes every value as the median of the
     measurements beside it. That run needs the recordings and the model
     folder the ear reads; without them it reports NOT RUN.
 
@@ -43,11 +43,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from vosk_models import require_full_model  # noqa: E402
 sys.path.insert(0, str(ROOT))
 
-from christman_sound.dsp import ChristmanDSP, SynthRefused  # noqa: E402
-from christman_sound.formants import measure_formants  # noqa: E402
-from christman_sound import synth as cs_synth  # noqa: E402
-from christman_sound import voice_profile as vp  # noqa: E402
-from christman_sound.voice_profile import VoiceProfileError, load_voice_profile  # noqa: E402
+from christman_voice_sdk.engines.dsp import ChristmanDSP, SynthRefused  # noqa: E402
+from christman_voice_sdk.tone.formants import measure_formants  # noqa: E402
+from christman_voice_sdk.synthesis import synth as cs_synth  # noqa: E402
+from christman_voice_sdk.synthesis import voice_profile as vp  # noqa: E402
+from christman_voice_sdk.synthesis.voice_profile import VoiceProfileError, load_voice_profile  # noqa: E402
 from voice_fixture import TEST_VOICE_NAME, TEST_VOICE_PROFILE, load_test_voice, write_test_voice  # noqa: E402
 
 
@@ -107,7 +107,7 @@ def test_bad_formant_row_is_refused_with_code_9(dsp):
 
 
 def _vowel_medians(dsp, voice):
-    """Synthesize a held UW and measure it with christman_sound.formants."""
+    """Synthesize a held UW and measure it with christman_voice_sdk.tone.formants."""
     phones = [("SIL", 0.05), ("UW", 0.5), ("SIL", 0.05)]
     if voice is None:
         r = cs_synth.render_codecwar_table(phones=phones, f0=TEST_VOICE_PROFILE["f0"]["median_hz"], rate=1.0, engine=dsp)
@@ -169,7 +169,7 @@ def test_no_voice_is_refused(dsp, tmp_path):
 
 
 def test_the_package_ships_no_voice():
-    assert not list((ROOT / "christman_sound").glob("*.json"))
+    assert not list((ROOT / "christman_voice_sdk" / "synthesis").glob("*.json"))
     loaders = [n for n in dir(vp) if n.startswith("load_")]
     assert loaders == ["load_voice_profile"], loaders  # one loader, and it takes the caller's path
     assert vp.__all__ == ["VoiceProfileError", "VoiceProfile", "load_voice_profile"]
@@ -265,7 +265,7 @@ def _check_medians(profile: dict) -> None:
 def test_measurement_from_a_beings_recordings(tmp_path):
     """
     Runs scripts/measure_voice.py on a being's recordings with
-    christman_sound.ear (Vosk's recognizer, 2026-11-05), loads
+    christman_voice_sdk.audio.ear (Vosk's recognizer, 2026-11-05), loads
     what it wrote, and checks every value against the
     measurements written beside it. With CHRISTMAN_VOICE_REFERENCE_PROFILE
     (that being's earlier measured profile) it also compares every applied

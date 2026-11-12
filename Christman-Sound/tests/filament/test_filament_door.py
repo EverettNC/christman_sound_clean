@@ -27,7 +27,7 @@ import pytest
 
 from filament_helpers import ROOT, ask, running_door, wav_of
 
-PAGES_DIR = ROOT / "christman_sound" / "filament" / "pages"
+PAGES_DIR = ROOT / "christman_voice_sdk" / "audio" / "filament" / "pages"
 #: sha256 of ear/filament.html at EverettNC/THEFILAMENT 568d3cf. Frozen by
 #: Everett (FROZEN.md): the package ships it byte for byte.
 FROZEN_SHA256 = "581c60f16f5137a1f46abc172f17d8efaddc122a0c5582573d6299d2c622e7cb"
@@ -44,7 +44,7 @@ ROUTES = {
 @pytest.fixture
 def server(tmp_path, monkeypatch):
     monkeypatch.setenv("FILAMENT_HOME", str(tmp_path / "filament"))
-    from christman_sound.filament import server as srv
+    from christman_voice_sdk.audio.filament import server as srv
 
     return srv
 
@@ -268,5 +268,5 @@ def test_the_package_declares_the_console_script_and_the_pages():
     except ModuleNotFoundError:
         pytest.skip("not run: tomllib needs Python 3.11 or later")
     meta = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    assert meta["project"]["scripts"]["christman-filament"] == "christman_sound.filament.server:main"
-    assert meta["tool"]["setuptools"]["package-data"]["christman_sound.filament"] == ["pages/*"]
+    assert meta["project"]["scripts"]["christman-filament"] == "christman_voice_sdk.audio.filament.server:main"
+    assert meta["tool"]["setuptools"]["package-data"]["christman_voice_sdk.audio.filament"] == ["pages/*"]

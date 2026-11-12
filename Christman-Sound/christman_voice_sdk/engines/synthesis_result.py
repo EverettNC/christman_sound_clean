@@ -11,8 +11,8 @@ no voice to speak with. It carries `available = False` and the real reason,
 so a caller can show the client a plain notice. It is never a plausible
 default and never silence pretending to be success.
 
-`save()` writes an `array.array` (what christman_sound.synth hands back) with
-christman_sound.synth.write_wav: stdlib `wave`, 16-bit PCM, refuses to clip.
+`save()` writes an `array.array` (what christman_voice_sdk.synthesis.synth hands back) with
+christman_voice_sdk.synthesis.synth.write_wav: stdlib `wave`, 16-bit PCM, refuses to clip.
 The voice is C plus the Python standard library, so numpy is named for type
 checkers only. Any other audio object (a numpy array from an older caller)
 is written with soundfile, as before.
@@ -33,9 +33,9 @@ if TYPE_CHECKING:  # named for type checkers only; the sovereign path never impo
 #: is wired in (it is being built on the claude/sovereign-synth branch).
 # 2026-10-30: this said "sovereign synthesizer not wired yet", which stopped
 # being true when christman_voice_sdk.synthesis.voice_synthesis was wired to
-# christman_sound.synth. The name is kept so callers still import it.
+# christman_voice_sdk.synthesis.synth. The name is kept so callers still import it.
 SOVEREIGN_NOT_WIRED = ("this path is retired: speak through christman_voice_sdk.synthesis.voice_synthesis, "
-                       "which renders through christman_sound.synth")
+                       "which renders through christman_voice_sdk.synthesis.synth")
 
 
 class DegradedSynthesisError(RuntimeError):
@@ -83,7 +83,7 @@ class SynthesisResult:
             # christman_synth's own output: standard library only (2026-10-18).
             if len(self.audio) == 0:
                 raise ValueError("No audio data to save.")
-            from christman_sound.synth import write_wav
+            from christman_voice_sdk.synthesis.synth import write_wav
             write_wav(path, self.audio, self.sample_rate)
             return
         if self.audio is None or self.audio.size == 0:

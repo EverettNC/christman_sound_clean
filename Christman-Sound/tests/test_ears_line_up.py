@@ -9,7 +9,7 @@ gave it to one recognizer as one piece with half a second of silence after;
 the SDK's engine, which the word-ear receiver sits on, closed the utterance
 at every pause and added no silence. On one 234-second recording, on the same
 model, they differed on 13 words of about 685. Both now hear a tape through
-christman_sound.ear.Ear.hear_tape.
+christman_voice_sdk.audio.ear.Ear.hear_tape.
 
 The first checks need no model: they hold Ear.hear_tape to what it does with
 the recognizer, and hold both callers to it. The last two hear real speech
@@ -34,8 +34,8 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from christman_sound.ear import hear as hear_mod  # noqa: E402
-from christman_sound.ear.hear import Ear, Heard, Word  # noqa: E402
+from christman_voice_sdk.audio.ear import hear as hear_mod  # noqa: E402
+from christman_voice_sdk.audio.ear.hear import Ear, Heard, Word  # noqa: E402
 
 MODEL = Path(os.environ.get("EAR_MODEL") or Path.home() / "models" / "vosk-model-en-us-0.22")
 TAPES = Path(os.environ.get("EAR_GOLDEN") or Path.home() / "claude-work" / "lane8" / "golden" / "lgraph") / "pcm"
@@ -115,8 +115,8 @@ class _TapeEar:
 
 
 def test_the_filament_stt_and_the_sdk_engine_both_hear_through_hear_tape(monkeypatch):
-    import christman_sound.ear as ear_pkg
-    from christman_sound.filament import server
+    import christman_voice_sdk.audio.ear as ear_pkg
+    from christman_voice_sdk.audio.filament import server
     from christman_voice_sdk.audio import speech_recognition_engine as sre
 
     pcm = b"\x10\x00" * 3000
@@ -174,9 +174,9 @@ def _wav(pcm: bytes) -> bytes:
 
 def _both_doors(tapes: list[Path]):
     """Each tape's words at the Filament's /stt job and at the word-ear receiver, on one model."""
-    from christman_sound.ear import load_model
-    from christman_sound.ear.hear import _vosk
-    from christman_sound.filament import server
+    from christman_voice_sdk.audio.ear import load_model
+    from christman_voice_sdk.audio.ear.hear import _vosk
+    from christman_voice_sdk.audio.filament import server
     from christman_voice_sdk.audio.speech_recognition_engine import EarBackend, SpeechRecognitionEngine
     from christman_voice_sdk.audio.word_ear_receiver import WordEarReceiver
 

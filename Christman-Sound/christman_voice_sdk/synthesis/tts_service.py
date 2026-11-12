@@ -8,13 +8,13 @@ profile file or frame voice folder, passed as an argument
 local_text_to_speech). There is no default voice. With none, /generate
 answers 503 with the reason and /status reports synthesis unavailable.
 
-Rendering is voice_synthesis (christman_sound.synth, Christman-Sound's own
+Rendering is voice_synthesis (christman_voice_sdk.synthesis.synth, Christman-Sound's own
 renderer); no outside speech engine and no cloud service (gTTS was removed:
 it shipped the text of the person speaking to Google).
 
 The content-hash cache key carries the voice that made the file: the engine
 name, the fingerprint of the caller's voice (the SHA-256 of the passed
-profile file; christman_sound.synth.voice_fingerprint), and the lexicon
+profile file; christman_voice_sdk.synthesis.synth.voice_fingerprint), and the lexicon
 file's identity. So audio made in another voice, in an earlier measurement
 of this one, from another lexicon, or by any earlier renderer is never served
 as this voice. The emotion parameters are part of the key too (2026-10-11:
@@ -50,8 +50,8 @@ from .voice_synthesis import (
 from ..engines.synthesis_result import SynthesisUnavailable
 
 try:
-    from christman_sound.lexicon import LEXICON_ENV, LexiconFormatError, LexiconUnavailable
-except Exception:  # christman_sound not importable: voice_synthesis already reports why
+    from christman_voice_sdk.synthesis.lexicon import LEXICON_ENV, LexiconFormatError, LexiconUnavailable
+except Exception:  # the SDK's lexicon module is not importable: voice_synthesis already reports why
     LEXICON_ENV = "CHRISTMAN_LEXICON_PATH"
     class LexiconUnavailable(LexiconError): ...  # type: ignore[no-redef]
     class LexiconFormatError(LexiconError): ...  # type: ignore[no-redef]
@@ -154,7 +154,7 @@ def index():
     local_html = Path(_static_dir("index.html"))
     if local_html.is_file():
         return send_file(str(local_html))
-    pkg_html = Path(__file__).resolve().parent.parent.parent / "christman_sound" / "static" / "index.html"
+    pkg_html = Path(__file__).resolve().parent.parent.parent / "voice_creation_center" / "static" / "index.html"
     return send_file(str(pkg_html))
 
 @app.route("/generate", methods=["POST"])

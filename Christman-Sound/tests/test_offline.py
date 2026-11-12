@@ -10,7 +10,7 @@ outside engine, no browser speech, no downloads. A model is loaded from a
 local path the caller gives, or the code raises with the reason.
 
 The scan reads the real source with the `ast` module; it imports nothing it
-scans. It covers christman_voice_sdk/, christman_sound/, scripts/ and
+scans. It covers christman_voice_sdk/, the Center's booth and app, scripts/ and
 christman_ocr_shared.py. It fails on:
   - `from_pretrained(...)` without `local_files_only=True`
   - hf_hub_download, snapshot_download, cached_download, urlretrieve,
@@ -21,7 +21,7 @@ christman_ocr_shared.py. It fails on:
     (det_model_dir=, rec_model_dir=, cls_model_dir=): it fetches any model
     it is not given on first use
 
-christman_sound/core.py is outside the scan: Everett's standing ruling is
+christman_voice_sdk/core.py is outside the scan: Everett's standing ruling is
 that it is never touched and never wired. It still calls from_pretrained
 (core.py:371-372); nothing imports core.py, so that line never runs.
 
@@ -74,9 +74,12 @@ PADDLE_LOCAL_KEYWORDS = {"det_model_dir", "rec_model_dir", "cls_model_dir"}
 
 def _scanned_files() -> list[Path]:
     files = [ROOT / "christman_ocr_shared.py"]
-    for pkg in ("christman_voice_sdk", "christman_sound", "scripts"):
+    for pkg in ("christman_voice_sdk", "scripts"):
         files.extend(sorted((ROOT / pkg).rglob("*.py")))
-    core = ROOT / "christman_sound" / "core.py"  # never touched, never wired
+    # The Center's booth and its app were in the folder Everett deleted on
+    # 2026-11-12 and were scanned there; they are scanned where they live now.
+    files.extend([ROOT / "voice_creation_center" / "booth.py", ROOT / "voice_creation_center" / "app.py"])
+    core = ROOT / "christman_voice_sdk" / "core.py"  # never touched, never wired
     return [f for f in files if f.is_file() and f != core]
 
 

@@ -6,7 +6,7 @@
 
 Brought from THEFILAMENT ear/tests (test_live.py, test_one_model.py,
 test_sessions.py), now importing the package. Every check runs Vosk's
-recognizer on the full vosk-model-en-us-0.22 through christman_sound.ear, on
+recognizer on the full vosk-model-en-us-0.22 through christman_voice_sdk.audio.ear, on
 spoken phrases from the folder named by $FILAMENT_TEST_AUDIO (see
 filament_helpers.py). Without the model or the recordings, each test is NOT
 RUN and says which is missing. The HTTP checks use a port the system hands
@@ -111,7 +111,7 @@ def test_door_process_never_loads_the_model(ear, tmp_path):
     tape.write_bytes(pcm("help"))
     code = (
         "import json, multiprocessing as mp, sys\n"
-        "from christman_sound.filament import server\n"
+        "from christman_voice_sdk.audio.filament import server\n"
         "out = server.hear(open(sys.argv[1], 'rb').read())\n"
         "print(json.dumps({'ok': out['ok'], 'text': out.get('text'),"
         " 'raw': [w['raw'] for w in out.get('words', [])],"

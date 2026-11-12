@@ -11,7 +11,7 @@ Re-measure a voice profile's vowels from the voice's own frame bank.
 
 The frame voice folder is the one scripts/build_voice_bank.py built from the
 same recordings (bank.json: every phone the ear aligned in them). The profile's
-vowels and glides are replaced by christman_sound.voice_creation_center.
+vowels and glides are replaced by voice_creation_center.booth.
 measure_vowels_from_frame_bank (see there for how, and why: the word-split
 measurement put AY's onset on the consonant before it). A vowel the bank did
 not measure in at least BANK_VOWEL_MIN_UNITS units is left out, so the
@@ -28,11 +28,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from christman_sound.voice_creation_center import (  # noqa: E402
+from voice_creation_center.booth import (  # noqa: E402
     BANK_VOWEL_MIN_UNITS,
     measure_vowels_from_frame_bank,
 )
-from christman_sound.voice_profile import load_voice_profile  # noqa: E402
+from christman_voice_sdk.synthesis.voice_profile import load_voice_profile  # noqa: E402
 
 
 def main(argv: list) -> int:
@@ -53,7 +53,7 @@ def main(argv: list) -> int:
     profile["vowels_measured_from_bank"] = {
         "bank": m["bank"],
         "when": datetime.datetime.now().isoformat(timespec="seconds"),
-        "by": "scripts/measure_vowels_from_bank.py (christman_sound.voice_creation_center.measure_vowels_from_frame_bank)",
+        "by": "scripts/measure_vowels_from_bank.py (voice_creation_center.booth.measure_vowels_from_frame_bank)",
         "units_not_measured": len(m["units_not_measured"]),
         "vowels_before": before,
     }

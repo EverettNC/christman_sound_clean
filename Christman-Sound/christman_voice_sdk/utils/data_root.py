@@ -10,7 +10,7 @@ followed by the voicepacks, the music memory and the Voice Creation Center.
 Four places did not follow it and wrote into ~/.christman_ai whatever the
 setting said: the log files (utils/logger.py), the voice profiles
 (integration/voice_capture_client.py), the voice cache
-(synthesis/voice_synthesis.py, christman_sound/app.py) and the audio cache
+(synthesis/voice_synthesis.py, voice_creation_center/app.py) and the audio cache
 (audio/enhanced_speech_recognition.py). On Everett's Mac a test run that had
 named another folder still added lines to his own logs. The rule now lives
 here, with no dependency of its own, so the logger (which every module

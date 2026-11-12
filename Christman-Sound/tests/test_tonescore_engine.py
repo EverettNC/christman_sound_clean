@@ -29,8 +29,8 @@ from scipy.io import wavfile
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-import christman_sound.dsp as cs_dsp  # noqa: E402
-from christman_sound.dsp import ChristmanDSP  # noqa: E402
+import christman_voice_sdk.engines.dsp as cs_dsp  # noqa: E402
+from christman_voice_sdk.engines.dsp import ChristmanDSP  # noqa: E402
 from christman_voice_sdk.tone import tonescore_engine as tse  # noqa: E402
 from christman_voice_sdk.tone import voice_measure as vm  # noqa: E402
 

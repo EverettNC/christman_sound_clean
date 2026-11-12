@@ -108,8 +108,8 @@ def test_a_path_passed_in_wins_over_both(home, tmp_path, monkeypatch):
 
 
 def test_the_engine_and_the_filament_find_the_same_folder(home):
-    from christman_sound.ear import discover_vosk_model
-    from christman_sound.filament import server
+    from christman_voice_sdk.audio.ear import discover_vosk_model
+    from christman_voice_sdk.audio.filament import server
 
     model = _folder(home / "models" / FULL)
     assert str(discover_vosk_model()) == model == server.resolve_model_path() == sre.EarBackend().model_path

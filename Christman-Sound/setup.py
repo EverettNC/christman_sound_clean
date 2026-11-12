@@ -12,7 +12,7 @@
 # no arguments. pyproject.toml's [tool.setuptools.cmdclass] adds the step
 # (scripts/pip_build.py), and scripts/build_dsp.py compiles christman_dsp.c,
 # christman_synth.c and christman_vocoder.c into
-# christman_sound/christman_dsp.so, the file christman_sound/dsp.py loads.
+# christman_voice_sdk/engines/christman_dsp.so, the file christman_voice_sdk/engines/dsp.py loads.
 #
 # 2026-10-17: pyttsx3 was removed (Everett's ruling cuts every outside speech
 # engine). pygame was removed on 2026-10-13.

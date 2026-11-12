@@ -40,15 +40,15 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from christman_sound.dsp import ChristmanDSP  # noqa: E402
-from christman_sound.ear.porch import (  # noqa: E402
+from christman_voice_sdk.engines.dsp import ChristmanDSP  # noqa: E402
+from christman_voice_sdk.audio.ear.porch import (  # noqa: E402
     DIALECT_KEEP,
     FAMILY_NAMES,
     MOUTH_ASKS_MEANING,
     MOUTH_COOPERATION,
     MOUTH_SAYS,
 )
-from christman_sound.lexicon import (  # noqa: E402
+from christman_voice_sdk.synthesis.lexicon import (  # noqa: E402
     Lexicon,
     PhoneNotMapped,
     PronunciationNotInLexicon,
@@ -56,7 +56,7 @@ from christman_sound.lexicon import (  # noqa: E402
     load_lexicon,
     parse_phones,
 )
-from christman_sound.synth import (  # noqa: E402
+from christman_voice_sdk.synthesis.synth import (  # noqa: E402
     Pronouncer,
     render_codecwar_table,
     synthesize,
@@ -476,7 +476,7 @@ def _frame_voice():
                     "scripts/build_voice_bank.py), and CHRISTMAN_LEXICON_PATH; runs on Everett's Mac")
     if not (Path(path).expanduser() / "voice.json").is_file():
         pytest.skip(f"not run: no frame voice at {path}")
-    from christman_sound.stitch import load_frame_voice
+    from christman_voice_sdk.synthesis.stitch import load_frame_voice
 
     return load_frame_voice(Path(path).expanduser())
 

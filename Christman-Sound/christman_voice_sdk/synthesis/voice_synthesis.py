@@ -11,9 +11,9 @@ the being's own recordings by scripts/build_voice_bank.py) or a loaded
 FrameVoice. With none, nothing is voiced and NothingVoiced says so; nothing
 falls back to another voice.
 
-Free text -> christman_sound.lexicon (Everett's Vosk align_lexicon, at the
-path given to the engine or in $CHRISTMAN_LEXICON_PATH) -> christman_sound.
-synth.synthesize in the caller's voice (christman_synth_clear for a voice
+Free text -> christman_voice_sdk.synthesis.lexicon (Everett's Vosk align_lexicon, at the
+path given to the engine or in $CHRISTMAN_LEXICON_PATH) -> christman_voice_sdk.
+synthesis.synth.synthesize in the caller's voice (christman_synth_clear for a voice
 profile, christman_vocoder for a frame voice) -> float samples -> a WAV in
 the cache -> christman_play when playback is asked for. The engine name in
 every result, in `last_engine`, is "christman"; `last_voice` is the name of
@@ -22,7 +22,7 @@ the caller's voice and `last_voice_fingerprint` its identity.
 The controls reach a frame voice by name, as keywords of
 generate_speech_audio: cadence, breath, jitter, shimmer, timbre,
 articulation, intonation, prosody, resonance, affect, rate, f0
-(christman_sound.synth.synthesize says what each does). Each is applied and
+(christman_voice_sdk.synthesis.synth.synthesize says what each does). Each is applied and
 listed in `last_applied` with its value, or the call raises StitchRefused
 with the reason; a keyword that is not a control is refused too. A dict of
 control names in emotion_params is applied as controls, and any other key is
@@ -102,7 +102,7 @@ from ..engines.synthesis_result import (
 )
 
 try:
-    from christman_sound.dsp import get_dsp, DSPUnavailable, PlaybackUnavailable
+    from christman_voice_sdk.engines.dsp import get_dsp, DSPUnavailable, PlaybackUnavailable
     _DSP_IMPORT_ERROR: Optional[str] = None
 except Exception as _dsp_exc:  # the engine package is not importable at all
     get_dsp = None  # type: ignore[assignment]
@@ -111,19 +111,19 @@ except Exception as _dsp_exc:  # the engine package is not importable at all
     _DSP_IMPORT_ERROR = f"{type(_dsp_exc).__name__}: {_dsp_exc}"
 
 try:
-    from christman_sound.lexicon import LexiconError, load_lexicon
-    from christman_sound.synth import (
+    from christman_voice_sdk.synthesis.lexicon import LexiconError, load_lexicon
+    from christman_voice_sdk.synthesis.synth import (
         NothingToSay,
         SynthRefused,
         SynthUnavailable,
         UnknownPhone,
         synthesize as christman_synthesize,
     )
-    from christman_sound.synth import NoVoice, resolve_voice as _resolve_voice, voice_fingerprint
-    from christman_sound.voice_profile import VoiceProfile, VoiceProfileError
-    from christman_sound.stitch import FrameVoice, FrameVoiceUnavailable, StitchRefused
+    from christman_voice_sdk.synthesis.synth import NoVoice, resolve_voice as _resolve_voice, voice_fingerprint
+    from christman_voice_sdk.synthesis.voice_profile import VoiceProfile, VoiceProfileError
+    from christman_voice_sdk.synthesis.stitch import FrameVoice, FrameVoiceUnavailable, StitchRefused
     _SYNTH_IMPORT_ERROR: Optional[str] = None
-except Exception as _synth_exc:  # christman_sound itself is not importable
+except Exception as _synth_exc:  # the SDK's synthesizer modules are not importable
     christman_synthesize = None  # type: ignore[assignment]
     load_lexicon = None  # type: ignore[assignment]
     _resolve_voice = None  # type: ignore[assignment]
@@ -154,7 +154,7 @@ _SURFACE_UNCHANGED = (LexiconError, NothingToSay, UnknownPhone, SynthRefused, St
 #: Voices loaded from a path, kept so a path is read once.
 _loaded_voices: Dict[str, object] = {}
 
-#: The controls the mouth passes to a frame voice (christman_sound.synth.synthesize's keywords).
+#: The controls the mouth passes to a frame voice (christman_voice_sdk.synthesis.synth.synthesize's keywords).
 CONTROL_KEYWORDS = ("cadence", "breath", "jitter", "shimmer", "timbre", "articulation", "intonation", "prosody",
                     "resonance", "affect", "rate", "f0")
 
@@ -168,7 +168,7 @@ def resolve_voice(voice):
     """
     where = "voice_synthesis.resolve_voice"
     if _resolve_voice is None:
-        raise SynthesisUnavailable(f"christman_sound not importable: {_SYNTH_IMPORT_ERROR}", where=where)
+        raise SynthesisUnavailable(f"the SDK's synthesizer modules are not importable: {_SYNTH_IMPORT_ERROR}", where=where)
     if voice is None:
         raise SynthesisUnavailable(
             "no voice given: the caller passes its own voice (voice=<voice profile file or frame voice folder>, "
@@ -194,7 +194,7 @@ DEFAULT_CACHE_DIR = Path(os.getenv("CHRISTMAN_VOICE_CACHE") or (sdk_data_root() 
 def _playback_readiness() -> tuple:
     """(ready, reason). Ready only when the Christman engine is loaded and has a backend."""
     if get_dsp is None:
-        return False, f"christman_sound.dsp not importable: {_DSP_IMPORT_ERROR}"
+        return False, f"christman_voice_sdk.engines.dsp not importable: {_DSP_IMPORT_ERROR}"
     dsp = get_dsp()
     if not dsp.available:
         return False, dsp.error or "christman_dsp not loaded"
@@ -217,9 +217,9 @@ def synthesis_readiness(lexicon_path: Optional[str] = None, voice=None) -> tuple
     piece is missing.
     """
     if christman_synthesize is None:
-        return False, f"christman_sound.synth not importable: {_SYNTH_IMPORT_ERROR}"
+        return False, f"christman_voice_sdk.synthesis.synth not importable: {_SYNTH_IMPORT_ERROR}"
     if get_dsp is None:
-        return False, f"christman_sound.dsp not importable: {_DSP_IMPORT_ERROR}"
+        return False, f"christman_voice_sdk.engines.dsp not importable: {_DSP_IMPORT_ERROR}"
     dsp = get_dsp()
     if not dsp.available:
         return False, dsp.error or "christman_dsp not loaded"
@@ -390,7 +390,7 @@ class SpeechSynthesisEngine:
         self.last_emotion_unapplied: Optional[Dict] = None
         #: The name of the caller's voice the last audio was made in, or None.
         self.last_voice: Optional[str] = None
-        #: The identity of that voice (christman_sound.synth.voice_fingerprint).
+        #: The identity of that voice (christman_voice_sdk.synthesis.synth.voice_fingerprint).
         self.last_voice_fingerprint: Optional[str] = None
         self.reference_audio = Path(reference_audio) if reference_audio else None
 
@@ -414,17 +414,17 @@ class SpeechSynthesisEngine:
     def _render(self, text: str, emotion_params: Optional[Dict], language: str, voice=None,
                 controls: Optional[Dict] = None, pronunciations: Optional[Dict] = None) -> SynthesisResult:
         """
-        The one place audio is made from text: lexicon -> christman_sound.
-        synth -> samples, in the caller's voice (`voice`, else the engine's).
+        The one place audio is made from text: lexicon -> christman_voice_sdk.
+        synthesis.synth -> samples, in the caller's voice (`voice`, else the engine's).
         Lexicon and synthesizer refusals are raised unchanged (see
         _SURFACE_UNCHANGED). No voice, a missing engine or an unreadable voice
         raises SynthesisUnavailable with the reason.
         """
         where = "SpeechSynthesisEngine._render"
         if christman_synthesize is None:
-            raise SynthesisUnavailable(f"christman_sound.synth not importable: {_SYNTH_IMPORT_ERROR}", where=where)
+            raise SynthesisUnavailable(f"christman_voice_sdk.synthesis.synth not importable: {_SYNTH_IMPORT_ERROR}", where=where)
         if get_dsp is None:
-            raise SynthesisUnavailable(f"christman_sound.dsp not importable: {_DSP_IMPORT_ERROR}", where=where)
+            raise SynthesisUnavailable(f"christman_voice_sdk.engines.dsp not importable: {_DSP_IMPORT_ERROR}", where=where)
         if not _is_english(language):
             raise SynthesisUnavailable(
                 f"the lexicon is English (vosk-model-en-us-0.22); there is none for language {language!r}",
@@ -496,7 +496,7 @@ class SpeechSynthesisEngine:
 
         `pronunciations` (2026-11-05): the caller's own words, word -> phones
         in the lexicon's alphabet. This is how a being's names are said; the
-        mouth (christman_sound.synth) took them and this engine did not pass
+        mouth (christman_voice_sdk.synthesis.synth) took them and this engine did not pass
         them on, so a name was refused as not in the lexicon.
 
         The mouth speaks what it is given, the being's reply or the client's

@@ -154,7 +154,7 @@ def test_the_voice_cache_follows_the_sdk_folder(tmp_path):
     code = """
 import json
 from christman_voice_sdk.synthesis import voice_synthesis as vs
-from christman_sound import app
+from voice_creation_center import app
 print(json.dumps({"sdk": str(vs.DEFAULT_CACHE_DIR), "app": str(app._audio_cache_dir())}))
 """
     got = _child(code, tmp_path, CHRISTMAN_AI_HOME=str(tmp_path / "chosen"))
@@ -172,12 +172,12 @@ def test_the_app_lists_frame_voices_from_the_sdk_folder(tmp_path):
     (voice / "voice.json").write_text("{}", encoding="utf-8")
     code = """
 import json
-from christman_sound import app
+from voice_creation_center import app
 print(json.dumps({"root": str(app._sdk_data_root())}))
 """
     got = _child(code, tmp_path, CHRISTMAN_AI_HOME=str(tmp_path / "chosen"))
     assert got["root"] == str(tmp_path / "chosen")
-    source = (ROOT / "christman_sound" / "app.py").read_text(encoding="utf-8")
+    source = (ROOT / "voice_creation_center" / "app.py").read_text(encoding="utf-8")
     assert 'voices_dir = _sdk_data_root() / "voices"' in source
 
 
@@ -211,9 +211,9 @@ def test_one_copy_of_the_rule():
     builds_it = re.compile(r"""(home\(\)|expanduser\(["']~["']\))[^#\n]*["']\.christman_ai["']""")
     allowed = {ROOT / "christman_voice_sdk" / "utils" / "data_root.py",
                ROOT / "voice_creation_center" / "vcc_paths.py",
-               ROOT / "christman_sound" / "core.py"}
+               ROOT / "christman_voice_sdk" / "core.py"}
     hits = []
-    for package in ("christman_voice_sdk", "christman_sound", "voice_creation_center"):
+    for package in ("christman_voice_sdk", "voice_creation_center"):
         for path in sorted((ROOT / package).rglob("*.py")):
             if path in allowed:
                 continue
@@ -231,7 +231,7 @@ def test_one_copy_of_the_rule():
 
 def test_this_test_run_writes_in_a_folder_made_for_it():
     import conftest
-    from christman_sound.ear.board import filament_root
+    from christman_voice_sdk.audio.ear.board import filament_root
     from christman_voice_sdk.utils.data_root import sdk_data_root
     from christman_voice_sdk.utils.logger import default_log_dir
 

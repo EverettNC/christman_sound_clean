@@ -19,7 +19,7 @@ the real files:
 - cryptography is the "crypto" extra, and christman_ocr_shared.py imports
   with the base dependencies.
 
-christman_sound/core.py is outside the scan: Everett's standing ruling is that
+christman_voice_sdk/core.py is outside the scan: Everett's standing ruling is that
 it is never touched and never wired.
 """
 
@@ -50,7 +50,7 @@ DIST_FOR_IMPORT = {
 }
 #: First-party names, including the bare fallback names some modules try
 #: after their package-relative import fails.
-FIRST_PARTY = {"christman_voice_sdk", "christman_sound"}
+FIRST_PARTY = {"christman_voice_sdk", "voice_creation_center"}
 
 
 def _pyproject() -> dict:
@@ -77,9 +77,9 @@ def _base() -> dict[str, list[str]]:
 
 def _scanned_files() -> list[Path]:
     files = [ROOT / "christman_ocr_shared.py"]
-    for pkg in ("christman_voice_sdk", "christman_sound"):
-        files.extend(sorted((ROOT / pkg).rglob("*.py")))
-    core = ROOT / "christman_sound" / "core.py"  # never touched, never wired
+    files.extend(sorted((ROOT / "christman_voice_sdk").rglob("*.py")))
+    files.extend([ROOT / "voice_creation_center" / "booth.py", ROOT / "voice_creation_center" / "app.py"])
+    core = ROOT / "christman_voice_sdk" / "core.py"  # never touched, never wired
     return [f for f in files if f.is_file() and f != core]
 
 
@@ -217,8 +217,9 @@ def test_the_build_compiles_the_library_as_its_own_step():
     for needed in ("christman_dsp.c", "christman_synth.c", "christman_vocoder.c",
                    "scripts/build_dsp.py", "scripts/pip_build.py"):
         assert needed in manifest, f"{needed} is not in MANIFEST.in: an sdist could not build"
-    data = _pyproject()["tool"]["setuptools"]["package-data"]["christman_sound"]
-    assert not {"*.so", "*.dylib"} & set(data), "a library left in a checkout would ride into the wheel"
+    for package, data in _pyproject()["tool"]["setuptools"]["package-data"].items():
+        assert not {"*.so", "*.dylib"} & set(data), (
+            f"{package}: a library left in a checkout would ride into the wheel")
 
 
 def _setuptools_too_old() -> str | None:
@@ -240,7 +241,7 @@ def test_a_wheel_pip_builds_carries_the_library_and_it_loads(tmp_path):
     import shutil
     import zipfile
 
-    if not (ROOT / "christman_sound").is_dir():
+    if not (ROOT / "christman_voice_sdk").is_dir():
         pytest.skip(f"not run: {ROOT} holds no source packages (these tests are running against an "
                     "installed copy); a wheel is built from the source folder")
     too_old = _setuptools_too_old()
@@ -269,12 +270,12 @@ def test_a_wheel_pip_builds_carries_the_library_and_it_loads(tmp_path):
         # <name>.data/purelib/; pip installs that into site-packages as usual.
         # What matters is that the library sits beside dsp.py, which loads it.
         installed = {re.sub(r"^christman_sound-[^/]+\.data/(pure|plat)lib/", "", n): n for n in names}
-        assert f"christman_sound/{LIB_NAME}" in installed, sorted(installed)[:20]
-        assert "christman_sound/dsp.py" in installed
-        library, loader = installed[f"christman_sound/{LIB_NAME}"], installed["christman_sound/dsp.py"]
+        assert f"christman_voice_sdk/engines/{LIB_NAME}" in installed, sorted(installed)[:20]
+        assert "christman_voice_sdk/engines/dsp.py" in installed
+        library, loader = installed[f"christman_voice_sdk/engines/{LIB_NAME}"], installed["christman_voice_sdk/engines/dsp.py"]
         assert library.rsplit("/", 1)[0] == loader.rsplit("/", 1)[0], (library, loader)
         assert not [n for n in installed if n.startswith(("held/", "scripts/", "tests/"))]
-        for package in ("christman_sound/", "christman_voice_sdk/", "voice_creation_center/"):
+        for package in ("christman_voice_sdk/", "voice_creation_center/"):
             assert any(n.startswith(package) for n in installed), f"{package} is not in the wheel"
         wheel.extract(library, tmp_path / "unpacked")
 

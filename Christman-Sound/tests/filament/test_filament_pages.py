@@ -10,7 +10,7 @@ runs. The frozen filament.html is checked byte for byte in
 test_filament_door.py, and here to hold no stream name.
 
 WHAT CHANGED AND WHY (2026-11-05)
-New in the package: it reads the pages from christman_sound/filament/pages,
+New in the package: it reads the pages from christman_voice_sdk/audio/filament/pages,
 where the server serves them from. THEFILAMENT's copies under public/ belong
 to its own app and are not in the package.
 """
@@ -26,7 +26,7 @@ import pytest
 
 from filament_helpers import ROOT
 
-PAGES_DIR = ROOT / "christman_sound" / "filament" / "pages"
+PAGES_DIR = ROOT / "christman_voice_sdk" / "audio" / "filament" / "pages"
 PAGES = ["filament-door.html", "filament-housing.html", "filament-live.html"]
 NAME = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
 

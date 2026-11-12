@@ -4,7 +4,7 @@
 # ==============================================================================
 """
 The mouth wired to Everett's synthesizer, speaking in the caller's voice:
-SpeechSynthesisEngine._render -> christman_sound.lexicon -> christman_sound.
+SpeechSynthesisEngine._render -> christman_voice_sdk.synthesis.lexicon -> christman_voice_sdk.synthesis.
 synth (the caller's voice profile) -> samples -> the cache file ->
 christman_play. The tests speak in the test voice (tests/voice_fixture.py).
 
@@ -41,21 +41,21 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-import christman_sound.dsp as dsp_mod  # noqa: E402
-from christman_sound.dsp import ChristmanDSP  # noqa: E402
-from christman_sound.lexicon import (  # noqa: E402
+import christman_voice_sdk.engines.dsp as dsp_mod  # noqa: E402
+from christman_voice_sdk.engines.dsp import ChristmanDSP  # noqa: E402
+from christman_voice_sdk.synthesis.lexicon import (  # noqa: E402
     LexiconUnavailable,
     PhoneNotMapped,
     WordNotInLexicon,
 )
-from christman_sound import synth as cs_synth  # noqa: E402
+from christman_voice_sdk.synthesis import synth as cs_synth  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from voice_fixture import TEST_VOICE_NAME, load_test_voice, write_test_voice  # noqa: E402
 from christman_voice_sdk.engines.synthesis_result import SynthesisUnavailable  # noqa: E402
 from christman_voice_sdk.synthesis import voice_synthesis as vs  # noqa: E402
 
 # The same inline align_lexicon.txt format as vosk-model-en-us-0.22. The first
-# two lines are the ones quoted from Everett's file in christman_sound/lexicon.py.
+# two lines are the ones quoted from Everett's file in christman_voice_sdk/synthesis/lexicon.py.
 FIXTURE_LEXICON = """\
 christman christman k_B r_I I_I s_I t_I m_I V_I n_E
 hello hello h_B @_I l_I oU_E
@@ -120,7 +120,7 @@ def test_render_returns_real_samples_from_christman_synth(mouth, dsp, lexicon_fi
     assert isinstance(r.audio, array.array) and r.audio.typecode == "f"
     assert r.sample_rate == cs_synth.CODECWAR_SAMPLE_RATE
     assert r.degraded is False and r.error_reason is None
-    # The same samples christman_sound.synth gives for this text in the
+    # The same samples christman_voice_sdk.synthesis.synth gives for this text in the
     # caller's voice: the mouth adds nothing and takes nothing away.
     direct = cs_synth.synthesize(PHRASE, voice=voice, lexicon_path=lexicon_file, engine=dsp)
     assert direct.voice == TEST_VOICE_NAME and mouth.last_voice == TEST_VOICE_NAME
@@ -219,7 +219,7 @@ def test_the_mouth_speaks_only_in_the_voice_its_caller_gives(dsp, lexicon_file, 
 
 def test_controls_reach_the_voice_or_are_refused(mouth):
     """A control the voice has no input for is refused with the reason, never dropped."""
-    from christman_sound.stitch import StitchRefused
+    from christman_voice_sdk.synthesis.stitch import StitchRefused
 
     with pytest.raises(StitchRefused, match="no input for these controls"):
         mouth.generate_speech_audio("hello", play_audio=False, breath=0.7)
@@ -262,7 +262,7 @@ def test_missing_word_raises_the_typed_error_through_every_public_entry_point(mo
         vs.synthesize_speech(text, voice=voice)
     check(e4)
 
-    # christman_sound's own entry points: synthesize, and speak (which raises
+    # the synthesizer's own entry points: synthesize, and speak (which raises
     # before it reaches the speaker, so this runs without an audio device).
     with pytest.raises(WordNotInLexicon) as e5:
         cs_synth.synthesize(text, voice=voice, lexicon_path=lexicon_file, engine=dsp)
@@ -304,7 +304,7 @@ def test_emotion_params_are_refused_with_the_reason_not_dropped(mouth):
     made anyway. Nothing is dropped silently now: emotion reaches the mouth
     only as its named controls, and anything else is refused with the reason.
     """
-    from christman_sound.stitch import StitchRefused
+    from christman_voice_sdk.synthesis.stitch import StitchRefused
 
     mouth._render("hello", None, "en")
     assert mouth.last_emotion_unapplied is None
@@ -462,7 +462,7 @@ def test_generate_speech_audio_plays_through_christman_play(mouth, dsp):
 
 def test_lexicon_that_is_not_utf8_is_reported_not_crashed(dsp, tmp_path, voice):
     """A non-UTF-8 byte used to escape as a bare UnicodeDecodeError and crash readiness."""
-    from christman_sound.lexicon import LexiconFormatError
+    from christman_voice_sdk.synthesis.lexicon import LexiconFormatError
 
     bad = tmp_path / "bad_lexicon.txt"
     bad.write_bytes(b"hello hello h_B @_I l_I oU_E\ncaf\xe9 caf\xe9 k_B {_I f_I eI_E\n")
@@ -518,7 +518,7 @@ def test_the_mouth_speaks_a_frame_voice_from_its_folder_and_lists_what_it_applie
                         ("intonation", 0.9), ("prosody", 0.9), ("resonance", "head"), ("rate", 1.3), ("f0", 180.0)):
         moved, applied = render(**{name: value})
         assert list(moved) != list(base), name
-    from christman_sound.stitch import StitchRefused
+    from christman_voice_sdk.synthesis.stitch import StitchRefused
 
     with pytest.raises(StitchRefused, match='affect "calm" is not applied'):
         eng.generate_speech_audio(text, play_audio=False, affect="calm")

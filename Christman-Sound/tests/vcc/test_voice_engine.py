@@ -8,7 +8,7 @@ The VCC holds no being's voice, so these tests are handed one from outside:
                           recordings by scripts/build_voice_bank.py>
     CHRISTMAN_LEXICON_PATH=<Vosk align_lexicon.txt>
 
-The controls apply to a frame voice only (christman_sound.synth.FRAME_CONTROLS);
+The controls apply to a frame voice only (christman_voice_sdk.synthesis.synth.FRAME_CONTROLS);
 with a measured profile every control is refused before any sound
 (2026-11-05: until then the engine passed them and the synthesizer refused
 every one, so the VCC made no voice with any control set).
@@ -248,7 +248,7 @@ def test_every_control_changes_a_frame_voices_sound(frame_engine, control):
 
 
 def test_a_frame_voice_takes_affect_through_its_controls_not_by_name(frame_engine):
-    """The frame mouth has no affect input of its own (christman_sound.stitch): an
+    """The frame mouth has no affect input of its own (christman_voice_sdk.synthesis.stitch): an
     affect by name is refused; its preset's named controls are applied."""
     r = frame_engine.synthesize(FRAME_SAY, VoiceParameters(affect=Affect.CALM))
     assert not r.success and "affect" in r.error and "apply_affect_preset" in r.error

@@ -3,7 +3,7 @@
 # The Christman AI Project — Luma Cognify AI
 # ==============================================================================
 """
-The frame voice (2026-10-28): christman_vocoder.c and christman_sound/stitch.py
+The frame voice (2026-10-28): christman_vocoder.c and christman_voice_sdk/synthesis/stitch.py
 are ports of Codec War's vocoder.ts and stitch.ts, and are held to them here.
 
   * The renderer is compared with Codec War's own vocoder.ts, run under node,
@@ -34,9 +34,9 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from christman_sound.dsp import ChristmanDSP, SynthRefused  # noqa: E402
-from christman_sound import stitch as cs_stitch  # noqa: E402
-from christman_sound import synth as cs_synth  # noqa: E402
+from christman_voice_sdk.engines.dsp import ChristmanDSP, SynthRefused  # noqa: E402
+from christman_voice_sdk.synthesis import stitch as cs_stitch  # noqa: E402
+from christman_voice_sdk.synthesis import synth as cs_synth  # noqa: E402
 
 
 def codecwar_audio() -> Path:

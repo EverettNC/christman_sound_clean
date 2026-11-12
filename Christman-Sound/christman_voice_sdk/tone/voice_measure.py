@@ -19,7 +19,7 @@ of the C library. In the files this lane owns they were:
            assumed for every input, lag one sample short).
   loaders  tonescore_engine.py and tone_analyzer.py looked for
            christman_dsp.so in christman_voice_sdk/ and the repository root.
-           scripts/build_dsp.py writes christman_sound/christman_dsp.so, so
+           scripts/build_dsp.py writes christman_voice_sdk/engines/christman_dsp.so, so
            neither ever found it and pitch came back None, silently.
   jitter, shimmer, HNR
            tonescore_engine.py and tone_analyzer.py: frame-to-frame F0 drift
@@ -30,7 +30,7 @@ of the C library. In the files this lane owns they were:
 
 Everett's ruling: "We have our own DSP for that exact reason." So:
 
-  PITCH   christman_yin, through christman_sound.dsp.get_dsp() (the one
+  PITCH   christman_yin, through christman_voice_sdk.engines.dsp.get_dsp() (the one
           loader, which finds christman_dsp.so where build_dsp.py writes it),
           at the recording's own sample rate. Nothing else in these files
           tracks pitch.
@@ -50,7 +50,7 @@ frame, Praat's "undefined") is None and the reason says so.
 
 Chosen values (each a starting value, held until client data replaces it):
   F0 range 50-500 Hz, YIN threshold 0.15, 40 ms frames every 10 ms. The same
-      values christman_sound/formants.py uses to read recordings for a voice
+      values christman_voice_sdk/tone/formants.py uses to read recordings for a voice
       profile, so the two read pitch the same way. 40 ms is
       the shortest frame in which YIN can see a 50 Hz period twice.
   Praat: period floor 75 Hz and ceiling 600 Hz, shortest period 0.1 ms,
@@ -72,7 +72,7 @@ from typing import Any, Dict, Optional, Tuple, Union
 import numpy as np
 from scipy.io import wavfile
 
-from christman_sound.dsp import ChristmanDSP, get_dsp
+from christman_voice_sdk.engines.dsp import ChristmanDSP, get_dsp
 
 try:  # parselmouth is a declared dependency; its absence is reported, never filled in.
     import parselmouth as _parselmouth
@@ -241,7 +241,7 @@ class PitchTrack:
             "voiced_frames": self.voiced_frames,
             "total_frames": self.total_frames,
             "sample_rate": self.sample_rate,
-            "pitch_tracker": "christman_yin (christman_sound.dsp)",
+            "pitch_tracker": "christman_yin (christman_voice_sdk.engines.dsp)",
             "reason": None if self.voiced_frames else "no voiced frame: christman_yin found no pitch",
         }
 

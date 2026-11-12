@@ -20,7 +20,7 @@ be hit with a level spike by the thing meant to help.
 Taken from the Platform console session of 2026-10-13 and brought in with
 two changes. (1) The output was `sounddevice` (PortAudio) and the file
 reader was `soundfile`. Both are gone. Output is `christman_play` in
-christman_dsp.c through christman_sound.dsp — the engine's own speaker
+christman_dsp.c through christman_voice_sdk.engines.dsp — the engine's own speaker
 path, the same one the mouth uses. The file reader is the standard library
 `wave`. (2) The `output` constructor argument is kept for tests only; the
 default is the engine and the default is the only path that ships.
@@ -305,7 +305,7 @@ def load_audio_file(path: str) -> Tuple[np.ndarray, int]:
 
 def _engine_output(audio: np.ndarray, sample_rate: int) -> None:
     """The engine's own speaker path. Blocks until done. Raises if it cannot play."""
-    from christman_sound.dsp import get_dsp  # the one loader; raises if the engine is absent
+    from christman_voice_sdk.engines.dsp import get_dsp  # the one loader; raises if the engine is absent
 
     channels = 1 if audio.ndim == 1 else int(audio.shape[1])
     interleaved = audio.reshape(-1) if audio.ndim == 2 else audio

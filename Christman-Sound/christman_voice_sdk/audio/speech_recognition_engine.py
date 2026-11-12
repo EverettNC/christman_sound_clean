@@ -75,7 +75,7 @@ WHAT CHANGED AND WHY
 
    With no `model_path` and no VOSK_MODEL_PATH the engine reported "No model
    folder" and looked nowhere, while the Filament ear server and the studio
-   found the same model on their own (christman_sound.ear
+   found the same model on their own (christman_voice_sdk.audio.ear
    discover_vosk_model: ~/Downloads/vosk-model-en-us-0.22, then ~/models).
    On Everett's Mac, with the model in ~/Downloads and nothing set, this
    engine and the word-ear receiver built on it said there was no model.
@@ -111,7 +111,7 @@ DEBUG_DUMP_AUDIO = "DEBUG_DUMP_AUDIO"
 #: The model folder the ear reads (a Vosk-format model folder, such as
 #: vosk-model-en-us-0.22). The setting keeps its name so existing setups keep
 #: working. With this unset and no path passed, the ear looks where the
-#: Filament and the studio look (christman_sound.ear discover_vosk_model);
+#: Filament and the studio look (christman_voice_sdk.audio.ear discover_vosk_model);
 #: when no folder is found anywhere, construction fails loudly, naming them.
 VOSK_MODEL_PATH_ENV = "VOSK_MODEL_PATH"
 
@@ -185,17 +185,17 @@ class TranscriptionOutput:
 
 class EarBackend:
     """
-    On-device recognition through christman_sound.ear: Vosk's recognizer
+    On-device recognition through christman_voice_sdk.audio.ear: Vosk's recognizer
     on a model folder on disk, the recognizer the Filament runs. Corti sits on top of the hearing; this is the word ear.
 
     2026-11-05 (Everett): Vosk is the ear. From 2026-10-29 this backend heard
     through a decoder a Claude Code session wrote in place of the vosk
     library it had removed (numpy and a C library from
-    christman_sound/ear/csrc). That decoder is kept, not installed, in
+    christman_voice_sdk/audio/ear/csrc). That decoder is kept, not installed, in
     held/claude-ear-2026-10-28. The calls here did not change.
 
     The model folder is `model_path`, else VOSK_MODEL_PATH, else the folder
-    christman_sound.ear.discover_vosk_model() finds (the full
+    christman_voice_sdk.audio.ear.discover_vosk_model() finds (the full
     vosk-model-en-us-0.22 in ~/Downloads, then ~/models, then the lgraph one):
     the same finder the Filament ear server and the studio use.
     `model_found_by` is "model_path", "VOSK_MODEL_PATH" or "discover_vosk_model".
@@ -230,10 +230,10 @@ class EarBackend:
     def _discovered() -> str:
         """The model folder the package's own finder finds, when none was passed or set."""
         try:
-            from christman_sound.ear import discover_vosk_model
+            from christman_voice_sdk.audio.ear import discover_vosk_model
         except ImportError as exc:
             raise LocalRecognitionUnavailable(
-                f"christman_sound.ear cannot be imported here ({exc}). "
+                f"christman_voice_sdk.audio.ear cannot be imported here ({exc}). "
                 "Install Christman-Sound whole (pip install -e .), which "
                 "brings the vosk library. There is no cloud fallback by design."
             ) from exc
@@ -252,10 +252,10 @@ class EarBackend:
             if cls._model is not None and cls._model_path == self.model_path:
                 return cls._model
             try:
-                from christman_sound.ear import load_model
+                from christman_voice_sdk.audio.ear import load_model
             except ImportError as exc:
                 raise LocalRecognitionUnavailable(
-                    f"christman_sound.ear cannot be imported here ({exc}). "
+                    f"christman_voice_sdk.audio.ear cannot be imported here ({exc}). "
                     "Install Christman-Sound whole (pip install -e .), which "
                     "brings the vosk library. There is no cloud fallback by design."
                 ) from exc
@@ -291,7 +291,7 @@ class EarBackend:
         about 685 on one 234-second recording. `heard_as` in the detail says
         which way was used.
         """
-        from christman_sound.ear import Ear
+        from christman_voice_sdk.audio.ear import Ear
 
         model = self._ensure_model()
         rate = int(sample_rate)
@@ -321,7 +321,7 @@ class EarBackend:
         )
 
 
-#: The rate christman_sound.ear hears (its Recognizer refuses any other).
+#: The rate christman_voice_sdk.audio.ear hears (its Recognizer refuses any other).
 EAR_SAMPLE_RATE = 16000
 
 
@@ -370,7 +370,7 @@ class SpeechRecognitionEngine:
         """
         Args:
             backend: A local ASR backend. When None, the ear backend
-                (christman_sound.ear) is built on the model folder at
+                (christman_voice_sdk.audio.ear) is built on the model folder at
                 VOSK_MODEL_PATH, else the one discover_vosk_model() finds; if
                 that fails the engine is constructed in an unavailable state
                 that reports itself rather than pretending.

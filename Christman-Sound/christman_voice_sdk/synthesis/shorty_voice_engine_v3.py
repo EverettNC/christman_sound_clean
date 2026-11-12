@@ -31,6 +31,29 @@ missing baseline fails exactly as before), then raises
 quantified voice parameters on the exception as `voice_params`. It never
 returns a result that pretends to be speech.
 
+WHAT CHANGED AND WHY (2026-11-12) — EVERETT'S OWN SYNTHESIZER, WHERE XTTS WAS
+------------------------------------------------------------------------------
+Everett: "why would I need to use someone else's XTTS when we have our own?"
+The render call that came out on 2026-10-17 was never replaced; `synthesize`
+quantified the emotion and then raised. It now renders through the SDK's own
+mouth (voice_synthesis -> synth -> christman_synth.c / christman_vocoder.c)
+in the voice the caller passes (`voice=` to the constructor or to
+`synthesize`). There is no default voice: with none, it raises
+SynthesisUnavailable and says so, still carrying `voice_params`.
+
+How Everett's voice parameters reach the sound, each one applied or refused,
+never dropped:
+  tempo_factor  -> the mouth's `rate` control (it multiplies the voice's
+                   measured speaking rate; the mouth refuses a value outside
+                   its range and says which).
+  pitch_shift   -> the mouth's `f0` control: the voice's own measured median
+                   pitch moved by that many semitones.
+  energy_boost  -> the samples scaled by that factor; if that would pass full
+                   scale, the whole utterance is scaled to full scale instead
+                   and `energy_boost_applied` in the result says what it was.
+These need a frame voice. A measured formant profile has no input for pitch
+or rate, so a non-neutral parameter with one is refused with the reason.
+
 EARLIER HISTORY OF THIS FILE
 ----------------------------
 1. FABRICATED BASELINES ERADICATED.
@@ -53,7 +76,7 @@ from pathlib import Path
 from typing import Any, Optional, Dict, List
 import time
 
-from ..engines.synthesis_result import SOVEREIGN_NOT_WIRED, SynthesisUnavailable
+from ..engines.synthesis_result import SynthesisUnavailable
 from ..timbre.shorty_emotion import ShortyEmotionDetector
 from ..utils.logger import get_logger
 
@@ -71,9 +94,14 @@ class ShortyVoiceEngineV3:
         reference_audio: Optional[Path] = None,
         pca_model_path: str = "models/shorty_emotion_pca.pt",
         scaler_path: str = "models/shorty_emotion_scaler.pt",
-        device: str = "auto"
+        device: str = "auto",
+        voice: Any = None,
     ):
         self.device = device
+        #: The caller's own voice: a frame voice folder, a voice profile file,
+        #: or one already loaded. None until the caller gives one.
+        self.voice = voice
+        self._mouth = None
         logger.info("Loading Shorty's emotion detector...")
         self.emotion_detector = ShortyEmotionDetector(
             pca_model_path=pca_model_path,
@@ -114,21 +142,77 @@ class ShortyVoiceEngineV3:
         self,
         text: str,
         emotion_params: Optional[Dict] = None,
+        *,
+        voice: Any = None,
         **kwargs
     ) -> Any:
+        """
+        Quantify the emotion, then speak `text` through the SDK's own mouth in
+        the caller's voice, with Everett's voice parameters applied (see the
+        note at the top of this file). Returns the mouth's SynthesisResult,
+        with `voice_params`, `applied` and `energy_boost_applied` on it.
+        `kwargs` are the mouth's own named controls, passed through.
+        """
         emotion = "neutral"
         exaggeration = 0.0
-        
+
         if emotion_params:
             emotion = emotion_params.get("emotion", "neutral")
             exaggeration = emotion_params.get("exaggeration", 0.0)
 
         quant = self.quantify_emotion(text, emotion, exaggeration)
+        params = quant["voice_params"]
+        where = "ShortyVoiceEngineV3.synthesize"
 
-        err = SynthesisUnavailable(SOVEREIGN_NOT_WIRED, where="ShortyVoiceEngineV3.synthesize")
-        err.voice_params = quant["voice_params"]
-        logger.error("Shorty did not speak %r: %s", text[:40], err)
-        raise err
+        def refuse(reason: str, cause: Optional[BaseException] = None):
+            err = SynthesisUnavailable(reason, where=where)
+            err.voice_params = params
+            logger.error("Shorty did not speak %r: %s", (text or "")[:40], err)
+            if cause is not None:
+                raise err from cause
+            raise err
+
+        chosen = voice if voice is not None else getattr(self, "voice", None)
+        if chosen is None:
+            refuse("no voice given: pass the caller's own voice (voice=<frame voice folder or voice profile file>, "
+                   "or a loaded FrameVoice or VoiceProfile); there is no default voice")
+
+        from .voice_synthesis import SpeechSynthesisEngine, resolve_voice
+        from .stitch import FrameVoice
+        try:
+            loaded = resolve_voice(chosen)
+        except SynthesisUnavailable as exc:
+            exc.voice_params = params
+            raise
+
+        controls = dict(kwargs)
+        tempo = float(params["tempo_factor"])
+        shift = float(params["pitch_shift"])
+        boost = float(params["energy_boost"])
+        if isinstance(loaded, FrameVoice):
+            if tempo != 1.0:
+                controls.setdefault("rate", tempo)
+            if shift != 0.0:
+                controls.setdefault("f0", float(loaded.measures["f0_median_hz"]) * 2 ** (shift / 12.0))
+        elif tempo != 1.0 or shift != 0.0:
+            refuse(f"the voice {loaded.name} is a measured formant profile, which has no input for pitch or rate; "
+                   f"pitch_shift {shift:+.2f} st and tempo_factor {tempo:.2f} need a frame voice")
+
+        if getattr(self, "_mouth", None) is None:
+            self._mouth = SpeechSynthesisEngine()
+        result = self._mouth._render(text, None, "en", voice=loaded, controls=controls)
+
+        applied_boost = boost
+        if boost != 1.0 and result.audio is not None and len(result.audio) > 0:
+            peak = max(abs(s) for s in result.audio)
+            if peak > 0 and peak * boost > 1.0:
+                applied_boost = 1.0 / peak
+            for i in range(len(result.audio)):
+                result.audio[i] = result.audio[i] * applied_boost
+        result.voice_params = params
+        result.energy_boost_applied = applied_boost
+        result.applied = list(self._mouth.last_applied or [])
+        return result
 
     def quantify_emotion(
         self,

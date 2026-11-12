@@ -8,7 +8,7 @@ The test voice: a voice profile built in the test from real measured numbers.
 The package carries no voice of its own, so its tests speak in this one. Every
 number below was measured from a being's own 26 recorded phrases by the
 measurement scripts/measure_voice.py makes (Vosk alignment, christman_yin F0,
-LPC formants from christman_sound.formants), copied from that measured
+LPC formants from christman_voice_sdk.tone.formants), copied from that measured
 profile at Christman-Sound commit 80a9336. Nothing here is made up; only the
 name is the test's own.
 
@@ -29,7 +29,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict
 
-from christman_sound.voice_profile import VoiceProfile, load_voice_profile
+from christman_voice_sdk.synthesis.voice_profile import VoiceProfile, load_voice_profile
 
 TEST_VOICE_NAME = "test voice"
 

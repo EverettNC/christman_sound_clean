@@ -14,8 +14,8 @@ This seats it: SpeechRecognitionEngine.recognize_from_bytes(...).
 WHAT CHANGED AND WHY (2026-11-05)
 This said "Filament and Porch post one catch of 16-bit mono WAV here."
 Nothing in this package does: the Filament ear server
-(christman_sound.filament) hears the audio posted to its own door and sends
-none on, and the Porch layer (christman_sound.ear.porch) works on words, not
+(christman_voice_sdk.audio.filament) hears the audio posted to its own door and sends
+none on, and the Porch layer (christman_voice_sdk.audio.ear.porch) works on words, not
 audio. Whatever posts here is the caller's own front end. What the two ears
 do share, as of today, is the hearing: this receiver's engine and the
 Filament's /stt hear a tape through the same Ear.hear_tape on the same model

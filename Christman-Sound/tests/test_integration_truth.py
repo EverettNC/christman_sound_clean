@@ -49,7 +49,7 @@ def test_the_dead_integration_modules_are_gone():
 
 def test_nothing_imports_them():
     files = [ROOT / "christman_ocr_shared.py"]
-    for pkg in ("christman_voice_sdk", "christman_sound", "scripts", "tests"):
+    for pkg in ("christman_voice_sdk", "voice_creation_center", "scripts", "tests"):
         files.extend((ROOT / pkg).rglob("*.py"))
     hits = []
     for path in files:

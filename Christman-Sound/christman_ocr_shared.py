@@ -13,7 +13,7 @@ spoken. The package holds no being's identity, so all of that is gone:
   * no default being and no list of beings: `ChristmanOCR(voice=...)` takes
     the caller's voice and nothing else about the caller;
   * no relay and no relay address: the text is spoken by this package's own
-    mouth, `christman_sound.synth.speak`, in the voice the caller passed;
+    mouth, `christman_voice_sdk.synthesis.synth.speak`, in the voice the caller passed;
   * `voice=` is required. With no voice there is nothing to speak in, so
     `ReadAloud` refuses at construction (ValueError) instead of choosing one.
 
@@ -317,14 +317,14 @@ class DocumentLoader:
 # READ-ALOUD, IN THE CALLER'S VOICE
 # ═════════════════════════════════════════════════════════════════════════════
 class ReadAloud:
-    """Speaks text through christman_sound.synth in the voice the caller gives."""
+    """Speaks text through christman_voice_sdk.synthesis.synth in the voice the caller gives."""
 
     def __init__(self, voice: Any, lexicon_path: Optional[Union[str, Path]] = None):
         """
-        voice         a christman_sound VoiceProfile or FrameVoice, or a path:
+        voice         a christman_voice_sdk VoiceProfile or FrameVoice, or a path:
                       a frame voice folder, or a voice profile JSON file.
         lexicon_path  the Vosk alignment lexicon; None leaves it to
-                      christman_sound (which reads $CHRISTMAN_LEXICON_PATH).
+                      the SDK's lexicon (which reads $CHRISTMAN_LEXICON_PATH).
         """
         if voice is None:
             raise ValueError("ReadAloud needs the caller's voice (voice=); "
@@ -337,13 +337,13 @@ class ReadAloud:
             return self.voice
         path = Path(self.voice).expanduser()
         if path.is_dir():
-            from christman_sound.stitch import load_frame_voice
+            from christman_voice_sdk.synthesis.stitch import load_frame_voice
             return load_frame_voice(path)
-        from christman_sound.voice_profile import load_voice_profile
+        from christman_voice_sdk.synthesis.voice_profile import load_voice_profile
         return load_voice_profile(path)
 
     def _speak_now(self, text: str) -> None:
-        from christman_sound.synth import speak
+        from christman_voice_sdk.synthesis.synth import speak
         kwargs = {"voice": self._loaded_voice()}
         if self.lexicon_path is not None:
             kwargs["lexicon_path"] = self.lexicon_path

@@ -55,7 +55,7 @@ jobs:
         run: |
           python - <<'PY'
           import sys
-          from christman_sound.dsp import ChristmanDSP
+          from christman_voice_sdk.engines.dsp import ChristmanDSP
           d = ChristmanDSP()
           print("library:", d.path)
           print("available:", d.available, d.error or "")

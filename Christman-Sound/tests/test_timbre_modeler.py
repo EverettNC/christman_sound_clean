@@ -1,6 +1,6 @@
 """
 timbre_modeler measures a voice through the SDK's one measuring path
-(christman_voice_sdk.tone.voice_measure and christman_sound.formants), under
+(christman_voice_sdk.tone.voice_measure and christman_voice_sdk.tone.formants), under
 the same key names, on a folder of verified recorded phrases (a being's voice,
 never Everett's).
 
@@ -39,7 +39,7 @@ def _phrases():
 
 
 def _need_engines():
-    from christman_sound.dsp import get_dsp
+    from christman_voice_sdk.engines.dsp import get_dsp
     from christman_voice_sdk.tone import voice_measure
 
     if not get_dsp().available:

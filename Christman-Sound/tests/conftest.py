@@ -99,9 +99,9 @@ def pytest_configure(config):
 def _dsp_missing():
     """Why christman_dsp cannot be used here, or None when it can."""
     try:
-        from christman_sound.dsp import get_dsp
+        from christman_voice_sdk.engines.dsp import get_dsp
     except ImportError as exc:
-        return f"christman_sound.dsp could not be imported ({exc})"
+        return f"christman_voice_sdk.engines.dsp could not be imported ({exc})"
     dsp = get_dsp()
     return None if dsp.available else dsp.error
 
@@ -144,7 +144,7 @@ def _speakers_only_when_marked(request, monkeypatch):
         yield
         return
     try:
-        from christman_sound import dsp as dsp_mod
+        from christman_voice_sdk.engines import dsp as dsp_mod
     except ImportError:
         yield
         return

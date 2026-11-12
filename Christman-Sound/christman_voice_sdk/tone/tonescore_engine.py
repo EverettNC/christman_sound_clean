@@ -61,10 +61,10 @@ WHAT CHANGED AND WHY
 
    This file had its own loader for christman_dsp.so and looked for it in
    christman_voice_sdk/ and the repository root. scripts/build_dsp.py writes
-   christman_sound/christman_dsp.so, so the loader never found it and pitch
+   christman_voice_sdk/engines/christman_dsp.so, so the loader never found it and pitch
    came back None on every recording (sdk-review A finding 7, B finding 4).
    The loader and `get_pitch_contour_native` are gone: pitch is christman_yin
-   through christman_sound.dsp.get_dsp() (the one loader) at the file's own
+   through christman_voice_sdk.engines.dsp.get_dsp() (the one loader) at the file's own
    sample rate, in tone/voice_measure.py.
 
    Its "jitter" was frame-to-frame F0 drift times 10 capped at 1.0, its
@@ -355,7 +355,7 @@ class ToneScoreEngine:
                 "hnr_db": quality.hnr_db,
                 "glottal_periods": quality.glottal_periods,
                 "sample_rate": sr,
-                "pitch_tracker": "christman_yin (christman_sound.dsp)",
+                "pitch_tracker": "christman_yin (christman_voice_sdk.engines.dsp)",
                 "voice_quality_analyzer": "Praat (parselmouth)",
             },
             label_set=self.labels.to_dict() if self.labels else None,

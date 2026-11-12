@@ -11,7 +11,7 @@ PURPOSE:
     This is the single entry point for all voice synthesis requests
     across the entire Christman AI family.
 
-    It wraps the Christman SDK (christman_sound) and exposes a unified
+    It wraps the Christman SDK (christman_voice_sdk) and exposes a unified
     interface for controlling:
         - Porosity       (breathiness / air flow in voice texture)
         - Intonation     (pitch contour and melodic pattern)
@@ -38,11 +38,11 @@ WHAT CHANGED AND WHY (2026-10-28)
     audio went out unfiltered.
 
     Now:
-    - Sound is made by christman_sound.synth.synthesize — the sovereign
+    - Sound is made by christman_voice_sdk.synthesis.synth.synthesize — the sovereign
       synthesizer, christman_synth, the same call the SDK's
       SpeechSynthesisEngine._render makes — with the voice the engine was
       given: a measured voice profile file passed in by the being that owns
-      it (christman_sound.voice_profile.load_voice_profile). The VCC holds
+      it (christman_voice_sdk.synthesis.voice_profile.load_voice_profile). The VCC holds
       no being's voice and has no default being.
     - Every control in VoiceParameters is either passed to the synthesizer
       or reported as not applied, with the reason. The engine reads the
@@ -101,7 +101,7 @@ class ResonanceMode(str, Enum):
 # Where each control goes in the synthesizer
 # ---------------------------------------------------------------------------
 
-#: VoiceParameters field -> the keyword christman_sound.synth.synthesize must
+#: VoiceParameters field -> the keyword christman_voice_sdk.synthesis.synth.synthesize must
 #: accept for that control to be applied. Agreed with the Christman-Sound
 #: build (2026-10-28). A keyword the synthesizer does not have means the
 #: control is not applied, and the report says so.
@@ -118,7 +118,7 @@ SYNTH_INPUT_FOR: Dict[str, str] = {
     "shimmer": "shimmer",
 }
 
-#: Sample rates christman_synth renders at (christman_sound/synth.py:
+#: Sample rates christman_synth renders at (christman_voice_sdk/synthesis/synth.py:
 #: CODECWAR_SAMPLE_RATE and CHRISTMAN_SOUND_SAMPLE_RATE).
 SYNTH_SAMPLE_RATES = (16000, 22050)
 
@@ -129,7 +129,7 @@ SYNTH_SAMPLE_RATES = (16000, 22050)
 FILTER_ORDER = 4
 
 #: The peak a filtered rendering that went past full scale is scaled to: the
-#: synthesizer's own FRAME_PEAK (christman_sound/synth.py), so the 16-bit
+#: synthesizer's own FRAME_PEAK (christman_voice_sdk/synthesis/synth.py), so the 16-bit
 #: rounding cannot clip.
 FILTER_PEAK = 0.97
 
@@ -181,7 +181,7 @@ class VoiceParameters:
     frequency_floor_hz: Optional[int] = 80   # Hard floor — filters subsonic artifacts
 
     # Output
-    sample_rate: int = 22050            # Hz — christman_sound's standard; christman_synth also renders 16000
+    sample_rate: int = 22050            # Hz — the package's standard; christman_synth also renders 16000
     output_format: str = "wav"          # wav only: nothing in the VCC encodes mp3 or flac
 
     FLOAT_CONTROLS = (
@@ -381,7 +381,7 @@ class VoiceEngine:
                       folder (voice.json, bank.json, frames.bin, built from
                       its own recordings by scripts/build_voice_bank.py; the
                       controls apply), or its measured voice profile (JSON,
-                      the format christman_sound.voice_profile reads; spoken
+                      the format christman_voice_sdk.synthesis.voice_profile reads; spoken
                       by the clear mouth, no controls). Required: there is
                       no default voice.
             lexicon_path: The pronunciation lexicon (Vosk align_lexicon.txt).
@@ -414,10 +414,10 @@ class VoiceEngine:
         real reason kept and logged — never silently.
         """
         try:
-            from christman_sound.dsp import get_dsp
-            from christman_sound.lexicon import load_lexicon
-            from christman_sound.stitch import FrameVoice
-            from christman_sound.synth import FRAME_CONTROLS, resolve_voice, synthesize
+            from christman_voice_sdk.engines.dsp import get_dsp
+            from christman_voice_sdk.synthesis.lexicon import load_lexicon
+            from christman_voice_sdk.synthesis.stitch import FrameVoice
+            from christman_voice_sdk.synthesis.synth import FRAME_CONTROLS, resolve_voice, synthesize
         except ImportError as e:
             self._fail(f"Christman-Sound is not importable: {e} (pip install -e . in Christman-Sound)")
             return
@@ -482,7 +482,7 @@ class VoiceEngine:
         if keyword not in self._synth_inputs:
             return False
         if keyword in self._frame_controls:
-            # Christman-Sound applies these to a frame voice only (christman_sound.synth.FRAME_CONTROLS).
+            # Christman-Sound applies these to a frame voice only (christman_voice_sdk.synthesis.synth.FRAME_CONTROLS).
             return self._voice_kind == "frame_voice"
         return True
 
@@ -490,9 +490,9 @@ class VoiceEngine:
         if self._synthesize is None:
             return "the synthesizer is not loaded"
         if keyword in self._frame_controls and keyword in self._synth_inputs:
-            return (f"christman_sound.synth.synthesize applies {keyword!r} to a frame voice only; this voice "
+            return (f"christman_voice_sdk.synthesis.synth.synthesize applies {keyword!r} to a frame voice only; this voice "
                     f"is a measured profile, which the clear mouth speaks with its own measured values")
-        return f"christman_sound.synth.synthesize has no {keyword!r} input"
+        return f"christman_voice_sdk.synthesis.synth.synthesize has no {keyword!r} input"
 
     def plan_controls(self, params: VoiceParameters) -> tuple:
         """
@@ -510,17 +510,17 @@ class VoiceEngine:
             value = requested[name]
             if keyword == "affect" and value != "neutral" and self._synth_accepts(keyword):
                 # The frame mouth takes affect "neutral" only: it has no affect input of its own and
-                # maps no emotion onto pitch or rate (christman_sound.stitch). The named controls an
+                # maps no emotion onto pitch or rate (christman_voice_sdk.synthesis.stitch). The named controls an
                 # affect stands for are set by params.apply_affect_preset() and applied one by one.
                 reports.append(ControlReport(
                     name, value, False,
-                    f"christman_sound.synth.synthesize takes affect 'neutral' only: the frame mouth has no "
+                    f"christman_voice_sdk.synthesis.synth.synthesize takes affect 'neutral' only: the frame mouth has no "
                     f"affect input of its own; params.apply_affect_preset() sets the controls {value!r} stands for",
                 ))
                 continue
             if self._synth_accepts(keyword):
                 kwargs[keyword] = value
-                reports.append(ControlReport(name, value, True, f"passed to christman_sound.synth.synthesize as {keyword}={value!r}"))
+                reports.append(ControlReport(name, value, True, f"passed to christman_voice_sdk.synthesis.synth.synthesize as {keyword}={value!r}"))
             else:
                 reports.append(ControlReport(name, value, False, self._not_applied_reason(keyword)))
 
@@ -582,7 +582,7 @@ class VoiceEngine:
         WHAT CHANGED AND WHY (2026-11-05): `pronunciations` is new. It is the
         being's own words, each with its pronunciation in the lexicon's
         phones, and it is how a name the lexicon does not hold is said:
-        christman_sound.synth has taken it since 2026-11-05, and this engine
+        christman_voice_sdk.synthesis.synth has taken it since 2026-11-05, and this engine
         did not pass it on, so a name handed to the Center was refused as not
         in the lexicon. It goes to the synthesizer unchanged. The Center
         holds no name of its own.
@@ -718,7 +718,7 @@ class VoiceEngine:
         can lift a peak the synthesizer had kept under full scale (one of 98
         phrases rendered in a being's frame voice came out at 1.026), and the
         whole rendering was refused. Now it is scaled down as a whole to
-        FILTER_PEAK, the same rule and the same 0.97 christman_sound.synth
+        FILTER_PEAK, the same rule and the same 0.97 christman_voice_sdk.synthesis.synth
         uses for a frame voice, and the scale is reported; nothing is clipped.
         """
         import numpy as np
@@ -777,7 +777,7 @@ class VoiceEngine:
             "voice_kind": self._voice_kind,
             "lexicon": str(getattr(self._lexicon, "path", None)) if self._lexicon is not None else None,
             "language": self.language,
-            "synthesizer": "christman_sound.synth.synthesize" if self._synthesize is not None else None,
+            "synthesizer": "christman_voice_sdk.synthesis.synth.synthesize" if self._synthesize is not None else None,
             "synthesizer_inputs": list(self._synth_inputs),
             "controls": support,
             "phoneme_labeler": "christman_voice_sdk.synthesis.phoneme_labeler.PhonemeLabeler",
