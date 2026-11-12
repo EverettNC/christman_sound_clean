@@ -3,10 +3,10 @@
 Christman Sound is the sound package of The Christman AI Project. It holds:
 
 - **the C engine**: measurement (RMS, zero-crossing rate, YIN pitch, LPC), playback, the synthesizer and the frame vocoder;
-- **the voice synthesis path**: `christman_synth`, the vocoder, stitch and frame voices, driven from Python by `christman_sound`;
+- **the voice synthesis path**: `christman_synth`, the vocoder, stitch and frame voices, driven from Python by the voice SDK (`christman_voice_sdk.synthesis`) and reached by beings through the Voice Creation Center;
 - **ToneScore and voice measurement**: pitch, jitter, shimmer, HNR and the features ToneScore reads from raw audio;
 - **the hearing modules**: a measured utterance card in, affect and harm frame out, and local speech recognition;
-- **the ear** (`christman_sound.ear`): local speech-to-text through Vosk's recognizer, on a model folder on disk (2026-11-05: this said the package's own, in C; that decoder is held in `held/claude-ear-2026-10-28`, not installed);
+- **the ear** (`christman_voice_sdk.audio.ear`): local speech-to-text through Vosk's recognizer, on a model folder on disk (2026-11-05: this said the package's own, in C; that decoder is held in `held/claude-ear-2026-10-28`, not installed);
 - **reading aloud** (`christman_ocr_shared.py`): printed text on a screen, an image or a PDF, read so it can be spoken in the caller's voice.
 
 The package holds no being's identity. A being passes its own voice profile or frame voice on every speaking call; with no voice given, nothing is spoken and the call raises a typed failure with the reason. No outside speech engine is ever substituted.
@@ -18,7 +18,7 @@ measured utterance card + tape            words (WAV)            text
           ↓                                     ↓                   ↓
 hearing.py + corti_ingest.py       speech_recognition_engine    the mouth (voice_synthesis)
    ├─ tape_contour / prosody  (arousal only, relative)              ↓
-   ├─ structural_affect       (clauses, not bag-of-words)    christman_sound: lexicon → synth / stitch
+   ├─ structural_affect       (clauses, not bag-of-words)    synthesis: lexicon → synth / stitch    
    └─ harm_frame              (who did what to whom)                ↓
           ↓                                                  christman_dsp.so (C) → sound
    fusion + face  (read, or say it cannot)
@@ -52,6 +52,10 @@ Do not wire the card source as a `SoundDetectorBackend`.
 
 ### christman_voice_sdk
 
+WHAT CHANGED AND WHY (2026-11-12): Everett deleted the `christman_sound` folder, which stood beside the SDK and the Center and did work that belongs inside them. Every module it held now lives in the SDK or in the Voice Creation Center, listed below; nothing stands beside them. The three C files are as they were.
+
+- `core.py` — Kept for the record. Nothing imports it, and it is not touched (Everett, 2026-10-11)
+
 #### Audio (`audio/`)
 - `hearing.py` — Composes ingest, affect and harm frame over a measured card. Opens no microphone
 - `corti_ingest.py` — Card JSON → VocalEvent + tape. Null F0 stays None
@@ -68,7 +72,7 @@ Do not wire the card source as a `SoundDetectorBackend`.
 - `face_reading.py` — A reading of the carbon (the client and the people they speak of): whose feeling it is, the clause that moved it, and arousal; data only, no emotion names, no face rendered
 - `face_vector.py` — The 8-dim face vector Sound hands the Soul Mirror, with its measured mask and the clauses it came from
 - `body_signals.py` — The body-signal input contract
-- `speech_recognition_engine.py` — Local speech recognition through `christman_sound.ear`. Audio never leaves the machine
+- `speech_recognition_engine.py` — Local speech recognition through `christman_voice_sdk.audio.ear`. Audio never leaves the machine
 - `enhanced_speech_recognition.py` — Coordinates speech and nonverbal sound recognition; recognizes nothing itself
 - `real_speech_recognition.py` — Voice activity detection and capture; detects that someone spoke
 - `sound_recognition_service.py` — Sound pattern recognition for nonverbal communicators
@@ -77,19 +81,29 @@ Do not wire the card source as a `SoundDetectorBackend`.
 - `audio_encoder.py` — Audio encoder: mel spectrogram to audio embedding
 - `mouth.py` — The being's own mouth: its voice in, one mouth embedding per video frame out. Local checkpoint only
 - `config.py` — SDK configuration. Its folders live under `$CHRISTMAN_AI_HOME/voice_sdk` (default `~/.christman_ai/voice_sdk`) and are made only when needed
+- `dispersion.py` — 4-canal Dispersion & War engine (`kitchen`, `two-booths`, `crisis`) and Refused-Mix guard
+- `being.py` — Silico-stasis equilibrium engine, 2 Hz shaker, 9-unit psychoacoustic converter, and streaming text codec inspector
+- `ear/` — The word ear: Vosk's recognizer on a model folder on disk (the full vosk-model-en-us-0.22), with the Filament's mouth map and boards and the Porch's layer. Corti sits on top of the hearing. (A decoder written by a Claude Code session stood here from 2026-10-29 to 2026-11-05; it is held in `held/claude-ear-2026-10-28`, not installed.)
+- `filament/` — The Filament's ear server and its pages (`christman-filament`); see "The Filament ear server" below
 
 #### Engines (`engines/`)
+- `dsp.py` — The one loader for the C library (`christman_dsp.so`, built beside it)
 - `synthesis_result.py` — The result contract (`SynthesisResult`) and the typed failure (`SynthesisUnavailable`) a speaking path raises when no voice can be made
 - `logger.py` — Logger bridge
 
 #### Synthesis (`synthesis/`)
-- `voice_synthesis.py` — The mouth. Speaks text in the voice its caller gives, through `christman_sound.synth`
+- `voice_synthesis.py` — The mouth. Speaks text in the voice its caller gives, through `christman_voice_sdk.synthesis.synth`
 - `tts_service.py` — Local Flask service (127.0.0.1) in front of the mouth
 - `phoneme_labeler.py` — Phoneme and viseme timing
-- `speech_response.py` — `speak()`; raises `SynthesisUnavailable`. It does not reach the mouth; use `voice_synthesis`
+- `speech_response.py` — `speak()`: says text in the voice its caller gives, through the mouth. With no voice it raises `SynthesisUnavailable`
 - `reply_guard.py` — Lines a being never says to a client ("you're not okay", "calm down"), as a word list the being reads: `forbidden_lines(reply)` names the lines it finds in the being's own reply, never in the client's words. It refuses nothing; what to say is the being's decision
-- `shorty_voice_engine_v3.py` — Emotion quantification; its `synthesize()` raises `SynthesisUnavailable`
-- `voice_synthesis_orchestrator.py` — Voicepack, timbre and emotion pipeline; its `synthesize()` raises `SynthesisUnavailable`
+- `shorty_voice_engine_v3.py` — Emotion quantification, then speech through the mouth in the caller's voice: on a frame voice the measured pitch and tempo are applied; a formant profile has no input for them and the call is refused by name. With no voice it raises `SynthesisUnavailable`
+- `voice_synthesis_orchestrator.py` — Voicepack, timbre and emotion pipeline; its `synthesize()` speaks through the mouth in the caller's voice and raises `SynthesisUnavailable` with none
+- `synth.py` — `synthesize()` and `speak()`: text or phones in, sound out. `voice=` is required: a `VoiceProfile`, a `FrameVoice`, or a path to either; with none, `NoVoice` is raised
+- `stitch.py` — Frame voices: a voice speaking new sentences from its own recordings
+- `lexicon.py` — Words to phones, from a Vosk alignment lexicon
+- `frames.py` — 4.99 ms 22,050 Hz frame analyzer, 5-pass 3-state Viterbi forced phone aligner, and native Python `bank.json` / `frames.bin` builder
+- `voice_profile.py` — A measured voice profile (`load_voice_profile(path)`), applied to the synthesizer. Each profile carries its file's SHA-256 (`fingerprint()`)
 
 #### Tone (`tone/`)
 - `voice_measure.py` — The one place the SDK measures a voice: pitch track (YIN in C), voice quality (jitter, shimmer, HNR by Praat), RMS contour
@@ -103,9 +117,10 @@ Do not wire the card source as a `SoundDetectorBackend`.
 - `tone_manager.py` — Tone cues read from words, or from a tone profile the caller holds. It sets no pacing, warmth or structure and does not touch the being's reply
 - `tone_classifier.py` — Superseded; delegates to `written_tone.py`
 - `written_tone.py` — Tone analysis for text
+- `formants.py` — F1, F2, F3 and their bandwidths, measured from a recording
 
 #### Timbre (`timbre/`)
-- `timbre_modeler.py` — Voice timbre measurement, through `voice_measure` and `christman_sound.formants`
+- `timbre_modeler.py` — Voice timbre measurement, through `voice_measure` and `christman_voice_sdk.tone.formants`
 - `shorty_emotion.py` — Emotion scores from a local wav2vec2 model and a PCA projection. Loads only from local paths the caller gives; nothing is downloaded. No projection file is in this repository
 - `voicepack.py` — Voicepack archives. Every member is checked before anything is extracted
 - `logger.py` — Logger bridge
@@ -130,22 +145,18 @@ Do not wire the card source as a `SoundDetectorBackend`.
 - `logger.py` — Logging
 - `data_root.py` — The one rule for where the SDK keeps what it writes for one person: `$CHRISTMAN_AI_HOME`, else `~/.christman_ai`. The logs, voice profiles, voice cache, audio cache, voicepacks and music memory all follow it
 
-### christman_sound — the voice
+### voice_creation_center — the Voice Creation Center
 
-- `app.py` — Local application server, installable PWA studio, Voice Creation Center host, and desktop application installer (127.0.0.1)
-- `voice_creation_center.py` — The Voice Creation Center & Booth studio engine: all 12 frame-voice controls and presets, Frames Room A/B resynthesis, voice profile measurement & proof, native frame voice builder, and `.voicepack` packager
-- `frames.py` — 4.99 ms 22,050 Hz frame analyzer, 5-pass 3-state Viterbi forced phone aligner, and native Python `bank.json` / `frames.bin` builder
-- `dispersion.py` — 4-canal Dispersion & War engine (`kitchen`, `two-booths`, `crisis`) and Refused-Mix guard
-- `being.py` — Silico-stasis equilibrium engine, 2 Hz shaker, 9-unit psychoacoustic converter, and streaming text codec inspector
-- `synth.py` — `synthesize()` and `speak()`: text or phones in, sound out. `voice=` is required: a `VoiceProfile`, a `FrameVoice`, or a path to either; with none, `NoVoice` is raised
-- `stitch.py` — Frame voices: a voice speaking new sentences from its own recordings
-- `lexicon.py` — Words to phones, from a Vosk alignment lexicon
-- `formants.py` — F1, F2, F3 and their bandwidths, measured from a recording
-- `voice_profile.py` — A measured voice profile (`load_voice_profile(path)`), applied to the synthesizer. Each profile carries its file's SHA-256 (`fingerprint()`)
-- `dsp.py` — The one loader for the C library
-- `logger.py` — Logging
-- `ear/` — The word ear: Vosk's recognizer on a model folder on disk (the full vosk-model-en-us-0.22), with the Filament's mouth map and boards and the Porch's layer. Corti sits on top of the hearing. (A decoder written by a Claude Code session stood here from 2026-10-29 to 2026-11-05; it is held in `held/claude-ear-2026-10-28`, not installed.)
-- `core.py` — Kept for the record. Nothing imports it, and it is not touched (Everett, 2026-10-11)
+The Center owns the voices; a being calls the Center and passes its own name, recordings and folder. The Center names no being.
+
+- `app.py` — Local application server, installable PWA studio, Voice Creation Center host, and desktop application installer (127.0.0.1); its pages are in `static/`
+- `booth.py` — The Voice Creation Center & Booth studio engine: all 12 frame-voice controls and presets, Frames Room A/B resynthesis, voice profile measurement & proof, native frame voice builder, and `.voicepack` packager
+- `Voice_registry.py` — The voice pack inventory: every pack in the Center, its being, language, dialect and state
+- `voice_express.py` — The express lane: a being's recorded phrases served as they are, and a priority queue for what must be synthesized now
+- `voice_ingestor.py` — The front door: audio dropped in `incoming/` is split into phrases and registered
+- `vcc_paths.py` — The one place every Center path comes from
+- `engines/` — `voice_engine.py` (speaks through `christman_voice_sdk`), the validator, loader, logger, cache manager and path registrar
+- `studio/` — Record, listen, validate, approve, export
 
 ### C engine (repository root)
 
@@ -153,11 +164,11 @@ Do not wire the card source as a `SoundDetectorBackend`.
 - `christman_synth.c` — The synthesizer, ported from Codec War
 - `christman_vocoder.c` — The frame vocoder, ported from Codec War's `vocoder.ts`
 
-All three are compiled into `christman_sound/christman_dsp.so` by `scripts/build_dsp.py`, which pip runs when the package is installed (see Installation).
+All three are compiled into `christman_voice_sdk/engines/christman_dsp.so` by `scripts/build_dsp.py`, which pip runs when the package is installed (see Installation).
 
 ### Reading aloud (repository root)
 
-- `christman_ocr_shared.py` — OCR (PaddleOCR) for a screen, an image or a PDF. What it reads is spoken by `christman_sound.synth.speak` in the voice the caller passes (`voice=` is required); when it cannot be voiced it raises `SynthesisUnavailable` with the reason
+- `christman_ocr_shared.py` — OCR (PaddleOCR) for a screen, an image or a PDF. What it reads is spoken by `christman_voice_sdk.synthesis.synth.speak` in the voice the caller passes (`voice=` is required); when it cannot be voiced it raises `SynthesisUnavailable` with the reason
 
 ### Scripts
 
@@ -191,7 +202,7 @@ print(reading.safety.unclear, reading.resolved)             # cause False
 
 ### Speech Recognition
 
-Recognition is local. `christman_sound.ear` runs Vosk's recognizer (2026-11-05, Everett: Vosk is the ear, and Corti sits on top), and the SDK's `speech_recognition_engine.py` hears through it. The model folder is `model_path` when one is passed, else `VOSK_MODEL_PATH` when it is set, else the folder `christman_sound.ear.discover_vosk_model()` finds (`~/Downloads/vosk-model-en-us-0.22`, then `~/models/vosk-model-en-us-0.22`, then the `-lgraph` one): the same finder the Filament ear server and the studio use. A `VOSK_MODEL_PATH` that points at no folder is an error naming it, not passed over. (2026-11-05, earlier the same day: the engine read `VOSK_MODEL_PATH` and nothing else, and on Everett's Mac, with the model in `~/Downloads` and nothing set, it reported no model folder. It finds it now; `engine.backend.model_found_by` says how.) A whole recording is heard as one tape through `Ear.hear_tape`, the way the Filament's `/stt` hears one, so the same recording gives the same words through this engine, the word-ear receiver and the Filament. Audio at a rate other than 16 kHz is resampled to 16 kHz first, and the result says so.
+Recognition is local. `christman_voice_sdk.audio.ear` runs Vosk's recognizer (2026-11-05, Everett: Vosk is the ear, and Corti sits on top), and the SDK's `speech_recognition_engine.py` hears through it. The model folder is `model_path` when one is passed, else `VOSK_MODEL_PATH` when it is set, else the folder `christman_voice_sdk.audio.ear.discover_vosk_model()` finds (`~/Downloads/vosk-model-en-us-0.22`, then `~/models/vosk-model-en-us-0.22`, then the `-lgraph` one): the same finder the Filament ear server and the studio use. A `VOSK_MODEL_PATH` that points at no folder is an error naming it, not passed over. (2026-11-05, earlier the same day: the engine read `VOSK_MODEL_PATH` and nothing else, and on Everett's Mac, with the model in `~/Downloads` and nothing set, it reported no model folder. It finds it now; `engine.backend.model_found_by` says how.) A whole recording is heard as one tape through `Ear.hear_tape`, the way the Filament's `/stt` hears one, so the same recording gives the same words through this engine, the word-ear receiver and the Filament. Audio at a rate other than 16 kHz is resampled to 16 kHz first, and the result says so.
 
 ```python
 from christman_voice_sdk.audio.speech_recognition_engine import get_speech_recognition_engine
@@ -203,7 +214,7 @@ print(result.status, result.text)                           # text is "" on ever
 
 #### The Filament ear server, and its owner's own words
 
-`christman-filament` (or `python3 -m christman_sound.filament`) is the Filament's ear: Vosk behind one door on `127.0.0.1`, port `$FILAMENT_EAR_PORT`, 4850 by default. Its pages call the door that served them, on whatever port that is (2026-11-05: three of them called 4850 from any other port, so a test copy sent its sound to the ear on 4850). `?ear-port=N` in a page's address names another port on the same machine; no other machine can be named.
+`christman-filament` (or `python3 -m christman_voice_sdk.audio.filament`) is the Filament's ear: Vosk behind one door on `127.0.0.1`, port `$FILAMENT_EAR_PORT`, 4850 by default. Its pages call the door that served them, on whatever port that is (2026-11-05: three of them called 4850 from any other port, so a test copy sent its sound to the ear on 4850). `?ear-port=N` in a page's address names another port on the same machine; no other machine can be named.
 
 The package's mouth map names no one. A name the ear mishears is turned back by rows its owner keeps in a file beside the Carbon pile, `$FILAMENT_HOME/mouth.json` (`~/.filament/mouth.json` by default):
 
@@ -242,19 +253,19 @@ except SynthesisUnavailable as err:
 A being that has a measured voice profile instead of a frame voice passes it straight to the synthesizer:
 
 ```python
-from christman_sound.synth import synthesize
-from christman_sound.voice_profile import load_voice_profile
+from christman_voice_sdk.synthesis.synth import synthesize
+from christman_voice_sdk.synthesis.voice_profile import load_voice_profile
 
 voice = load_voice_profile("<the being's voice profile>.json")  # a missing field raises VoiceProfileError
 result = synthesize("I am here.", voice=voice, lexicon_path="<align_lexicon.txt>")   # voice= is required
 result.write_wav("here.wav")
 ```
 
-A lexicon problem (none configured, a word not in it) raises `christman_sound.lexicon.LexiconError` and a control the voice cannot apply raises `christman_sound.stitch.StitchRefused`, each with the reason; nothing is dropped silently. `synthesis_readiness()` says whether a voice and lexicon are ready, and why not.
+A lexicon problem (none configured, a word not in it) raises `christman_voice_sdk.synthesis.lexicon.LexiconError` and a control the voice cannot apply raises `christman_voice_sdk.synthesis.stitch.StitchRefused`, each with the reason; nothing is dropped silently. `synthesis_readiness()` says whether a voice and lexicon are ready, and why not.
 
 ### A frame voice: a voice spoken from its own recordings
 
-A frame voice is a folder built from one voice's own recordings and nothing else. It holds the recordings measured every 4.99 ms (pitch, a 96-point spectral envelope, aperiodicity in 8 bands), every word `christman_sound.ear` heard in them cut into phone units, and the voice's measured profile (pitch, phrase pitch range, syllable rate, breath, long-term spectrum, level, and jitter, shimmer, HNR and CPPS by Praat through the SDK). New sentences are stitched from stretches of those frames (`christman_sound.stitch`, the port of Codec War's `stitch.ts`) and rendered by `christman_vocoder.c` (the port of Codec War's `vocoder.ts`; the tests hold both ports to Codec War sample for sample).
+A frame voice is a folder built from one voice's own recordings and nothing else. It holds the recordings measured every 4.99 ms (pitch, a 96-point spectral envelope, aperiodicity in 8 bands), every word `christman_voice_sdk.audio.ear` heard in them cut into phone units, and the voice's measured profile (pitch, phrase pitch range, syllable rate, breath, long-term spectrum, level, and jitter, shimmer, HNR and CPPS by Praat through the SDK). New sentences are stitched from stretches of those frames (`christman_voice_sdk.synthesis.stitch`, the port of Codec War's `stitch.ts`) and rendered by `christman_vocoder.c` (the port of Codec War's `vocoder.ts`; the tests hold both ports to Codec War sample for sample).
 
 The folder is built on the machine that speaks; it is not kept in git (a built voice runs to tens of megabytes). Build it with the repository's script:
 
@@ -313,7 +324,7 @@ export CHRISTMAN_VOICE_CACHE=~/.christman_ai/voice_cache     # where spoken WAVs
 export CHRISTMAN_DSP_LIB=/path/to/christman_dsp.so           # only to override where the library is found
 
 # Hearing
-export VOSK_MODEL_PATH=~/models/vosk-model-en-us-0.22        # the model folder christman_sound.ear reads
+export VOSK_MODEL_PATH=~/models/vosk-model-en-us-0.22        # the model folder christman_voice_sdk.audio.ear reads
 export CHRISTMAN_SOUND_PORT=5486                             # corti_receiver
 export CHRISTMAN_WORD_EAR_PORT=<port>                        # word_ear_receiver; no default
 
@@ -344,7 +355,7 @@ Client input (measured card, words, text)
     ├── Audio → tone and voice measurement → measured features
     └── Text → the mouth (voice_synthesis) ─┐
                                             ↓
-[christman_sound]  lexicon → synth / stitch → christman_dsp.so (C) → sound
+[christman_voice_sdk.synthesis]  lexicon → synth / stitch → engines/christman_dsp.so (C) → sound
     ↓
 Client output (the being's own voice, from the profile the being passed)
 ```
@@ -366,7 +377,7 @@ Client output (the being's own voice, from the profile the being passed)
 
 WHAT CHANGED AND WHY (2026-11-05): Everett asked that the sound package install from a download with one pip install. pip now compiles the C library itself; before, it built nothing in C and `scripts/build_dsp.py` had to be run by hand afterwards.
 
-One command, and nothing to run after it. pip compiles the C library (`christman_dsp.c`, `christman_synth.c` and `christman_vocoder.c`, through `scripts/build_dsp.py`) into `christman_sound/christman_dsp.so`, proves it loads, and installs `christman_sound`, `christman_voice_sdk`, `voice_creation_center`, `christman_ocr_shared` and the command-line tools.
+One command, and nothing to run after it. pip compiles the C library (`christman_dsp.c`, `christman_synth.c` and `christman_vocoder.c`, through `scripts/build_dsp.py`) into `christman_voice_sdk/engines/christman_dsp.so`, proves it loads, and installs `christman_voice_sdk`, `voice_creation_center`, `christman_ocr_shared` and the command-line tools.
 
 From a download (a git clone, or the repository's archive unpacked), point pip at the `Christman-Sound` folder:
 
@@ -388,14 +399,14 @@ To see that it worked:
 
 ```bash
 christman-sound --help
-python3 -c "from christman_sound.dsp import get_dsp; d = get_dsp(); print(d.available, d.synth_available, d.path)"
+python3 -c "from christman_voice_sdk.engines.dsp import get_dsp; d = get_dsp(); print(d.available, d.synth_available, d.path)"
 ```
 
 `install.sh` in a clone does the same pip install (editable), then smoke-tests the library pip built and writes the desktop launcher.
 
 ### Not in the package: download these yourself
 
-- **The Vosk model folder `vosk-model-en-us-0.22`**, which the ear hears through. It is a folder, not a Python package, so pip does not fetch it. Put it in `~/Downloads/vosk-model-en-us-0.22` or `~/models/vosk-model-en-us-0.22`, or set `VOSK_MODEL_PATH` to it. Every part finds it the same way (`christman_sound.ear.discover_vosk_model()`): the Filament ear server (`christman-filament`), the studio (`christman-sound`), the SDK's speech recognition engine and the word-ear receiver (`christman-word-ear`). The voice's lexicon is inside it, at `graph/phones/align_lexicon.txt` (`$CHRISTMAN_LEXICON_PATH` points elsewhere). Without it the ear reports unavailable with the reason.
+- **The Vosk model folder `vosk-model-en-us-0.22`**, which the ear hears through. It is a folder, not a Python package, so pip does not fetch it. Put it in `~/Downloads/vosk-model-en-us-0.22` or `~/models/vosk-model-en-us-0.22`, or set `VOSK_MODEL_PATH` to it. Every part finds it the same way (`christman_voice_sdk.audio.ear.discover_vosk_model()`): the Filament ear server (`christman-filament`), the studio (`christman-sound`), the SDK's speech recognition engine and the word-ear receiver (`christman-word-ear`). The voice's lexicon is inside it, at `graph/phones/align_lexicon.txt` (`$CHRISTMAN_LEXICON_PATH` points elsewhere). Without it the ear reports unavailable with the reason.
 - **ffmpeg**, only for the Voice Creation Center's ingestor when the audio is not already `.wav`.
 
 ### Where an installed copy writes

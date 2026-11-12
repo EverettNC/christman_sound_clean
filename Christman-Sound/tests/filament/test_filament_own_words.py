@@ -24,7 +24,7 @@ import pytest
 
 from filament_helpers import ask, running_door
 
-from christman_sound.ear import mouth
+from christman_voice_sdk.audio.ear import mouth
 
 ROWS = [
     {"heard": "quill father", "keep": "Quillfeather"},
@@ -43,7 +43,7 @@ def home(tmp_path, monkeypatch):
 
 @pytest.fixture
 def server(home):
-    from christman_sound.filament import server as srv
+    from christman_voice_sdk.audio.filament import server as srv
 
     return srv
 

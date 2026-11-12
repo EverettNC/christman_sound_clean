@@ -3,7 +3,7 @@
 # The Christman AI Project — Luma Cognify AI
 # ==============================================================================
 """
-Tests for the installable application (christman_sound.app, PWA manifest/service
+Tests for the installable application (voice_creation_center.app, PWA manifest/service
 worker, CLI entry points in pyproject.toml, and native desktop bundle installer).
 """
 
@@ -22,7 +22,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from voice_fixture import write_test_voice  # noqa: E402
-from christman_sound.app import create_app, install_desktop_bundle  # noqa: E402
+from voice_creation_center.app import create_app, install_desktop_bundle  # noqa: E402
 
 FIXTURE_LEXICON = """\
 christman christman k_B r_I I_I s_I t_I m_I V_I n_E
@@ -268,7 +268,7 @@ def test_install_desktop_bundle_creates_macos_app_structure(tmp_path):
 
 
 def test_studio_door_refuses_other_sites_and_unbounded_bodies():
-    from christman_sound.app import MAX_BODY_BYTES, check_request
+    from voice_creation_center.app import MAX_BODY_BYTES, check_request
 
     ok = {"Host": "127.0.0.1:5480", "Content-Type": "application/json", "Content-Length": "2"}
     assert check_request("POST", ok, 5480) is None
@@ -323,12 +323,10 @@ def test_one_version_everywhere():
     """2026-10-30: the version was 1.0.0 in four places and 1.1.0 in three."""
     import re as _re
 
-    import christman_sound
     import christman_voice_sdk
 
     root = Path(__file__).resolve().parent.parent
     declared = _re.search(r'^version = "([^"]+)"', (root / "pyproject.toml").read_text(), _re.M).group(1)
-    assert christman_sound.__version__ == declared
     assert christman_voice_sdk.__version__ == declared
     assert (root / "VERSION.txt").read_text().strip() == declared
     assert create_app().test_client().get("/api/status").get_json()["version"] == declared

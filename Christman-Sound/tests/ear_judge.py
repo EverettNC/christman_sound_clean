@@ -5,7 +5,7 @@
 """
 The ear the voice tests are judged by.
 
-The voice tests are heard by christman_sound.ear, Vosk's recognizer (2026-11-05,
+The voice tests are heard by christman_voice_sdk.audio.ear, Vosk's recognizer (2026-11-05,
 Everett: Vosk is the ear), in this process, on the model folder given. From
 2026-10-29 to 2026-11-05 they were heard by a decoder of the package's own,
 now held in held/claude-ear-2026-10-28. Nothing is played.
@@ -29,7 +29,7 @@ EAR_SR = 16000
 
 def load(model_dir: Union[str, Path]) -> Any:
     """The model folder, read once. Raises with the ear's own reason."""
-    from christman_sound.ear import load_model
+    from christman_voice_sdk.audio.ear import load_model
 
     return load_model(Path(model_dir).expanduser())
 
@@ -53,7 +53,7 @@ def _pcm16k(wav_bytes: bytes) -> bytes:
 
 def hear_bytes(model: Any, wav_bytes: bytes) -> str:
     """What the ear heard in one WAV, every utterance joined with one space."""
-    from christman_sound.ear import Ear
+    from christman_voice_sdk.audio.ear import Ear
 
     ear = Ear(model, sample_rate=EAR_SR, words=True)
     return " ".join(h.text for h in ear.hear(_pcm16k(wav_bytes)) if h.text).strip().lower()

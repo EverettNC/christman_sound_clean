@@ -34,8 +34,8 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from christman_sound.dsp import ChristmanDSP, PlaybackUnavailable, SynthRefused  # noqa: E402
-from christman_sound.lexicon import (  # noqa: E402
+from christman_voice_sdk.engines.dsp import ChristmanDSP, PlaybackUnavailable, SynthRefused  # noqa: E402
+from christman_voice_sdk.synthesis.lexicon import (  # noqa: E402
     DURATION_REASONS,
     NOT_MAPPED,
     VOSK_TO_CODECWAR,
@@ -45,7 +45,7 @@ from christman_sound.lexicon import (  # noqa: E402
     WordNotInLexicon,
     load_lexicon,
 )
-from christman_sound.synth import (  # noqa: E402
+from christman_voice_sdk.synthesis.synth import (  # noqa: E402
     NothingToSay,
     UnknownPhone,
     render_codecwar_table,
@@ -420,7 +420,7 @@ def guard(name, *a, **k):
     return real(name, *a, **k)
 builtins.__import__ = guard
 sys.path.insert(0, {str(ROOT)!r})
-from christman_sound.synth import render_codecwar_table
+from christman_voice_sdk.synthesis.synth import render_codecwar_table
 r = render_codecwar_table("hello christman", f0=148.0, rate=1.0, lexicon_path={str(lex)!r})
 r.write_wav({str(tmp_path / "x.wav")!r})
 print(len(r.samples), sorted(m for m in sys.modules if m.split(".")[0] in BLOCK))

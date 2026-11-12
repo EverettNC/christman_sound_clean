@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Filament</title>
+<style>
+  :root{ --ink:#04060a; --tiff:#2ff7ee; --wire:#7fe3ff; --catch:#8affc1;
+         --dim:#4a5a6a; --paper:#dfe9f2; --hot:#f8ff2a; }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--ink);color:var(--paper);
+    font:14px/1.5 "IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;overflow:hidden}
+  iframe{position:fixed;inset:0;width:100%;height:100%;border:0;background:var(--ink)}
+  #hud{position:fixed;top:18px;right:18px;z-index:20;display:flex;flex-direction:column;align-items:flex-end;gap:8px;
+    text-shadow:0 0 12px #000}
+  .views{display:flex;gap:12px;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+  .views button{border:0;background:transparent;color:var(--dim);font:inherit;letter-spacing:.14em;text-transform:uppercase;cursor:pointer;padding:0;min-height:2.5rem}
+  .views button.on{color:var(--tiff)}
+  #hud button{min-height:2.5rem;padding:0 1rem;border:1px solid var(--dim);background:transparent;color:var(--paper);
+    font:12px inherit;letter-spacing:.14em;text-transform:uppercase;cursor:pointer}
+  #hud button[aria-pressed="true"], #hud button.on{border-color:var(--tiff);color:var(--tiff)}
+  #btn{border-color:var(--wire);color:var(--wire)}
+  #btn:disabled{opacity:.35;cursor:not-allowed}
+  #st{font-size:11px;color:var(--dim);text-align:right}
+  #st.on{color:var(--catch)}
+  .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+  #mic{max-width:16rem;min-height:2.5rem;padding:0 .6rem;border:1px solid var(--dim);background:transparent;color:var(--paper);
+    font:11px inherit}
+  #level{width:10rem;height:6px;background:#1a222c;border:1px solid var(--dim)}
+  #level>i{display:block;height:100%;width:0;background:var(--catch)}
+
+  #as-said{position:fixed;left:calc(18px + min(20rem, 30vw) + 20px);right:12rem;bottom:52px;z-index:21;
+    max-width:46rem;pointer-events:none;font-size:18px;line-height:1.4;color:var(--hot);text-shadow:0 0 12px #000}
+  #as-said .unsure{color:var(--hot);border-bottom:1px dashed var(--hot)}
+  #as-said .partial{color:var(--dim);font-style:italic}
+  #carbon{position:fixed;left:18px;top:auto;bottom:auto;z-index:19;display:none}
+  #rail{position:fixed;left:0;top:0;bottom:0;z-index:20;width:min(20rem,30vw);padding:18px 16px 18px 18px;
+    display:flex;flex-direction:column;gap:14px;overflow:hidden;pointer-events:none;
+    background:linear-gradient(90deg,rgba(4,6,10,.88) 0%,rgba(4,6,10,.55) 72%,rgba(4,6,10,0) 100%);
+    text-shadow:0 0 12px #000}
+  #rail > *{pointer-events:auto;min-height:0}
+  #brand{flex:0 0 auto}
+  #brand h1{margin:0;font:400 15px/1.3 inherit;letter-spacing:.16em;text-transform:uppercase;color:var(--tiff)}
+  #brand p{margin:6px 0 0;color:var(--dim);font-size:12px;max-width:28ch}
+  #boards{flex:1 1 42%;overflow:auto;font-size:11px;color:var(--dim)}
+  #boards section{margin-bottom:12px}
+  #boards b{color:var(--hot);font-weight:400;letter-spacing:.14em;text-transform:uppercase}
+  #boards ul{margin:6px 0 0;padding:0}
+  #boards li{margin:4px 0;color:var(--paper);list-style:none}
+  #boards .hits{color:var(--dim)}
+  #carbon b{color:var(--hot);font-weight:400;letter-spacing:.14em;text-transform:uppercase}
+  #carbon li{margin:6px 0;color:var(--paper);list-style:none}
+  #map{flex:0 1 38%;overflow:auto;font-size:11px;color:var(--paper)}
+  #map b{display:block;margin-bottom:8px;color:var(--hot);font-weight:400;letter-spacing:.14em;text-transform:uppercase}
+  #map label{display:flex;align-items:center;gap:8px;margin:5px 0;min-height:1.75rem;cursor:pointer;color:var(--dim)}
+  #map label.on{color:var(--paper)}
+  #map input{accent-color:var(--tiff)}
+  #region{max-width:18rem;text-align:right;color:var(--hot)}
+  #meter{position:fixed;left:calc(18px + min(20rem, 30vw) + 12px);right:12rem;bottom:18px;z-index:21;
+    font-size:12px;color:var(--dim);pointer-events:none;text-shadow:0 0 12px #000}
+  #meter b{color:var(--paper);font-weight:400}
+  #meter .n{color:var(--tiff);font-variant-numeric:tabular-nums}
+
+
+</style>
+</head>
+<body>
+<iframe id="stage" title="The Filament" src="/housing"></iframe>
+<aside id="rail">
+  <div id="brand">
+    <h1>The Filament</h1>
+    <p>Housing v2. Open both ends. Sound crosses every fiber.</p>
+  </div>
+  <div id="boards">
+    <section>
+      <b>Family board · Porch</b>
+      <ul id="family-list"></ul>
+    </section>
+    <section>
+      <b>Residual</b>
+      <ul id="residual-list"></ul>
+    </section>
+  </div>
+  <div id="map">
+    <b>Dialect map</b>
+  </div>
+</aside>
+<div id="hud">
+  <nav class="views" aria-label="Filament view">
+    <button type="button" data-view="/housing" class="on">Housing</button>
+    <button type="button" data-view="/bare">Field</button>
+    <button type="button" data-view="/live.html">Live</button>
+  </nav>
+  <button id="train" type="button" aria-pressed="false">Train</button>
+  <button id="speed" type="button">Speed 1×</button>
+  <button id="speak" type="button" aria-pressed="true">Speak</button>
+  <div class="st" id="region">training · Kentucky</div>
+  <label class="sr" for="mic">Mic</label>
+  <select id="mic" aria-label="Microphone">
+    <option value="">default mic</option>
+  </select>
+  <button id="btn" type="button" disabled>Hold</button>
+  <div id="level" aria-hidden="true"><i id="level-bar"></i></div>
+  <div class="st" id="st">probing ear</div>
+</div>
+<div id="carbon" hidden>
+  <b>Carbon</b>
+  <p>not sure. set aside.</p>
+  <ul id="carbon-list"></ul>
+</div>
+<div id="meter">
+  <b>PORCH · super cochlea</b>
+  &nbsp;·&nbsp; filaments <span class="n" id="m-fil">7,200</span>
+  &nbsp;·&nbsp; caught <span class="n" id="m-caught">0</span>
+  &nbsp;·&nbsp; slipped <span class="n" id="m-slip">0</span>
+  &nbsp;·&nbsp; <span class="n" id="m-pct">—</span>
+</div>
+<div id="as-said"></div>
+<script src="/dialect-map.js"></script>
+<script>
+(function(){
+  // The ear this page talks to. Served by a Filament door, on any port: that
+  // same door. (Was: the door on 4850 unless this page came from 4850, so a
+  // copy served from another port sent its sound to the ear on 4850.)
+  // Opened as a file: the ear on this machine at 4850. ?ear-port=N in the
+  // address names another port on this machine; no other machine can be named.
+  const EAR = (() => {
+    const named = new URLSearchParams(location.search).get('ear-port');
+    if (named !== null && /^[0-9]{1,5}$/.test(named) && +named >= 1 && +named <= 65535) {
+      return named === location.port ? '' : 'http://127.0.0.1:' + named;
+    }
+    return location.protocol === 'file:' ? 'http://127.0.0.1:4850' : '';
+  })();
+  // One stream per open page: the door keeps this page's words apart from every other caller's.
+  const SESSION = 'filament-door:' + (crypto && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + '-' + Math.floor(Math.random() * 2 ** 48).toString(36));
+  const LQ = (q) => (q ? q + '&' : '?') + 'session=' + SESSION;
+  const stage = document.getElementById('stage');
+  const btn = document.getElementById('btn');
+  const st = document.getElementById('st');
+  const said = document.getElementById('as-said');
+  const trainBtn = document.getElementById('train');
+  const links = [...document.querySelectorAll('.views [data-view]')];
+  window.filamentTrain = false;
+  window.filamentMute = false;
+
+  const mapBox = document.getElementById('map');
+  const tour = window.FILAMENT_TOUR || [];
+  const regions = window.FILAMENT_MAP || [];
+  regions.forEach((pack) => {
+    const lab = document.createElement('label');
+    const on = !tour.length || tour.includes(pack.key);
+    lab.className = on ? 'on' : '';
+    lab.innerHTML = '<input type="checkbox" value="'+pack.key+'"'+(on?' checked':'')+'> '+pack.label;
+    mapBox.appendChild(lab);
+  });
+  function selectedKeys(){
+    return [...mapBox.querySelectorAll('input:checked')].map((el) => el.value);
+  }
+  function pushMap(){
+    const keys = selectedKeys();
+    [...mapBox.querySelectorAll('label')].forEach((lab) => {
+      lab.classList.toggle('on', lab.querySelector('input').checked);
+    });
+    const w = frameWin();
+    if (w && w.FILAMENT_SET_ENABLED) w.FILAMENT_SET_ENABLED(keys);
+    if (window.FILAMENT_SET_ENABLED) window.FILAMENT_SET_ENABLED(keys);
+  }
+  mapBox.addEventListener('change', pushMap);
+
+  const speakBtn = document.getElementById('speak');
+  speakBtn.addEventListener('click', () => {
+    window.filamentMute = !window.filamentMute;
+    speakBtn.setAttribute('aria-pressed', window.filamentMute ? 'false' : 'true');
+    speakBtn.textContent = window.filamentMute ? 'Speak off' : 'Speak';
+    const w = frameWin();
+    if (w) w.filamentMute = window.filamentMute;
+    if (window.filamentMute && window.speechSynthesis) window.speechSynthesis.cancel();
+  });
+
+  const SPEEDS = [0.6, 1, 2, 4];
+  const SPEED_LABEL = { 0.6: "Slow", 1: "Speed 1×", 2: "Fast 2×", 4: "Rush 4×" };
+  let speedIdx = 1;
+  const speedBtn = document.getElementById('speed');
+  function applySpeed(){
+    const spd = SPEEDS[speedIdx];
+    window.filamentSpeed = spd;
+    if (window.FILAMENT_MAP) window.filamentSpeed = spd;
+    const w = frameWin();
+    if (w) w.filamentSpeed = spd;
+    speedBtn.textContent = SPEED_LABEL[spd] || ("Speed "+spd+"×");
+    speedBtn.setAttribute('aria-pressed', spd !== 1 ? 'true' : 'false');
+  }
+  speedBtn.addEventListener('click', () => {
+    speedIdx = (speedIdx + 1) % SPEEDS.length;
+    applySpeed();
+  });
+
+  function paintBoard(id, rows){
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.innerHTML = (rows||[]).slice(0,8).map((r) => {
+      const said = r.said || r.keep || "";
+      const hits = r.hits ? ' <span class="hits">×'+r.hits+'</span>' : '';
+      const region = r.region ? ' · '+r.region : '';
+      return '<li>'+said+hits+region+'</li>';
+    }).join('') || '<li class="hits">empty</li>';
+  }
+  function pullBoard(){
+    fetch(EAR+'/board').then(r=>r.json()).then((b) => {
+      if (!b.ok) return;
+      paintBoard('family-list', b.family);
+      paintBoard('residual-list', b.residual);
+    }).catch(()=>{});
+  }
+  function postBoard(bin, token, region, why){
+    if (!token) return;
+    fetch(EAR+'/board', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ bin, token, region, why }),
+    }).then(() => pullBoard()).catch(()=>{});
+  }
+  pullBoard();
+  setInterval(pullBoard, 4000);
+
+  window.addEventListener('message', (ev) => {
+    const data = ev.data || {};
+    if (data.type === 'filament-caught') {
+      postBoard('family', data.token, listening ? '' : data.region, 'caught');
+      return;
+    }
+    if (data.type === 'filament-slipped') {
+      postBoard('residual', data.token, listening ? '' : data.region, 'slipped');
+      return;
+    }
+    if (data.type !== 'filament-token') return;
+    if (listening) return;
+    const el = document.getElementById('region');
+    if (el && data.region) el.textContent = 'training · ' + data.region;
+    if (!window.filamentTrain || window.filamentMute) return;
+    if (window.FILAMENT_SPEAK) window.FILAMENT_SPEAK(data.token, data.lang);
+  });
+
+  function frameWin(){
+    try { return stage.contentWindow; } catch { return null; }
+  }
+  function catchTok(tok){
+    const w = frameWin();
+    if (w && typeof w.filamentCatch === 'function') w.filamentCatch(tok);
+  }
+  function setTrain(on){
+    window.filamentTrain = !!on;
+    trainBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    trainBtn.textContent = on ? 'Train' : 'Train off';
+    const w = frameWin();
+    if (w) w.filamentTrain = window.filamentTrain;
+    if (on) {
+      try { window.speechSynthesis && window.speechSynthesis.getVoices(); } catch (_e) {}
+      pushMap();
+    } else if (window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+  }
+  trainBtn.addEventListener('click', () => setTrain(!window.filamentTrain));
+  function hideStageChrome(){
+    const doc = stage.contentDocument;
+    if (!doc || doc.getElementById('filament-embed-hide')) return;
+    const s = doc.createElement('style');
+    s.id = 'filament-embed-hide';
+    s.textContent = '#title,#readout,#legend,#listen{display:none!important}';
+    doc.head.appendChild(s);
+  }
+  function syncStage(){
+    const w = frameWin();
+    if (!w) return;
+    w.filamentTrain = !!window.filamentTrain;
+    w.filamentMute = !!window.filamentMute;
+    w.filamentLive = !!listening;
+    w.filamentSpeed = window.filamentSpeed || 1;
+  }
+  stage.addEventListener('load', () => {
+    hideStageChrome();
+    syncStage();
+    pushMap();
+    applySpeed();
+  });
+  setInterval(() => {
+    const w = frameWin();
+    const el = document.getElementById('region');
+    if (el) {
+      if (listening) el.textContent = 'hearing';
+      else if (window.filamentTrain && w && w.filamentRegion) el.textContent = 'training · ' + w.filamentRegion;
+    }
+    const s = w && w.filamentStats;
+    if (s) {
+      const caught = document.getElementById('m-caught');
+      const slip = document.getElementById('m-slip');
+      const pct = document.getElementById('m-pct');
+      const fil = document.getElementById('m-fil');
+      if (caught) caught.textContent = Number(s.caught || 0).toLocaleString();
+      if (slip) slip.textContent = Number(s.slipped || 0).toLocaleString();
+      if (pct) pct.textContent = s.total ? s.pct + '%' : '—';
+      if (fil && s.filaments) fil.textContent = Number(s.filaments).toLocaleString();
+    }
+    const count = w && w.document && w.document.getElementById('fcount');
+    if (count && count.textContent && count.textContent !== '—') {
+      const fil = document.getElementById('m-fil');
+      if (fil) fil.textContent = count.textContent;
+    }
+  }, 200);
+
+  links.forEach((a) => {
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      const view = a.getAttribute('data-view');
+      if (!view || stage.getAttribute('src') === view) return;
+      stage.src = view;
+      links.forEach((x) => x.classList.toggle('on', x === a));
+    });
+  });
+
+  function showSaid(text, partial, unsure){
+    const s = String(text||'').trim();
+    if(!s){ return; }
+    const mark = (unsure && unsure.length)
+      ? s.replace(/(\S+)/g, (tok) => {
+          const hit = unsure.some((u) => (u.raw||u.text||'').toLowerCase() === tok.toLowerCase() || (u.text||'').toLowerCase()===tok.toLowerCase());
+          return hit ? '<span class="unsure">'+tok+'</span>' : tok;
+        }).replace(/<\/span> <span class="unsure">/g, ' ')
+      : s;
+    said.innerHTML = partial ? '<span class="partial">'+mark+'</span>' : mark;
+  }
+  function drawCarbon(aside){
+    const box = document.getElementById('carbon');
+    const list = document.getElementById('carbon-list');
+    if(!box || !list) return;
+    const rows = aside || [];
+    box.hidden = rows.length === 0;
+    list.innerHTML = rows.slice(0,12).map((r) => {
+      const w = r.word || r.kept || '';
+      const c = (r.conf!=null) ? Number(r.conf).toFixed(2) : '?';
+      return '<li>'+w+' <span class="conf">'+c+'</span></li>';
+    }).join('');
+  }
+  function pullCarbon(){
+    fetch(EAR+'/carbon').then(r=>r.json()).then((b)=>{ if(b.ok) drawCarbon(b.aside); }).catch(()=>{});
+  }
+  pullCarbon();
+  setInterval(pullCarbon, 2500);
+  let listening=false, ctx, stream, proc, queue=Promise.resolve(), seen=0, lastShown='';
+  function emit(text){
+    const raw = String(text||'').trim();
+    if (!raw) return;
+    const toks = raw.split(/\s+/).filter(Boolean);
+    if (!toks.length) return;
+    showSaid(raw, true);
+    if (raw === lastShown) return;
+    if (toks.length < seen) {
+      lastShown = raw;
+      return;
+    }
+    if (toks.length === seen) {
+      lastShown = raw;
+      catchTok(toks[toks.length - 1]);
+      return;
+    }
+    for (let i = seen; i < toks.length; i++) catchTok(toks[i]);
+    seen = toks.length;
+    lastShown = raw;
+  }
+  function downsample(input,inRate){
+    const ratio=inRate/16000, n=Math.max(1,Math.floor(input.length/ratio)), out=new Int16Array(n);
+    for(let i=0;i<n;i++){ const s=Math.max(-1,Math.min(1,input[Math.floor(i*ratio)]||0)); out[i]=s<0?s*0x8000:s*0x7fff; }
+    return out;
+  }
+  let inflight=false, pending=new Int16Array(0), pendingQ='';
+  function post(pcm,q){
+    if (q) pendingQ = q;
+    if (pcm && pcm.length){
+      const merged=new Int16Array(pending.length+pcm.length);
+      merged.set(pending); merged.set(pcm, pending.length);
+      pending=merged;
+    }
+    kick();
+  }
+  async function kick(){
+    if (inflight || (!pending.length && !pendingQ)) return;
+    inflight=true;
+    const pcm=pending; pending=new Int16Array(0);
+    const q=pendingQ; pendingQ='';
+    try {
+      const bytes = pcm.length ? pcm.buffer.slice(pcm.byteOffset, pcm.byteOffset + pcm.byteLength) : new ArrayBuffer(0);
+      const res=await fetch(EAR+'/live'+LQ(q||''),{method:'POST',headers:{'content-type':'application/octet-stream'},body:bytes,signal:AbortSignal.timeout(2500)});
+      const body=await res.json();
+      if(!body.ok){ st.textContent=body.error||'ear failed'; }
+      else if(body.final && (body.text||'').trim()){
+        emit(body.text);
+        showSaid(body.text, false, body.unsure);
+        seen=0; lastShown='';
+        st.textContent='hearing · '+(body.text||'').slice(0,40);
+        if(body.carbon) pullCarbon();
+      } else if ((body.partial||'').trim()){
+        emit(body.partial);
+        showSaid(body.partial, true, body.unsure);
+        st.textContent='hearing · '+(body.partial||'').slice(0,40);
+      }
+    } catch {
+      /* keep live moving */
+    }
+    inflight=false;
+    kick();
+  }
+  fetch(EAR+'/health').then(r=>r.json()).then(h=>{
+    if(h.seated){ st.textContent='Vosk seated'; st.classList.add('on'); btn.disabled=false; btn.textContent='Listen'; }
+    else { st.textContent='Vosk unseated'; }
+  }).catch(()=>{ st.textContent='unseated'; });
+
+  const micSel = document.getElementById('mic');
+  const levelBar = document.getElementById('level-bar');
+  const WIRED = /usb|wired|external|interface|scarlett|focusrite|yeti|rode|wave|xlr|audio technica|behringer|zoom|tascam|motu|presonus|steinberg/i;
+  const KEY = 'filament.mic';
+
+  async function listMics(){
+    if (!navigator.mediaDevices?.enumerateDevices) return;
+    const all = await navigator.mediaDevices.enumerateDevices();
+    const mics = all.filter((d) => d.kind === 'audioinput');
+    const saved = localStorage.getItem(KEY) || '';
+    const prefer = mics.find((d) => d.deviceId === saved) || mics.find((d) => WIRED.test(d.label)) || mics[0];
+    micSel.innerHTML = mics.length
+      ? mics.map((d) => `<option value="${d.deviceId}">${d.label || 'mic '+d.deviceId.slice(0,6)}</option>`).join('')
+      : '<option value="">default mic</option>';
+    if (prefer) micSel.value = prefer.deviceId;
+  }
+  listMics().catch(()=>{});
+  navigator.mediaDevices?.addEventListener?.('devicechange', () => { listMics().catch(()=>{}); });
+  micSel.addEventListener('change', () => localStorage.setItem(KEY, micSel.value));
+
+  function constraints(){
+    const deviceId = micSel.value;
+    const audio = {
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+    };
+    if (deviceId) audio.deviceId = { exact: deviceId };
+    return { audio };
+  }
+
+  async function start(){
+    try {
+      stream=await navigator.mediaDevices.getUserMedia(constraints());
+    } catch {
+      stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false,channelCount:1}});
+    }
+    await listMics();
+    const track = stream.getAudioTracks()[0];
+    const label = track?.label || 'mic';
+    localStorage.setItem(KEY, track?.getSettings?.().deviceId || micSel.value || '');
+    ctx=new (window.AudioContext||window.webkitAudioContext)({latencyHint:'interactive'});
+    if(ctx.state==='suspended') await ctx.resume();
+    const source=ctx.createMediaStreamSource(stream);
+    proc=ctx.createScriptProcessor(4096,1,1);
+    const meter=ctx.createAnalyser(); meter.fftSize=1024;
+    const meterBuf=new Uint8Array(meter.fftSize);
+    source.connect(meter);
+    let carry=new Int16Array(0);
+    listening=true; seen=0; lastShown='';
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    const w = frameWin();
+    if (w) {
+      w.filamentLive = true;
+      w.filamentTrain = false;
+      if (typeof w.filamentQuiet === 'function') w.filamentQuiet();
+    }
+    const regionEl = document.getElementById('region');
+    if (regionEl) regionEl.textContent = 'hearing';
+    btn.setAttribute('aria-pressed', 'true');
+    function pumpMeter(){
+      if(!listening) return;
+      meter.getByteTimeDomainData(meterBuf);
+      let sum=0; for(let i=0;i<meterBuf.length;i++){ const v=(meterBuf[i]-128)/128; sum+=v*v; }
+      const rms=Math.sqrt(sum/meterBuf.length);
+      if(levelBar) levelBar.style.width = Math.min(100, Math.round(rms*220))+'%';
+      requestAnimationFrame(pumpMeter);
+    }
+    proc.onaudioprocess=ev=>{
+      if(!listening) return;
+      const next=downsample(ev.inputBuffer.getChannelData(0), ctx.sampleRate);
+      const merged=new Int16Array(carry.length+next.length); merged.set(carry); merged.set(next,carry.length);
+      let off=0; while(merged.length-off>=3200){ post(merged.slice(off,off+3200)); off+=3200; }
+      carry=merged.slice(off);
+    };
+    const mute=ctx.createGain(); mute.gain.value=0;
+    source.connect(proc); proc.connect(mute); mute.connect(ctx.destination);
+    pumpMeter();
+    post(new Int16Array(0),'?reset=1');
+    btn.textContent='Stop'; st.textContent='hearing · '+label; st.classList.add('on');
+  }
+  async function stop(){
+    listening=false;
+    lastShown='';
+    seen=0;
+    const w = frameWin();
+    if (w) {
+      w.filamentLive = false;
+      w.filamentTrain = !!window.filamentTrain;
+    }
+    btn.setAttribute('aria-pressed', 'false');
+    const regionEl = document.getElementById('region');
+    if (regionEl && window.filamentTrain && w && w.filamentRegion) regionEl.textContent = 'training · ' + w.filamentRegion;
+    proc&&proc.disconnect(); stream&&stream.getTracks().forEach(t=>t.stop()); ctx&&ctx.close();
+    proc=stream=ctx=null; if(levelBar) levelBar.style.width='0';
+    post(new Int16Array(0),'?end=1');
+    btn.textContent='Listen'; st.textContent='Vosk seated';
+  }
+  btn.addEventListener('click',()=>{ listening?stop().catch(()=>{}):start().catch((err)=>{ st.textContent = (err && err.name==='NotFoundError') ? 'no mic found' : 'mic denied'; }); });
+})();
+</script>
+</body>
+</html>

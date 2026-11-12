@@ -55,7 +55,7 @@ def _tone(freq: float, seconds: float = 1.0) -> np.ndarray:
 @pytest.mark.needs_dsp
 def test_mouth_without_a_lexicon_raises_the_lexicon_failure_and_writes_nothing(tmp_path, monkeypatch):
     """No lexicon configured: the lexicon's own typed failure, unchanged, and no file."""
-    from christman_sound.lexicon import LexiconUnavailable
+    from christman_voice_sdk.synthesis.lexicon import LexiconUnavailable
     from christman_voice_sdk.engines.synthesis_result import SynthesisUnavailable
     from christman_voice_sdk.synthesis import voice_synthesis as vs
 
@@ -74,7 +74,7 @@ def test_mouth_without_a_lexicon_raises_the_lexicon_failure_and_writes_nothing(t
 
 def test_mouth_without_the_engine_raises_nothing_voiced_with_the_loaders_reason(tmp_path, monkeypatch):
     """The C library cannot load: NothingVoiced carrying the loader's reason, and no file."""
-    import christman_sound.dsp as dsp_mod
+    import christman_voice_sdk.engines.dsp as dsp_mod
     from christman_voice_sdk.synthesis import voice_synthesis as vs
 
     lex = tmp_path / "lex.txt"
@@ -97,7 +97,7 @@ def test_mouth_without_the_engine_raises_nothing_voiced_with_the_loaders_reason(
 
 @pytest.mark.needs_dsp
 def test_synthesize_speech_raises_instead_of_returning_none(tmp_path, monkeypatch):
-    from christman_sound.lexicon import LexiconUnavailable
+    from christman_voice_sdk.synthesis.lexicon import LexiconUnavailable
     from christman_voice_sdk.synthesis import voice_synthesis as vs
 
     monkeypatch.delenv("CHRISTMAN_LEXICON_PATH", raising=False)
@@ -132,26 +132,71 @@ def _torch_stack_missing():
     return None
 
 
-def test_shorty_quantifies_then_refuses_to_render():
-    """Everett's emotion quantification still runs; only the outside render is gone."""
-    missing = _torch_stack_missing()
-    if missing is not None:
-        pytest.skip(f"not run: {missing} is not installed here; shorty_voice_engine_v3 and its emotion detector import it at module top")
-    from christman_voice_sdk.engines.synthesis_result import SOVEREIGN_NOT_WIRED, SynthesisUnavailable
+def _shorty():
+    """Shorty without its constructor, which builds the wav2vec2 emotion
+    detector and would download a model. These tests make no network call.
+    The baseline is test input to reach the speaking step, not a measurement
+    of anyone."""
     from christman_voice_sdk.synthesis.shorty_voice_engine_v3 import ShortyVoiceEngineV3
 
-    # __new__: the constructor builds the wav2vec2 emotion detector, which
-    # downloads a model. This test makes no network call. The baseline below
-    # is test input to reach the render step, not a measurement of anyone.
     eng = ShortyVoiceEngineV3.__new__(ShortyVoiceEngineV3)
     eng.emotion_baseline = {"happy": 0.6}
     eng.reference_audio = None
+    eng.voice = None
+    eng._mouth = None
+    return eng
+
+
+def test_shorty_quantifies_and_names_no_voice_when_given_none():
+    """Everett's emotion quantification runs; with no voice handed in, Shorty
+    says so and makes no sound. There is no default voice and no outside one."""
+    missing = _torch_stack_missing()
+    if missing is not None:
+        pytest.skip(f"not run: {missing} is not installed here; shorty_voice_engine_v3 and its emotion detector import it at module top")
+    from christman_voice_sdk.engines.synthesis_result import SynthesisUnavailable
+
+    eng = _shorty()
     assert not hasattr(eng, "xtts")
-    with pytest.raises(SynthesisUnavailable) as excinfo:
+    with pytest.raises(SynthesisUnavailable, match="no voice given") as excinfo:
         eng.synthesize("hello", emotion_params={"emotion": "happy", "exaggeration": 0.0})
     err = excinfo.value
-    assert err.available is False and err.reason == SOVEREIGN_NOT_WIRED
+    assert err.available is False
     assert err.voice_params == eng.quantify_emotion("hello", "happy", 0.0)["voice_params"]
+
+
+@pytest.mark.needs_dsp
+def test_shorty_speaks_through_the_sdks_own_mouth_in_the_callers_voice(tmp_path, monkeypatch):
+    """2026-11-12: where XTTS was, Shorty speaks through the SDK's mouth and
+    Everett's C synthesizer. A measured formant profile has no input for pitch
+    or rate, so an emotion that asks for them is refused by name, not dropped."""
+    missing = _torch_stack_missing()
+    if missing is not None:
+        pytest.skip(f"not run: {missing} is not installed here; shorty_voice_engine_v3 and its emotion detector import it at module top")
+    from christman_voice_sdk.engines.synthesis_result import SynthesisUnavailable
+
+    lex = tmp_path / "lex.txt"
+    lex.write_text("hello hello h_B @_I l_I oU_E\n", encoding="utf-8")
+    monkeypatch.setenv("CHRISTMAN_LEXICON_PATH", str(lex))
+    monkeypatch.chdir(tmp_path)
+    voice = load_test_voice(tmp_path / "voice")
+    eng = _shorty()
+    # A neutral score of zero asks the voice for no pitch or rate change.
+    eng.emotion_baseline = {"happy": 0.6, "neutral": 0.0}
+
+    neutral = eng.quantify_emotion("hello", "neutral", 0.0)["voice_params"]
+    assert neutral["tempo_factor"] == 1.0 and neutral["pitch_shift"] == 0.0, neutral
+    result = eng.synthesize("hello", voice=voice)
+    assert result.engine == "christman" and len(result.audio) > 0
+    assert result.voice_params == neutral
+    peak = max(abs(x) for x in result.audio)
+    assert 0.0 < peak <= 1.0
+    assert result.energy_boost_applied <= neutral["energy_boost"]
+
+    happy = eng.quantify_emotion("hello", "happy", 0.0)["voice_params"]
+    if happy["tempo_factor"] != 1.0 or happy["pitch_shift"] != 0.0:
+        with pytest.raises(SynthesisUnavailable, match="need a frame voice") as excinfo:
+            eng.synthesize("hello", emotion_params={"emotion": "happy", "exaggeration": 0.0}, voice=voice)
+        assert excinfo.value.voice_params == happy
 
 
 @pytest.mark.needs_dsp
@@ -162,7 +207,7 @@ def test_orchestrator_speaks_only_in_the_callers_voice(tmp_path, monkeypatch):
     missing = _torch_stack_missing()
     if missing is not None:
         pytest.skip(f"not run: {missing} is not installed here; the orchestrator and its timbre and tone modules import it at module top")
-    from christman_sound.stitch import StitchRefused
+    from christman_voice_sdk.synthesis.stitch import StitchRefused
     from christman_voice_sdk.audio.config import Tier
     from christman_voice_sdk.engines.synthesis_result import SynthesisUnavailable
     from christman_voice_sdk.synthesis.voice_synthesis_orchestrator import VoiceSynthesisOrchestrator
@@ -198,8 +243,28 @@ def test_speech_response_raises_instead_of_using_the_os_voice():
     from christman_voice_sdk.engines.synthesis_result import SynthesisUnavailable
     from christman_voice_sdk.synthesis import speech_response
 
-    with pytest.raises(SynthesisUnavailable):
+    with pytest.raises(SynthesisUnavailable, match="no voice given"):
         speech_response.speak("hello")
+
+
+@pytest.mark.needs_dsp
+def test_speech_response_speaks_in_the_callers_voice(tmp_path, monkeypatch):
+    """2026-11-12: speak() reaches the SDK's mouth. Nothing is played here."""
+    import wave
+
+    from christman_voice_sdk.synthesis import speech_response
+    from christman_voice_sdk.synthesis import voice_synthesis as vs
+
+    lex = tmp_path / "lex.txt"
+    lex.write_text("hello hello h_B @_I l_I oU_E\n", encoding="utf-8")
+    monkeypatch.setattr(vs, "DEFAULT_CACHE_DIR", tmp_path / "cache")
+    monkeypatch.chdir(tmp_path)
+    out = tmp_path / "hello.wav"
+    path = speech_response.speak("hello", voice=load_test_voice(tmp_path / "voice"),
+                                 lexicon_path=str(lex), play_audio=False, output_path=str(out))
+    assert path and Path(path).is_file()
+    with wave.open(str(path), "rb") as w:
+        assert w.getnframes() > 0
 
 
 def test_tts_service_reports_real_state_and_503s_without_a_voice(tmp_path, monkeypatch):

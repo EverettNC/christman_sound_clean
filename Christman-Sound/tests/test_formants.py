@@ -3,7 +3,7 @@
 # The Christman AI Project — Luma Cognify AI
 # ==============================================================================
 """
-christman_sound.formants, pinned with real runs.
+christman_voice_sdk.tone.formants, pinned with real runs.
 
 WHAT CHANGED AND WHY
 --------------------
@@ -56,11 +56,11 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
-    from christman_sound import formants as F  # noqa: E402
-except ImportError as exc:  # the loader christman_sound.dsp imports numpy at its top
-    pytest.skip(f"not run: christman_sound.dsp could not be imported ({exc})", allow_module_level=True)
+    from christman_voice_sdk.tone import formants as F  # noqa: E402
+except ImportError as exc:  # the loader christman_voice_sdk.engines.dsp imports numpy at its top
+    pytest.skip(f"not run: christman_voice_sdk.engines.dsp could not be imported ({exc})", allow_module_level=True)
 
-from christman_sound.dsp import get_dsp  # noqa: E402
+from christman_voice_sdk.engines.dsp import get_dsp  # noqa: E402
 
 if not get_dsp().available:
     pytest.skip(

@@ -72,7 +72,7 @@ import numpy as np
 logger = logging.getLogger("christman.recorder")
 
 # ── Christman SDK audio standard ─────────────────────────────────────────────
-SAMPLE_RATE   = 22050   # Hz — matches christman_sound standard
+SAMPLE_RATE   = 22050   # Hz — matches the package's standard
 CHANNELS      = 1       # Mono — all beings speak in mono
 BIT_DEPTH     = 16      # 16-bit PCM
 DTYPE         = "int16"

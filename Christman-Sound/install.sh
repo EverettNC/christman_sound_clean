@@ -13,7 +13,7 @@
 #   4. Creates the native desktop launcher (Christman Sound.app / .desktop)
 #
 # 2026-11-05 (Everett): the ear is Vosk again. Step 3 used to compile
-# christman_sound/ear/libear, the decoder a Claude Code session wrote in Vosk's
+# christman_voice_sdk/audio/ear/libear, the decoder a Claude Code session wrote in Vosk's
 # place; that decoder is held, not installed, in held/claude-ear-2026-10-28.
 #
 # WHAT CHANGED AND WHY (2026-11-05)
@@ -51,6 +51,6 @@ echo "==> Checking the ear's recognizer (vosk)..."
 python3 -c "import vosk" || { echo "vosk did not import: the ear cannot hear" >&2; exit 1; }
 
 echo "==> Installing Christman Sound desktop application bundle..."
-python3 -m christman_sound.app --install-desktop
+python3 -m voice_creation_center.app --install-desktop
 
 echo "==> Done! Launch 'Christman Sound.app' or run: christman-sound --open-browser"

@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Deque, Dict, List, Mapping, Optional, Sequence, Tuple
 
-from christman_sound.dsp import get_dsp
+from christman_voice_sdk.engines.dsp import get_dsp
 
 __all__ = [
     "GREENWOOD_A",

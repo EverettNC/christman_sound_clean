@@ -24,18 +24,18 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from christman_sound.dsp import get_dsp  # noqa: E402
+from christman_voice_sdk.engines.dsp import get_dsp  # noqa: E402
 
 if not get_dsp().available:
     pytest.skip(f"not run: christman_dsp is not built here ({get_dsp().error}); "
                 "build it with python3 scripts/build_dsp.py", allow_module_level=True)
 
-from christman_sound.stitch import FrameVoiceUnavailable  # noqa: E402
-from christman_sound.voice_creation_center import (  # noqa: E402
+from christman_voice_sdk.synthesis.stitch import FrameVoiceUnavailable  # noqa: E402
+from voice_creation_center.booth import (  # noqa: E402
     BANK_VOWEL_MIN_UNITS,
     measure_vowels_from_frame_bank,
 )
-from christman_sound.voice_profile import load_voice_profile  # noqa: E402
+from christman_voice_sdk.synthesis.voice_profile import load_voice_profile  # noqa: E402
 
 SR, HOP, F0 = 16000, 80, 120.0
 BW = (80.0, 100.0, 160.0)

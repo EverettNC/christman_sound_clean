@@ -10,7 +10,7 @@ sdk-review A, finding 7: it assumed 44100 Hz for every input, so a being's
 24 kHz phrases read 1.3 to 1.9 times too high; its pitch lag was one sample
 short; its "formants" were FFT peaks in overlapping bands (F1 equalled F2 on
 5 runs). Now: christman_yin at the rate given, LPC formants from
-christman_sound.formants with real-axis roots dropped.
+christman_voice_sdk.tone.formants with real-axis roots dropped.
 """
 
 from __future__ import annotations
@@ -27,8 +27,8 @@ from scipy.signal import lfilter, resample_poly
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-import christman_sound.dsp as cs_dsp  # noqa: E402
-from christman_sound.dsp import ChristmanDSP  # noqa: E402
+import christman_voice_sdk.engines.dsp as cs_dsp  # noqa: E402
+from christman_voice_sdk.engines.dsp import ChristmanDSP  # noqa: E402
 from christman_voice_sdk.integration import voice_capture_client as vc  # noqa: E402
 from christman_voice_sdk.tone import voice_measure as vm  # noqa: E402
 

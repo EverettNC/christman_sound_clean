@@ -12,13 +12,13 @@ The word ruler: how many words of a voice's free text an ear hears.
         [--sentences scripts/word_ruler_sentences.txt] [--out <folder>]
 
 --voice is a frame voice folder (bank.json, frames.bin, voice.json: the frame
-mouth, christman_sound.stitch) or a voice profile JSON (the clear mouth,
-christman_synth_clear through christman_sound.dsp). Every sentence is
+mouth, christman_voice_sdk.synthesis.stitch) or a voice profile JSON (the clear mouth,
+christman_synth_clear through christman_voice_sdk.engines.dsp). Every sentence is
 rendered, written as a WAV, and heard by each ear given:
 
   filament   the Filament door (--filament), the ear the house uses; a
              local door only (127.0.0.1, localhost or ::1), else refused
-  ear        Vosk's recognizer through christman_sound.ear on --vosk-model
+  ear        Vosk's recognizer through christman_voice_sdk.audio.ear on --vosk-model
 
 A word counts as heard when it is matched in order in what the ear heard
 (difflib's longest matching blocks), the same count the voice tests make by
@@ -101,7 +101,7 @@ def package_ear(model_dir: Path) -> Callable[[bytes], str]:
     import numpy as np
     from scipy.signal import resample_poly
 
-    from christman_sound.ear import Ear, load_model
+    from christman_voice_sdk.audio.ear import Ear, load_model
 
     model = load_model(model_dir)
 
@@ -140,7 +140,7 @@ def main() -> int:
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
 
-    from christman_sound.synth import synthesize
+    from christman_voice_sdk.synthesis.synth import synthesize
 
     sentences = read_sentences(Path(args.sentences))
     ears: Dict[str, Callable[[bytes], str]] = {}
@@ -160,14 +160,14 @@ def main() -> int:
     recorded: Optional[set] = None
     engine = None
     if voice_path.is_dir():
-        from christman_sound.stitch import load_frame_voice
+        from christman_voice_sdk.synthesis.stitch import load_frame_voice
 
         voice = load_frame_voice(voice_path)
         recorded = {str(t.get("word", "")).lower() for t in voice.bank.tokens}
         mouth = "frame"
     else:
-        from christman_sound.dsp import ChristmanDSP
-        from christman_sound.voice_profile import load_voice_profile
+        from christman_voice_sdk.engines.dsp import ChristmanDSP
+        from christman_voice_sdk.synthesis.voice_profile import load_voice_profile
 
         voice = load_voice_profile(voice_path)
         engine = ChristmanDSP()

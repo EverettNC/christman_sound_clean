@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Filament · live ear</title>
+    <style>
+      :root {
+        --bg: #0b0d10;
+        --fg: #e8e2d6;
+        --muted: #9a9184;
+        --accent: #c9a36a;
+        --line: #2a261f;
+        --paper: #14110d;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--fg); }
+      body {
+        font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+        padding: 2.5rem 1.25rem 4rem;
+      }
+      .wrap { max-width: 42rem; margin: 0 auto; }
+      .kicker {
+        font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+        font-size: 0.68rem;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+      h1 {
+        font-family: "Iowan Old Style", "Palatino Linotype", Palatino, serif;
+        font-style: italic;
+        font-weight: 400;
+        font-size: clamp(2.4rem, 7vw, 3.8rem);
+        line-height: 0.9;
+        margin: 0.75rem 0 0;
+      }
+      p.lead { color: var(--muted); max-width: 28rem; line-height: 1.55; }
+      .row { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; margin-top: 1.5rem; }
+      button {
+        min-height: 2.75rem;
+        padding: 0 1.25rem;
+        border: 0;
+        border-radius: 2px;
+        background: var(--accent);
+        color: #14110d;
+        font-size: 0.95rem;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:disabled { opacity: 0.4; cursor: not-allowed; }
+      .status {
+        font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+        font-size: 0.7rem;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .status.on { color: var(--accent); }
+      .paper {
+        margin-top: 1.5rem;
+        min-height: 10rem;
+        border: 1px solid var(--line);
+        background: var(--paper);
+        padding: 1.1rem 1.2rem;
+      }
+      .paper li { list-style: none; margin: 0 0 0.45rem; }
+      .paper ul { margin: 0; padding: 0; }
+      .partial { font-style: italic; color: var(--muted); }
+      .err { color: #e07a6a; margin-top: 1rem; }
+      footer {
+        margin-top: 2rem;
+        font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+        font-size: 0.68rem;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <p class="kicker">THEFILAMENT · Vosk · <span id="door-port">4850</span></p>
+      <h1>Live ear.</h1>
+      <p class="lead">Backend is this door. Talk. Dialect stays. Empty ear stays empty. Whisper is not in this body.</p>
+      <div class="row">
+        <button id="btn" type="button" disabled>Hold</button>
+        <span id="status" class="status">probing</span>
+      </div>
+      <p id="err" class="err" hidden></p>
+      <div class="paper" id="paper">
+        <p class="partial">Nothing on the wire yet.</p>
+      </div>
+      <footer>Christman AI · Filament is the cochlea · Porch hears the words</footer>
+    </div>
+    <script>
+      const btn = document.getElementById("btn");
+      const status = document.getElementById("status");
+      const err = document.getElementById("err");
+      const paper = document.getElementById("paper");
+      let listening = false;
+      let ctx, stream, proc, queue = Promise.resolve();
+      const lines = [];
+      let partial = "";
+      // One stream per open page: the door keeps this page's words apart from every other caller's.
+      const SESSION = 'filament-simple:' + (crypto && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + '-' + Math.floor(Math.random() * 2 ** 48).toString(36));
+
+      function showErr(msg) {
+        err.hidden = !msg;
+        err.textContent = msg || "";
+      }
+      function render() {
+        if (!lines.length && !partial) {
+          paper.innerHTML = '<p class="partial">Nothing on the wire yet.</p>';
+          return;
+        }
+        paper.innerHTML = "<ul>" +
+          lines.map((l) => "<li>" + escapeHtml(l) + "</li>").join("") +
+          (partial ? '<li class="partial">' + escapeHtml(partial) + "</li>" : "") +
+          "</ul>";
+      }
+      // The five entities are written out. This line had four of them already
+      // turned back into the characters themselves ("&": "&" ... '"': """), which
+      // is not JavaScript: the script stopped at the first load and this page
+      // never left "probing". It came that way from THEFILAMENT ear/ui.html.
+      function escapeHtml(s) {
+        return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+      function downsample(input, inRate) {
+        const outRate = 16000;
+        const ratio = inRate / outRate;
+        const n = Math.max(1, Math.floor(input.length / ratio));
+        const out = new Int16Array(n);
+        for (let i = 0; i < n; i++) {
+          const s = Math.max(-1, Math.min(1, input[Math.floor(i * ratio)] || 0));
+          out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+        }
+        return out;
+      }
+      function post(pcm, query) {
+        queue = queue.then(async () => {
+          const res = await fetch("/live" + (query ? query + "&" : "?") + "session=" + SESSION, {
+            method: "POST",
+            headers: { "content-type": "application/octet-stream" },
+            body: pcm.buffer,
+          });
+          const body = await res.json();
+          if (!body.ok) { showErr(body.error || "Ear failed."); return; }
+          if (body.final && body.text && body.text.trim()) {
+            lines.push(body.text.trim());
+            partial = "";
+          } else {
+            partial = (body.partial || "").trim();
+          }
+          render();
+        });
+        return queue;
+      }
+
+      // The door's own port, as the door reports it (the heading said 4850 whatever door served the page).
+      fetch("/health")
+        .then((r) => r.json())
+        .then((h) => {
+          if (h.door) document.getElementById("door-port").textContent = h.door;
+          if (h.seated) {
+            status.textContent = "seated · vosk · live";
+            status.classList.add("on");
+            btn.disabled = false;
+            btn.textContent = "Listen";
+          } else {
+            status.textContent = "unseated";
+            showErr(h.error || "Vosk is not seated.");
+          }
+        })
+        .catch(() => {
+          status.textContent = "unseated";
+          showErr("Health did not answer.");
+        });
+
+      async function start() {
+        showErr("");
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
+        });
+        ctx = new (window.AudioContext || window.webkitAudioContext)();
+        if (ctx.state === "suspended") await ctx.resume();
+        const source = ctx.createMediaStreamSource(stream);
+        proc = ctx.createScriptProcessor(4096, 1, 1);
+        let carry = new Int16Array(0);
+        listening = true;
+        proc.onaudioprocess = (ev) => {
+          if (!listening) return;
+          const next = downsample(ev.inputBuffer.getChannelData(0), ctx.sampleRate);
+          const merged = new Int16Array(carry.length + next.length);
+          merged.set(carry); merged.set(next, carry.length);
+          let off = 0;
+          while (merged.length - off >= 3200) {
+            post(merged.slice(off, off + 3200));
+            off += 3200;
+          }
+          carry = merged.slice(off);
+        };
+        const mute = ctx.createGain();
+        mute.gain.value = 0;
+        source.connect(proc);
+        proc.connect(mute);
+        mute.connect(ctx.destination);
+        await post(new Int16Array(0), "?reset=1");
+        btn.textContent = "Stop";
+        status.textContent = "hearing";
+      }
+
+      async function stop() {
+        listening = false;
+        proc && proc.disconnect();
+        stream && stream.getTracks().forEach((t) => t.stop());
+        ctx && ctx.close();
+        proc = stream = ctx = null;
+        await post(new Int16Array(0), "?end=1");
+        btn.textContent = "Listen";
+        status.textContent = "seated · vosk · live";
+      }
+
+      btn.addEventListener("click", () => {
+        if (listening) stop().catch((e) => showErr(e.message));
+        else start().catch((e) => showErr("Mic denied. Allow microphone for " + (location.host || "127.0.0.1:4850") + "."));
+      });
+    </script>
+  </body>
+</html>

@@ -490,7 +490,7 @@ class PraatToneAnalyzer:
                 "composite_weights": ToneScoreCalculator.WEIGHTS,
             },
             "meta": {"audio_path": audio_path, "analysis_version": "2.0",
-                     "pitch_tracker": "christman_yin (christman_sound.dsp)",
+                     "pitch_tracker": "christman_yin (christman_voice_sdk.engines.dsp)",
                      "voice_quality_analyzer": "Praat (parselmouth)"},
             "notes": notes,
         }

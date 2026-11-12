@@ -43,8 +43,8 @@ decides is written in AlphaVox's WHAT_THE_BEING_DECIDES.md.
   4. "I love you I'm scared" stays unclear.
   5. Hand Up ("Request attention") reads hard_block, nonverbal distress,
      and danger.
-  8. The old recognizer is gone; hearing goes through christman_sound.ear.
-     2026-11-05, Everett: Vosk is the ear (christman_sound.ear runs Vosk's
+  8. The old recognizer is gone; hearing goes through christman_voice_sdk.audio.ear.
+     2026-11-05, Everett: Vosk is the ear (christman_voice_sdk.audio.ear runs Vosk's
      recognizer on the full model, as the Filament does), and Corti sits on
      top. The decoder written in its place is held, not installed, in
      held/claude-ear-2026-10-28. Tests 8 below say that now.
@@ -690,8 +690,8 @@ def test_9_no_rewriter_redactor_or_sanitized_field_is_left():
     assert "sanitized_text" not in fusion_engine.Reading.__dataclass_fields__
     # No file but core.py (never touched, never wired) holds the old field.
     for path in [*sorted((ROOT / "christman_voice_sdk").rglob("*.py")),
-                 *sorted((ROOT / "christman_sound").rglob("*.py"))]:
-        if path.name == "core.py" and path.parent.name == "christman_sound":
+                 *[ROOT / "voice_creation_center" / "booth.py", ROOT / "voice_creation_center" / "app.py"]]:
+        if path.name == "core.py" and path.parent.name == "christman_voice_sdk":
             continue
         code = path.read_text(encoding="utf-8")
         code_lines = [ln for ln in code.splitlines() if not ln.lstrip().startswith("#")]
@@ -747,7 +747,7 @@ def test_8_the_old_recognizers_name_appears_only_where_vosk_is_called():
     # (Everett, 2026-11-05) it appears on the lines that call Vosk, and nowhere
     # else.
     name = "".join(["k", "a", "l", "d", "i"])     # built here so this file does not carry it
-    allowed = {"christman_sound/ear/hear.py", "christman_sound/ear/recognizer.py"}
+    allowed = {"christman_voice_sdk/audio/ear/hear.py", "christman_voice_sdk/audio/ear/recognizer.py"}
     hits = []
     for path in ROOT.rglob("*"):
         if not path.is_file() or ".git" in path.parts or "__pycache__" in path.parts:
@@ -770,7 +770,7 @@ def test_8_the_old_recognizers_name_appears_only_where_vosk_is_called():
 
 
 def test_8_the_package_ear_is_vosk_and_the_held_ear_is_not_installed():
-    from christman_sound.ear import hear
+    from christman_voice_sdk.audio.ear import hear
 
     assert "import vosk" in Path(hear.__file__).read_text(encoding="utf-8")
     ear_dir = Path(hear.__file__).parent
@@ -781,12 +781,12 @@ def test_8_the_package_ear_is_vosk_and_the_held_ear_is_not_installed():
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     import tomllib
     include = tomllib.loads(pyproject)["tool"]["setuptools"]["packages"]["find"]["include"]
-    assert "christman_sound*" in include and "christman_voice_sdk*" in include
+    assert "voice_creation_center*" in include and "christman_voice_sdk*" in include
     assert not any(pat.startswith("held") for pat in include), include   # held/ is not a package
     assert '"vosk"' in pyproject
 
 
-def test_8_the_engine_hears_through_christman_sound_ear():
+def test_8_the_engine_hears_through_the_sdks_ear():
     from christman_voice_sdk.audio import speech_recognition_engine as sre
 
     assert not hasattr(sre, "VoskBackend")

@@ -36,26 +36,45 @@ silent_alarm parameter are gone; a caller that still passes silent_alarm
 gets a TypeError. The lists are still here to read:
 reply_guard.forbidden_lines(reply, danger=...) names the lines, and the
 being decides what to say.
+
+WHAT CHANGED AND WHY (2026-11-12) — IT SPEAKS, THROUGH THE SDK'S OWN MOUTH
+---------------------------------------------------------------------------
+Everett: every module in the SDK is used. `speak()` raised and voiced
+nothing since pyttsx3 came out. It now speaks the reply through
+voice_synthesis (Everett's own synthesizer, in C) in the voice the caller
+passes. There is no default voice: with none it raises SynthesisUnavailable
+and says so. `tone_profile` reaches the mouth as its named controls; a key
+that is not one is refused by the mouth with the reason, never dropped.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
-from ..engines.synthesis_result import SOVEREIGN_NOT_WIRED, SynthesisUnavailable
+from ..engines.synthesis_result import SynthesisUnavailable
 
 logger = logging.getLogger(__name__)
 
 
-def speak(text: str, tone_profile: Optional[dict] = None) -> None:
+def speak(text: str, tone_profile: Optional[dict] = None, *, voice: Any = None,
+          lexicon_path: Optional[str] = None, play_audio: bool = True,
+          output_path: Optional[str] = None) -> Optional[str]:
     """
-    Raises `SynthesisUnavailable` with the reason. Nothing is voiced.
+    Speak `text` in the caller's `voice` (a frame voice folder, a voice
+    profile file, or one already loaded) and return the WAV's path. With no
+    voice, raises `SynthesisUnavailable` with the reason; nothing is voiced.
     """
-    del tone_profile
-    err = SynthesisUnavailable(SOVEREIGN_NOT_WIRED, where="speech_response.speak")
-    logger.error("Did not speak %r: %s", (text or "")[:40], err)
-    raise err
+    if voice is None:
+        err = SynthesisUnavailable(
+            "no voice given: pass the caller's own voice (voice=<frame voice folder or voice profile file>, or a "
+            "loaded FrameVoice or VoiceProfile); there is no default voice", where="speech_response.speak")
+        logger.error("Did not speak %r: %s", (text or "")[:40], err)
+        raise err
+    from .voice_synthesis import SpeechSynthesisEngine
+    mouth = SpeechSynthesisEngine(lexicon_path=lexicon_path)
+    return mouth.generate_speech_audio(text, emotion_params=tone_profile or None, voice=voice,
+                                       play_audio=play_audio, output_path=output_path)
 
 
 __all__ = ["speak"]

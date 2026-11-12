@@ -6,7 +6,7 @@
 The sound package is being-neutral (2026-10-29).
 
 Nothing in christman_voice_sdk's audio, tone, utils, music, nonverbal, timbre
-and engines folders, its __init__.py, or christman_sound (aside from core.py,
+and engines folders, its __init__.py, or what the deleted christman_sound folder held (aside from core.py,
 which is untouched by Everett's standing ruling) names a being, knows a being's
 port, or carries a being's vocabulary. The switches are the package's own:
 
@@ -31,18 +31,23 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 SDK = ROOT / "christman_voice_sdk"
-CS = ROOT / "christman_sound"
-CORE_EXEMPT = CS / "core.py"  # Everett's standing ruling: never touched, never wired
+VCC = ROOT / "voice_creation_center"
+CORE_EXEMPT = SDK / "core.py"  # Everett's standing ruling: never touched, never wired
 
 NEUTRAL_FILES = [
     SDK / "__init__.py",
     *(p for folder in ("audio", "tone", "utils", "music", "nonverbal", "timbre", "engines")
       for p in sorted((SDK / folder).rglob("*.py"))),
-    *(p for p in sorted(CS.rglob("*"))
+    # What was in the folder Everett deleted on 2026-11-12, where it lives now:
+    # the voice modules in synthesis/, the Filament's pages, the Center's booth,
+    # its app and the app's pages. (The ear, the Filament's code, dispersion and
+    # being are under audio/, listed above.)
+    *(SDK / "synthesis" / n for n in ("lexicon.py", "synth.py", "stitch.py", "frames.py", "voice_profile.py")),
+    VCC / "booth.py", VCC / "app.py",
+    *(p for folder in (SDK / "audio" / "filament", VCC / "static") for p in sorted(folder.rglob("*"))
       if p.is_file()
-      and p != CORE_EXEMPT
       and "__pycache__" not in p.parts
-      and p.suffix in (".py", ".html", ".js", ".json", ".webmanifest")),
+      and p.suffix in (".html", ".js", ".json", ".webmanifest")),
 ]
 # Spelled in pieces so this file does not hold the names it looks for.
 _PIECES = ("alpha|vox", "brock|ston", "der|ek", "gr|ok", "her|mes", "sie|rra", "infer|no",
@@ -58,7 +63,7 @@ def test_no_file_in_the_neutral_folders_names_a_being():
                 hits.append(f"{path.relative_to(ROOT)}:{n}: {line.strip()}")
     assert len(NEUTRAL_FILES) > 60, NEUTRAL_FILES
     assert hits == [], "\n".join(hits)
-    assert not (CS / "static" / "testdata").exists()
+    assert not (VCC / "static" / "testdata").exists()
 
 
 def test_the_speech_personality_module_left_the_package():

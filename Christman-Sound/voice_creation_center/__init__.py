@@ -13,7 +13,7 @@ with its history (git subtree). Its parts:
     voice_creation_center.voice_express              the express lane: pre-rendered phrases
     voice_creation_center.voice_ingestor             the front door: audio in, phrases out
     voice_creation_center.vcc_paths                  the one base directory for all of it
-    voice_creation_center.engines.voice_engine       speaks through christman_sound.synth
+    voice_creation_center.engines.voice_engine       speaks through christman_voice_sdk.synthesis.synth
     voice_creation_center.engines.voice_validator    the content check before any sound
     voice_creation_center.engines.voice_path_registrar   builds the express index from folders
     voice_creation_center.engines.voice_loader / voice_logger / voice_cache_manager
@@ -37,7 +37,7 @@ checkout, as it was in the VCC's own repo. Installed from a download
 base is $CHRISTMAN_AI_HOME/voice_creation_center, by default
 ~/.christman_ai/voice_creation_center (2026-11-05; vcc_paths says why).
 
-Christman-Sound also holds christman_sound/voice_creation_center.py, which is
+Christman-Sound also holds voice_creation_center/booth.py, which is
 a different thing with the same name: the measuring and voice-building engine
 (measure a voice profile, build a frame voice bank, package a voicepack).
 """

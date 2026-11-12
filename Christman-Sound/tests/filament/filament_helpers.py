@@ -97,7 +97,7 @@ def three() -> bytes:
 
 def seated_server():
     """The server module, with the full model found. Otherwise NOT RUN, with the reason."""
-    from christman_sound.filament import server
+    from christman_voice_sdk.audio.filament import server
 
     path = server.MODEL_PATH
     if path is None:

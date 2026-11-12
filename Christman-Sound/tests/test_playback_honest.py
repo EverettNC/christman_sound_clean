@@ -50,8 +50,8 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-import christman_sound.dsp as dsp_mod  # noqa: E402
-from christman_sound.dsp import ChristmanDSP  # noqa: E402
+import christman_voice_sdk.engines.dsp as dsp_mod  # noqa: E402
+from christman_voice_sdk.engines.dsp import ChristmanDSP  # noqa: E402
 from christman_voice_sdk.synthesis import voice_synthesis as vs  # noqa: E402
 
 # Two lines in the align_lexicon.txt format of vosk-model-en-us-0.22, as in
@@ -201,8 +201,8 @@ def test_failure_while_the_end_drains_raises(mouth, dsp):
 _CHILD = r"""
 import json, sys, wave
 sys.path.insert(0, sys.argv[1])
-import christman_sound.dsp as dsp_mod
-from christman_sound.dsp import ChristmanDSP
+import christman_voice_sdk.engines.dsp as dsp_mod
+from christman_voice_sdk.engines.dsp import ChristmanDSP
 from christman_voice_sdk.synthesis import voice_synthesis as vs
 lib, lexicon, cache, out, mode = sys.argv[2:7]
 dsp_mod._instance = ChristmanDSP(lib)

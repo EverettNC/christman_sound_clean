@@ -5,12 +5,12 @@
 """
 End-to-end tests for the integrated 7-repository Christman-Sound house
 architecture:
-  1. christman_sound.frames (4.99 ms frame analysis, radix-2 FFT, 5-pass Viterbi
+  1. christman_voice_sdk.synthesis.frames (4.99 ms frame analysis, radix-2 FFT, 5-pass Viterbi
      forced alignment, native write_voice_bank -> FrameBank round-trip)
-  2. christman_sound.dispersion (4-canal Dispersion & War, Refused-Mix guard)
-  3. christman_sound.being (Silico-Stasis equilibrium, concentric cube/room/universe
+  2. christman_voice_sdk.audio.dispersion (4-canal Dispersion & War, Refused-Mix guard)
+  3. christman_voice_sdk.audio.being (Silico-Stasis equilibrium, concentric cube/room/universe
      shape, 2 Hz shaker, psychoacoustic unit lattice, streaming codec inspector)
-  4. christman_sound.ear.{mouth,board,porch} (Filament mouth map, CONF_FLOOR=0.55
+  4. christman_voice_sdk.audio.ear.{mouth,board,porch} (Filament mouth map, CONF_FLOOR=0.55
      Carbon pile, Family/Residual boards, 15 dialect regions, TCAP-V-0020
      mouth-cooperation, being-neutral defaults, Vosk 0.22 discovery)
   5. christman_voice_sdk.audio.corti_canal (Greenwood cochlea, cycle DSP voice
@@ -44,9 +44,9 @@ sys.path.insert(0, str(ROOT))
 
 
 def test_frames_analyze_and_native_voice_bank_roundtrip(tmp_path):
-    from christman_sound.frames import FRAME_SR, HOP, analyze_frames, write_voice_bank
-    from christman_sound.stitch import FrameBank, join_units, select_units
-    from christman_sound.synth import render_codecwar_table, write_wav
+    from christman_voice_sdk.synthesis.frames import FRAME_SR, HOP, analyze_frames, write_voice_bank
+    from christman_voice_sdk.synthesis.stitch import FrameBank, join_units, select_units
+    from christman_voice_sdk.synthesis.synth import render_codecwar_table, write_wav
 
     res = render_codecwar_table(
         None,
@@ -88,7 +88,7 @@ def test_frames_analyze_and_native_voice_bank_roundtrip(tmp_path):
 
 
 def test_dispersion_four_canals_and_refused_mix():
-    from christman_sound.dispersion import (
+    from christman_voice_sdk.audio.dispersion import (
         MAX_CANALS,
         RefusedMixError,
         discern_canals,
@@ -109,7 +109,7 @@ def test_dispersion_four_canals_and_refused_mix():
 
 
 def test_being_silico_stasis_shape_units_and_stream():
-    from christman_sound.being import (
+    from christman_voice_sdk.audio.being import (
         CUBE_DWELL,
         CUBE_VERTS,
         LATTICE,
@@ -191,10 +191,10 @@ def test_being_silico_stasis_shape_units_and_stream():
 
 
 def test_filament_mouth_board_porch_and_vosk_discovery(tmp_path, monkeypatch):
-    from christman_sound.ear.board import DIALECT_MAP, add_family, add_residual, snapshot
-    from christman_sound.ear.mouth import CONF_FLOOR, dress
-    from christman_sound.ear.porch import FAMILY_NAMES, reconstruct_dialect
-    from christman_sound.ear.recognizer import find_graph
+    from christman_voice_sdk.audio.ear.board import DIALECT_MAP, add_family, add_residual, snapshot
+    from christman_voice_sdk.audio.ear.mouth import CONF_FLOOR, dress
+    from christman_voice_sdk.audio.ear.porch import FAMILY_NAMES, reconstruct_dialect
+    from christman_voice_sdk.audio.ear.recognizer import find_graph
 
     monkeypatch.setenv("FILAMENT_HOME", str(tmp_path / "filament"))
     assert CONF_FLOOR == 0.55
@@ -585,7 +585,7 @@ def test_memory_chamber_starts_empty_and_no_personal_scenes_in_repo():
         "booth-first-lock",
     )
     this_file = Path(__file__).resolve()
-    for folder in ("christman_sound", "christman_voice_sdk", "tests"):
+    for folder in ("voice_creation_center", "christman_voice_sdk", "tests"):
         for p in (ROOT / folder).rglob("*"):
             if not p.is_file() or p.resolve() == this_file or "__pycache__" in p.parts:
                 continue
@@ -597,7 +597,7 @@ def test_memory_chamber_starts_empty_and_no_personal_scenes_in_repo():
 
 
 def test_studio_integrated_api_routes(tmp_path, monkeypatch):
-    from christman_sound.app import create_app
+    from voice_creation_center.app import create_app
 
     monkeypatch.setenv("CHRISTMAN_VOICE_CACHE", str(tmp_path / "cache"))
     monkeypatch.setenv("FILAMENT_HOME", str(tmp_path / "filament"))
@@ -659,11 +659,11 @@ def test_studio_integrated_api_routes(tmp_path, monkeypatch):
 
 
 def test_voice_creation_center_controls_presets_frames_and_bank(tmp_path, monkeypatch):
-    from christman_sound.app import create_app
-    from christman_sound.frames import FRAME_SR
-    from christman_sound.lexicon import load_lexicon
-    from christman_sound.synth import render_codecwar_table, write_wav
-    from christman_sound.voice_creation_center import (
+    from voice_creation_center.app import create_app
+    from christman_voice_sdk.synthesis.frames import FRAME_SR
+    from christman_voice_sdk.synthesis.lexicon import load_lexicon
+    from christman_voice_sdk.synthesis.synth import render_codecwar_table, write_wav
+    from voice_creation_center.booth import (
         VOICE_CREATION_CONTROLS,
         VOICE_CREATION_PRESETS,
         build_frame_voice_center,
@@ -799,7 +799,7 @@ def test_voice_pack_builds_from_a_beings_recordings_and_loads_back(tmp_path):
         pytest.skip("not run: needs CHRISTMAN_VOICE_RECORDINGS (a being's recorded phrases); runs on Everett's Mac")
     pytest.importorskip("torch", reason="not run: torch is not installed here (the timbre modeler imports it)")
     pytest.importorskip("parselmouth", reason="not run: Praat (parselmouth) is not installed here")
-    from christman_sound.voice_creation_center import package_voicepack_center
+    from voice_creation_center.booth import package_voicepack_center
 
     recs = sorted(Path(folder).expanduser().glob(os.environ.get("CHRISTMAN_VOICE_PREFIX", "") + "*.wav"))[:4]
     res = package_voicepack_center("test pack", recs, tmp_path / "packs" / "test.voicepack")
@@ -813,8 +813,8 @@ def test_new_modules_import_no_numpy_scipy_or_outside_audio_packages(tmp_path):
     """Run frames, dispersion, being, voice_creation_center, corti_canal,
     lucent_reader, whole_house, and ear/porch with numpy, scipy, soundfile,
     sounddevice, pygame, and librosa blocked via builtins.__import__."""
-    from christman_sound.frames import FRAME_SR
-    from christman_sound.synth import render_codecwar_table, write_wav
+    from christman_voice_sdk.synthesis.frames import FRAME_SR
+    from christman_voice_sdk.synthesis.synth import render_codecwar_table, write_wav
 
     res = render_codecwar_table(
         None,
@@ -837,11 +837,11 @@ def guard(name, *a, **k):
 builtins.__import__ = guard
 sys.path.insert(0, {str(ROOT)!r})
 
-from christman_sound.frames import analyze_frames
-from christman_sound.dispersion import discern_canals
-from christman_sound.being import OPEN_FRAGMENTS, convert_unit, create_stasis_field, tick_stasis
-from christman_sound.voice_creation_center import resynthesize_from_frames
-from christman_sound.ear.porch import reconstruct_dialect
+from christman_voice_sdk.synthesis.frames import analyze_frames
+from christman_voice_sdk.audio.dispersion import discern_canals
+from christman_voice_sdk.audio.being import OPEN_FRAGMENTS, convert_unit, create_stasis_field, tick_stasis
+from voice_creation_center.booth import resynthesize_from_frames
+from christman_voice_sdk.audio.ear.porch import reconstruct_dialect
 from christman_voice_sdk.audio.corti_canal import freq_to_place, voice_quality_dsp
 from christman_voice_sdk.audio.lucent_reader import CORNEA_PRESETS, evaluate_optics
 from christman_voice_sdk.audio.whole_house import MemoryChamber, classify_smell

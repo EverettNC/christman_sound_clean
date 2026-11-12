@@ -17,7 +17,7 @@ voice is judged two ways, and neither passes alone:
   third-octave long-term spectrum) and must sit where the recordings sit.
 
   INTELLIGIBILITY. The same renderings are heard by two ears: the Filament
-  (127.0.0.1:4850) and christman_sound.ear on vosk-model-en-us-0.22 (Vosk's
+  (127.0.0.1:4850) and christman_voice_sdk.audio.ear on vosk-model-en-us-0.22 (Vosk's
   recognizer, Everett 2026-11-05; tests/ear_judge.py).
 
 NEW SENTENCES, RECORDED AS THEY STAND. Spoken from units of the long
@@ -88,7 +88,7 @@ EAR_TIMEOUT_S = 180
 LTAS_RESYNTH_DB = 2.0
 WORDS_RESYNTH = 0.95
 #: The "ear" floor was set on Vosk's recognizer (2026-10-28), which is
-#: christman_sound.ear again since 2026-11-05.
+#: christman_voice_sdk.audio.ear again since 2026-11-05.
 WORDS_NEW = {"filament": 0.75, "ear": 0.85}
 MEASURES = ("jitter_local_pct", "shimmer_local_pct", "hnr_db", "cpp_db", "f0_median_hz", "range_st")
 
@@ -106,7 +106,7 @@ def _need_voice():
         import numpy  # noqa: F401
     except ImportError as exc:
         pytest.skip(f"not run: the SDK's measures need parselmouth and numpy ({exc})")
-    from christman_sound.stitch import load_frame_voice
+    from christman_voice_sdk.synthesis.stitch import load_frame_voice
 
     return load_frame_voice(path)
 
@@ -174,8 +174,8 @@ def _gate(orig, rendered, label):
 
 def _resynth(voice, ri, out: Path):
     """A recorded phrase from its own frames: its breath, jitter and shimmer as the profile measures them."""
-    from christman_sound.dsp import get_dsp
-    from christman_sound.synth import write_wav
+    from christman_voice_sdk.engines.dsp import get_dsp
+    from christman_voice_sdk.synthesis.synth import write_wav
 
     bank, m = voice.bank, voice.measures
     n = int(bank.recordings[ri]["n"])
@@ -234,7 +234,7 @@ def test_fidelity_and_words_of_recorded_phrases_rendered_back(tmp_path):
 def test_new_sentences_are_heard_and_sound_like_the_voice(tmp_path):
     import numpy as np
 
-    from christman_sound.synth import synthesize
+    from christman_voice_sdk.synthesis.synth import synthesize
 
     voice = _need_voice()
     hear = _ears()

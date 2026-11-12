@@ -6,9 +6,9 @@
 """
 Build the Christman Bare-Metal Audio Engine (christman_dsp.c, and the
 sovereign synthesizer christman_synth.c) into the one shared library that
-christman_sound.dsp loads.
+christman_voice_sdk.engines.dsp loads.
 
-    python3 scripts/build_dsp.py              # -> christman_sound/christman_dsp.so (.dll on Windows)
+    python3 scripts/build_dsp.py              # -> christman_voice_sdk/engines/christman_dsp.so (.dll on Windows)
     python3 scripts/build_dsp.py --check      # build, then run the smoke test
     python3 scripts/build_dsp.py --check-only # smoke-test the library already built
 
@@ -18,7 +18,7 @@ list. The compiler comes from $CC, else `cc`.
 WHAT CHANGED AND WHY (2026-11-06)
 Everett: "It shouldn't matter what machine it's on. Period. Our shit needs to
 run." The library now builds on Windows as well: with gcc or clang (MinGW-w64
-on Windows), into christman_sound/christman_dsp.dll; on macOS and Linux it is
+on Windows), into christman_voice_sdk/engines/christman_dsp.dll; on macOS and Linux it is
 christman_dsp.so as before. LIB_NAME is the one place the name is chosen.
 Windows playback (christman_dsp.c) loads winmm.dll at run time, the way Linux
 loads libasound, so nothing extra is linked on any system.
@@ -30,7 +30,7 @@ the library: scripts/pip_build.py is a step of setuptools' build that calls
 build() below, then load_check() on what it built. This file is still the one
 place the compile line is written. load_check() needs nothing but the
 standard library, because pip builds in a clean environment that has no
-numpy; it binds every symbol christman_sound.dsp binds and measures a sine
+numpy; it binds every symbol christman_voice_sdk.engines.dsp binds and measures a sine
 (RMS and YIN) through the C code. --check-only runs the full smoke test on a
 library that is already built (install.sh uses it after pip install, so what
 pip built is what is proven, not a second build).
@@ -64,7 +64,7 @@ SYNTH_SOURCE = ROOT / "christman_synth.c"
 VOCODER_SOURCE = ROOT / "christman_vocoder.c"
 #: The library's file name on this system. Windows loads a .dll; macOS and Linux a .so.
 LIB_NAME = "christman_dsp.dll" if sys.platform == "win32" else "christman_dsp.so"
-OUTPUT = ROOT / "christman_sound" / LIB_NAME
+OUTPUT = ROOT / "christman_voice_sdk" / "engines" / LIB_NAME
 
 
 def build(output: Path = OUTPUT) -> Path:
@@ -111,7 +111,7 @@ def load_check(library: Path) -> str:
     """
     Prove the library just built loads and measures, with the standard
     library only (pip builds where numpy is not installed). Every group
-    christman_sound.dsp binds must bind: the measurements and playback, the
+    christman_voice_sdk.engines.dsp binds must bind: the measurements and playback, the
     synthesizer, its clear renderer and the frame vocoder. Then a 220 Hz sine
     at 16 kHz is measured through the C code. Raises RuntimeError with the
     loader's own reason on any failure; returns a one-line summary.
@@ -120,11 +120,11 @@ def load_check(library: Path) -> str:
     import importlib.util
     import math
 
-    # christman_sound/dsp.py is loaded by its path, not through the package:
+    # christman_voice_sdk/engines/dsp.py is loaded by its path, not through the package:
     # the check must reach the loader whatever is (or is not) installed.
-    spec = importlib.util.spec_from_file_location("_christman_dsp_loader", ROOT / "christman_sound" / "dsp.py")
+    spec = importlib.util.spec_from_file_location("_christman_dsp_loader", ROOT / "christman_voice_sdk" / "engines" / "dsp.py")
     if spec is None or spec.loader is None:
-        raise RuntimeError(f"cannot load {ROOT / 'christman_sound' / 'dsp.py'}")
+        raise RuntimeError(f"cannot load {ROOT / 'christman_voice_sdk' / 'engines' / 'dsp.py'}")
     loader = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(loader)
 
@@ -156,7 +156,7 @@ def smoke_test(library: Path) -> None:
     sys.path.insert(0, str(ROOT))
     import numpy as np  # noqa: E402
 
-    from christman_sound.dsp import ChristmanDSP  # noqa: E402
+    from christman_voice_sdk.engines.dsp import ChristmanDSP  # noqa: E402
 
     dsp = ChristmanDSP(library)
     if not dsp.available:

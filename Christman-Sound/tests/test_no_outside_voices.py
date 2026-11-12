@@ -16,7 +16,7 @@ The scan reads the real source tree with the `ast` module. It does not
 import anything it scans. The cut engines are gone from the tree; git history
 keeps them.
 
-christman_sound/core.py is outside the scan on purpose too. Everett's
+christman_voice_sdk/core.py is outside the scan on purpose too. Everett's
 standing ruling: core.py is the symbolic header of the SDK's innovations, is
 called by nothing, is never to be wired into anything, and is not to be
 touched. Its old import lines stay as he wrote them; nothing imports core.py,
@@ -47,9 +47,12 @@ LAUNCHERS = {"run", "call", "check_call", "check_output", "Popen", "system", "po
 
 def _scanned_files():
     files = [ROOT / "christman_ocr_shared.py"]
-    for pkg in ("christman_voice_sdk", "christman_sound", "scripts"):
+    for pkg in ("christman_voice_sdk", "scripts"):
         files.extend(sorted((ROOT / pkg).rglob("*.py")))
-    core = ROOT / "christman_sound" / "core.py"  # never touched, never wired (ruling above)
+    # The Center's booth and its app were in the folder Everett deleted on
+    # 2026-11-12 and were scanned there; they are scanned where they live now.
+    files.extend([ROOT / "voice_creation_center" / "booth.py", ROOT / "voice_creation_center" / "app.py"])
+    core = ROOT / "christman_voice_sdk" / "core.py"  # never touched, never wired (ruling above)
     return [f for f in files if f.is_file() and f != core]
 
 
@@ -127,7 +130,7 @@ def test_ocr_read_aloud_needs_the_callers_voice():
 
 
 def test_ocr_read_aloud_raises_the_typed_failure_when_it_cannot_voice(tmp_path):
-    """A real attempt through christman_sound with a voice file that is not there."""
+    """A real attempt through the SDK's synthesizer with a voice file that is not there."""
     import christman_ocr_shared as ocr
     from christman_voice_sdk.engines.synthesis_result import SynthesisUnavailable
 
@@ -141,7 +144,7 @@ def test_ocr_read_aloud_raises_the_typed_failure_when_it_cannot_voice(tmp_path):
 
 
 def test_ocr_speaks_through_the_package_and_nothing_else():
-    """No socket library, no relay: the only voice is christman_sound's."""
+    """No socket library, no relay: the only voice is the SDK's own."""
     source = (ROOT / "christman_ocr_shared.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     imported = set()
@@ -151,4 +154,4 @@ def test_ocr_speaks_through_the_package_and_nothing_else():
         elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
             imported.add(node.module.split(".")[0])
     assert not imported & {"websockets", "socket", "requests", "httpx", "aiohttp"}, imported
-    assert "christman_sound.synth" in source
+    assert "christman_voice_sdk.synthesis.synth" in source

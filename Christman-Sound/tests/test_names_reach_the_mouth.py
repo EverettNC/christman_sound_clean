@@ -4,7 +4,7 @@
 # ==============================================================================
 """A name a being hands in is spoken through every door, not only the mouth.
 
-christman_sound.synth takes `pronunciations` (word -> phones in the lexicon's
+christman_voice_sdk.synthesis.synth takes `pronunciations` (word -> phones in the lexicon's
 alphabet): how a name the lexicon does not hold is said. Until 2026-11-05 the
 doors above the mouth did not pass it on, so the same name was refused as
 "not in the lexicon" through the app (/api/synthesize and the Voice Creation
@@ -63,7 +63,7 @@ def lexicon_file(tmp_path) -> str:
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    from christman_sound.app import create_app
+    from voice_creation_center.app import create_app
 
     monkeypatch.setenv("CHRISTMAN_VOICE_CACHE", str(tmp_path / "cache"))
     return create_app().test_client()
@@ -136,7 +136,7 @@ def test_app_finds_a_voice_given_by_name(client, tmp_path, monkeypatch):
     # A name with no file under it still ends plainly, as no voice.
     r = client.post("/api/synthesize", json={"text": "hello", "voice": "nobody_saved_this", "lexicon_text": LEXICON})
     assert r.status_code in (422, 503) and r.get_json()["kind"] != "ProfilesUnavailable", r.get_json()
-    source = (ROOT / "christman_sound" / "app.py").read_text(encoding="utf-8")
+    source = (ROOT / "voice_creation_center" / "app.py").read_text(encoding="utf-8")
     assert "import PROFILES_DIR" not in source
 
 
@@ -219,7 +219,7 @@ def test_center_express_lane_carries_the_name(center_engine, tmp_path):
 
 
 def test_sdk_engine_speaks_the_name_with_its_pronunciation(voice, lexicon_file, tmp_path):
-    from christman_sound.lexicon import WordNotInLexicon
+    from christman_voice_sdk.synthesis.lexicon import WordNotInLexicon
     from christman_voice_sdk.synthesis.voice_synthesis import SpeechSynthesisEngine
 
     engine = SpeechSynthesisEngine(cache_dir=str(tmp_path / "cache"), lexicon_path=lexicon_file, voice=voice)

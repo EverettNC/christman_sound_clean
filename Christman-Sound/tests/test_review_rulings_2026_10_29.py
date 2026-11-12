@@ -378,9 +378,8 @@ def test_9_nothing_in_the_package_calls_the_lookups_for_the_being():
     # being calls by name if it chooses; nothing in the package calls them.
     import ast
     callers = []
-    for path in sorted((ROOT / "christman_voice_sdk").rglob("*.py")) + sorted(
-            (ROOT / "christman_sound").rglob("*.py")):
-        if path.name == "core.py" and path.parent.name == "christman_sound":
+    for path in sorted((ROOT / "christman_voice_sdk").rglob("*.py")) + [ROOT / "voice_creation_center" / "booth.py", ROOT / "voice_creation_center" / "app.py"]:
+        if path.name == "core.py" and path.parent.name == "christman_voice_sdk":
             continue                         # Everett's ruling: never touched
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \

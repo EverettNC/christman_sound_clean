@@ -12,10 +12,10 @@ recording read as 44.1 kHz comes out 1.84 times too high).
 header. 44100 is only the rate `capture_audio` records at
 (CAPTURE_SAMPLE_RATE), and `run_capture` passes it.
 
-  - F0 is christman_yin through christman_sound.dsp.get_dsp(), the one
+  - F0 is christman_yin through christman_voice_sdk.engines.dsp.get_dsp(), the one
     loader, via tone/voice_measure.py (Everett: "We have our own DSP for that
     exact reason"). No library, no pitch: PitchUnavailable is raised.
-  - F1, F2 and F3 are LPC formants from christman_sound.formants.
+  - F1, F2 and F3 are LPC formants from christman_voice_sdk.tone.formants.
     measure_formants (christman_lpc per 25 ms frame, roots on the real axis
     dropped, so no 0 Hz formant; bandwidth and range rules; voiced frames
     only; medians) — the same measurement scripts/measure_voice.py writes a
@@ -31,7 +31,7 @@ SPEAKING
 --------
 `speak(text, voice)` speaks through the package's own mouth
 (christman_voice_sdk.synthesis.voice_synthesis, rendering through
-christman_sound.synth) in the caller's voice: a voice profile file, a frame
+christman_voice_sdk.synthesis.synth) in the caller's voice: a voice profile file, a frame
 voice folder, or a loaded VoiceProfile or FrameVoice. There is no default
 voice. It plays, or raises the typed failure with the reason (NothingVoiced,
 PlaybackFailed, or the lexicon's and synthesizer's own refusals). No outside
@@ -62,7 +62,7 @@ except (ImportError, OSError) as _exc:   # OSError: "PortAudio library not found
     sd = None  # type: ignore[assignment]
     _SOUNDDEVICE_ERROR = f"{type(_exc).__name__}: {_exc}"
 
-from christman_sound.formants import AudioTooShortError, measure_formants
+from christman_voice_sdk.tone.formants import AudioTooShortError, measure_formants
 
 from ..tone.voice_measure import pitch_contour, read_wav
 from ..utils.data_root import sdk_data_root
@@ -86,7 +86,7 @@ def profile_dir() -> Path:
 CAPTURE_SAMPLE_RATE = 44100
 CAPTURE_DURATION = 8
 
-#: LPC formant ceiling. A chosen value: christman_sound.formants' default,
+#: LPC formant ceiling. A chosen value: christman_voice_sdk.tone.formants' default,
 #: the one scripts/measure_voice.py measures a voice profile with.
 FORMANT_CEILING_HZ = 5000.0
 
@@ -144,7 +144,7 @@ def extract_frequency_signature(audio: np.ndarray, sample_rate: int) -> Dict[str
     silent = total_mag <= 0.0
     spectral_centroid = None if silent else float(np.sum(freqs * fft_mag) / total_mag)
 
-    # Formants: LPC, voiced frames only (christman_sound.formants).
+    # Formants: LPC, voiced frames only (christman_voice_sdk.tone.formants).
     f1 = f2 = f3 = None
     formant_frames: Dict[str, int] = {"f1": 0, "f2": 0, "f3": 0}
     formant_reason: Optional[str] = None
@@ -191,8 +191,8 @@ def extract_frequency_signature(audio: np.ndarray, sample_rate: int) -> Dict[str
         "formant_reason": formant_reason,
         "duration_seconds": float(len(audio) / sr),
         "sample_rate": sr,
-        "pitch_tracker": "christman_yin (christman_sound.dsp)",
-        "formant_method": f"LPC, christman_sound.formants, ceiling {FORMANT_CEILING_HZ:.0f} Hz",
+        "pitch_tracker": "christman_yin (christman_voice_sdk.engines.dsp)",
+        "formant_method": f"LPC, christman_voice_sdk.tone.formants, ceiling {FORMANT_CEILING_HZ:.0f} Hz",
     }
     _not_readings = {"measured", "voiced_frames", "total_frames", "formant_frames", "formant_reason",
                      "sample_rate", "pitch_tracker", "formant_method", "duration_seconds"}
@@ -221,8 +221,8 @@ def _unmeasured_signature(sample_rate: int) -> Dict[str, Any]:
         "formant_frames": {"f1": 0, "f2": 0, "f3": 0},
         "formant_reason": "no samples",
         "duration_seconds": 0.0, "sample_rate": sample_rate,
-        "pitch_tracker": "christman_yin (christman_sound.dsp)",
-        "formant_method": f"LPC, christman_sound.formants, ceiling {FORMANT_CEILING_HZ:.0f} Hz",
+        "pitch_tracker": "christman_yin (christman_voice_sdk.engines.dsp)",
+        "formant_method": f"LPC, christman_voice_sdk.tone.formants, ceiling {FORMANT_CEILING_HZ:.0f} Hz",
         "measured": [],
     }
 

@@ -13,9 +13,9 @@ by hand after installing, and a package installed without that step could
 neither measure nor speak. Now one `pip install` builds the library:
 
   * pip install <folder or git URL>  (a wheel): christman_dsp.so is compiled
-    into the wheel's christman_sound/ and installed beside dsp.py.
+    into the wheel's christman_voice_sdk/engines/ and installed beside dsp.py.
   * pip install -e <folder>  (editable): it is compiled into the checkout's
-    christman_sound/, where scripts/build_dsp.py has always written it.
+    christman_voice_sdk/engines/, where scripts/build_dsp.py writes it.
 
 pyproject.toml names these classes under [tool.setuptools.cmdclass]; nothing
 is passed to setup(), so setup.py stays a bare shim. The compile line itself
@@ -45,7 +45,7 @@ from setuptools.command.build import build as _build
 _SCRIPTS = Path(__file__).resolve().parent
 #: The library's path inside the installed package, as dsp.py looks for it.
 # The same name scripts/build_dsp.py chooses (LIB_NAME): .dll on Windows, .so elsewhere.
-_RELATIVE_OUTPUT = Path("christman_sound") / ("christman_dsp.dll" if sys.platform == "win32" else "christman_dsp.so")
+_RELATIVE_OUTPUT = Path("christman_voice_sdk") / "engines" / ("christman_dsp.dll" if sys.platform == "win32" else "christman_dsp.so")
 
 
 def _build_dsp():
@@ -63,7 +63,7 @@ class build_christman_dsp(Command):
     """Compile the C library (scripts/build_dsp.py) and prove it loads."""
 
     description = ("compile christman_dsp.c, christman_synth.c and christman_vocoder.c into "
-                   "christman_sound/christman_dsp.so with scripts/build_dsp.py")
+                   "christman_voice_sdk/engines/christman_dsp.so with scripts/build_dsp.py")
     user_options: List = []
 
     #: Set to True by setuptools for an editable install (PEP 660).
