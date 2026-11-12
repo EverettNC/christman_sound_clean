@@ -307,15 +307,28 @@ def _envelope_at(x: Sequence[float], center: int, f0_hz: float, sr: int, grid_hz
 
     w_len = 2 * half + 1
     w_samples = [0.0] * w_len
-    w_sum = 0.0
+    w_sq = 0.0
     for idx, k in enumerate(range(-half, half + 1)):
         pos = center + k
         win = 0.5 * (1.0 + math.cos((math.pi * k) / half))
-        w_sum += win
+        w_sq += win * win
         if 0 <= pos < n_x:
             w_samples[idx] = float(x[pos]) * win
 
-    inv_w = 1.0 / (w_sum or 1.0)
+    # WHAT CHANGED AND WHY (2026-11-12)
+    # The windowed samples were divided by the window's sum. christman_vocoder
+    # reads the envelope as power per sample ("Envelope units: power per
+    # sample", christman_vocoder.c), which is the spectrum divided by the sum
+    # of the window's squares. Divided by the sum instead, every frame was
+    # stored 10*log10(sum^2 / sum of squares) too low: 24 to 28 dB at the
+    # window lengths this function uses, more at lower pitch. Measured on a
+    # voice built from a 363 s recording: the envelopes held 26.1 dB less
+    # power than the same frames' own level (median of 1,276 frames), a
+    # straight resynthesis of the recording's frames came out 25.5 dB under the
+    # recording, and with this correction the two agree to 0.5 dB.
+    # A voice built before this date carries the low envelopes in its
+    # frames.bin and has to be built again to speak at its recordings' level.
+    inv_w = 1.0 / math.sqrt(w_sq or 1.0)
     re = [0.0] * n_fft
     im = [0.0] * n_fft
     for idx in range(w_len):
