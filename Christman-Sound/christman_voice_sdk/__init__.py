@@ -31,7 +31,9 @@ def __getattr__(name: str):
             "listen": _cap.capture_audio,
             "capture_mic_vad": _cap.capture_audio,
         }
-        return aliases.get(name, getattr(_cap, name))
+        # dict.get() works out its default before it looks the name up, so
+        # getattr(_cap, "listen") ran, and raised, for the two alias names.
+        return aliases[name] if name in aliases else getattr(_cap, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
